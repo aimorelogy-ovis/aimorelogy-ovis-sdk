@@ -1,0 +1,8 @@
+config TARGET_PACKAGE_OPENSSH
+	bool "Target package openssh"
+	select TARGET_PACKAGE_OPENSSL
+	select TARGET_PACKAGE_LIBZ
+	depends on !TARGET_PACKAGE_DROPBEAR
+	default n
+	help
+	  target openssh

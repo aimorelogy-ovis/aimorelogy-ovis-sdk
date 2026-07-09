@@ -1,0 +1,47 @@
+ <counter_set name="DRAM counter" count="44"/>
+ <category name="mmapped_average" counter_set="DRAM counter">
+   <event counter="mmapped_cnt0"  display="average" class="absolute" title="AXI Mon Write byte" name="M1 VIP_R  write byte_count" description="vip realtime write byte count"/>
+   <event counter="mmapped_cnt1"  display="average" class="absolute" title="AXI Mon Read byte"  name="M1 VIP_R   read byte_count" description="vip realtime read byte count"/>
+   <event counter="mmapped_cnt2"  display="average" class="absolute" title="AXI Mon Write byte" name="M2 VIP_O  write byte_count" description="vip offline write byte count"/>
+   <event counter="mmapped_cnt3"  display="average" class="absolute" title="AXI Mon Read byte"  name="M2 VIP_O   read byte_count" description="vip offline read byte count"/>
+   <event counter="mmapped_cnt4"  display="average" class="absolute" title="AXI Mon Write byte" name="M3 CPU    write byte_count" description="cpu write byte count"/>
+   <event counter="mmapped_cnt5"  display="average" class="absolute" title="AXI Mon Read byte"  name="M3 CPU     read byte_count" description="cpu read byte count"/>
+   <event counter="mmapped_cnt6"  display="average" class="absolute" title="AXI Mon Write byte" name="M4 TPU    write byte_count" description="tpu write byte count"/>
+   <event counter="mmapped_cnt7"  display="average" class="absolute" title="AXI Mon Read byte"  name="M4 TPU     read byte_count" description="tpu read byte count"/>
+   <event counter="mmapped_cnt8"  display="average" class="absolute" title="AXI Mon Write byte" name="M5 VIDEO  write byte_count" description="video write byte count"/>
+   <event counter="mmapped_cnt9"  display="average" class="absolute" title="AXI Mon Read byte"  name="M5 VIDEO   read byte_count" description="video read byte count"/>
+   <event counter="mmapped_cnt10" display="average" class="absolute" title="AXI Mon Write byte" name="M6 HSPERI write byte_count" description="hsperi write byte count"/>
+   <event counter="mmapped_cnt11" display="average" class="absolute" title="AXI Mon Read byte"  name="M6 HSPERI  read byte_count" description="hsperi read byte count"/>
+   <event counter="mmapped_cnt12" display="average" class="absolute" title="AXI Mon Total byte" name="All master read+write byte_count" description="all master total byte count"/>
+   <event counter="mmapped_cnt13" display="average" class="absolute" title="DDRC mon" name="ddrcm_cycle_cnt" description="ddrcm_cycle_cnt"/>
+   <event counter="mmapped_cnt14" display="average" class="absolute" title="DDRC mon" name="ddrcm_cam_empty_cnt" description="ddrcm_cam_empty_cnt"/>
+   <event counter="mmapped_cnt15" display="average" class="absolute" title="DFI mon" name="dfi_r0_mw_cnt" description="dfi_r0_mw_cnt"/>
+   <event counter="mmapped_cnt16" display="average" class="absolute" title="DFI mon" name="dfi_r0_wr2_cnt" description="dfi_r0_wr2_cnt"/>
+   <event counter="mmapped_cnt17" display="average" class="absolute" title="DFI mon" name="dfi_r0_wr_cnt" description="dfi_r0_wr_cnt"/>
+   <event counter="mmapped_cnt18" display="average" class="absolute" title="DFI mon" name="dfi_r0_rd2_cnt" description="dfi_r0_rd2_cnt"/>
+   <event counter="mmapped_cnt19" display="average" class="absolute" title="DFI mon" name="dfi_r0_rd_cnt" description="dfi_r0_rd_cnt"/>
+   <event counter="mmapped_cnt20" display="average" class="absolute" title="DFI mon" name="dfi_r0_act_cnt" description="dfi_r0_act_cnt"/>
+   <event counter="mmapped_cnt21" display="average" class="absolute" title="DFI mon" name="dfi_w2r_cnt" description="dfi_w2r_cnt"/>
+   <event counter="mmapped_cnt22" display="average" class="absolute" title="DDR setting" name="ddr_bw" description="DDR BW by MB/s"/>
+   <event counter="mmapped_cnt23" display="average" class="absolute" title="DDR setting" name="ddrc_cnt_freq" description="DDR Controler frequency"/>
+   <event counter="mmapped_cnt24" display="average" class="absolute" title="AXI Mon Write hit" name="M1 VIP_R  write hit_count" description="vip realtime write hit count"/>
+   <event counter="mmapped_cnt25" display="average" class="absolute" title="AXI Mon Read hit"  name="M1 VIP_R   read hit_count" description="vip realtime read hit count"/>
+   <event counter="mmapped_cnt26" display="average" class="absolute" title="AXI Mon Write hit" name="M2 VIP_O  write hit_count" description="vip offline write hit count"/>
+   <event counter="mmapped_cnt27" display="average" class="absolute" title="AXI Mon Read hit"  name="M2 VIP_O   read hit_count" description="vip offline read hit count"/>
+   <event counter="mmapped_cnt28" display="average" class="absolute" title="AXI Mon Write hit" name="M3 CPU    write hit_count" description="cpu write hit count"/>
+   <event counter="mmapped_cnt29" display="average" class="absolute" title="AXI Mon Read hit"  name="M3 CPU     read hit_count" description="cpu read hit count"/>
+   <event counter="mmapped_cnt30" display="average" class="absolute" title="AXI Mon Write hit" name="M4 TPU    write hit_count" description="tpu write hit count"/>
+   <event counter="mmapped_cnt31" display="average" class="absolute" title="AXI Mon Read hit"  name="M4 TPU     read hit_count" description="tpu read hit count"/>
+   <event counter="mmapped_cnt32" display="average" class="absolute" title="AXI Mon Write hit" name="M5 VIDEO  write hit_count" description="video write hit count"/>
+   <event counter="mmapped_cnt33" display="average" class="absolute" title="AXI Mon Read hit"  name="M5 VIDEO   read hit_count" description="video read hit count"/>
+   <event counter="mmapped_cnt34" display="average" class="absolute" title="AXI Mon Write hit" name="M6 HSPERI write hit_count" description="hsperi write hit count"/>
+   <event counter="mmapped_cnt35" display="average" class="absolute" title="AXI Mon Read hit"  name="M6 HSPERI  read hit_count" description="hsperi read hit count"/>
+   <event counter="mmapped_cnt36" display="average" class="absolute" title="Power Critical registers" name="clk_en_0[30:0]" description="clk enable register 0(0x03002000)"/>
+   <event counter="mmapped_cnt37" display="average" class="absolute" title="Power Critical registers" name="clk_en_1[30:0]" description="clk enable register 1(0x03002004)"/>
+   <event counter="mmapped_cnt38" display="average" class="absolute" title="Power Critical registers" name="clk_en_2[30:0]" description="clk enable register 2(0x03002008)"/>
+   <event counter="mmapped_cnt39" display="average" class="absolute" title="Power Critical registers" name="clk_en_3[30:0]" description="clk enable register 3(0x0300200c)"/>
+   <event counter="mmapped_cnt40" display="average" class="absolute" title="Power Critical registers" name="clk_en_4[30:0]" description="clk enable register 4(0x03002010)"/>
+   <event counter="mmapped_cnt41" display="average" class="absolute" title="Power Critical registers" name="clk_en_4[31]_3[31]_2[31]_1[31]_0[31] in [4:0]" description="clk_en_4/_3/_2/_1/_0 32bit data"/>
+   <event counter="mmapped_cnt42" display="average" class="absolute" title="Power Critical registers" name="ISP_TOP_REG_0" description="ISP TOP register(0x0a070000)"/>
+   <event counter="mmapped_cnt43" display="average" class="absolute" title="Power Critical registers" name="VC_FAB_REG" description="VC reg_ck register(0x0b030004)"/>
+</category>

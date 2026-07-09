@@ -1,0 +1,12 @@
+prefix=/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libfastjson
+Description: a fast JSON implementation in C
+Version: 1.2101.0.master
+Requires:
+Libs.private: 
+Libs:  -L${libdir} -lfastjson
+Cflags: -I${includedir}/libfastjson

@@ -1,0 +1,5 @@
+config TARGET_PACKAGE_OPENSSL
+	bool "Target package openssl"
+	default y
+	help
+	  target package openssl

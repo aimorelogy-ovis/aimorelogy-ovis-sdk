@@ -1,0 +1,5 @@
+config TARGET_PACKAGE_EVTEST
+	bool "Target package evtest"
+	default n
+	help
+	source code:ramdisk/tools/evtest

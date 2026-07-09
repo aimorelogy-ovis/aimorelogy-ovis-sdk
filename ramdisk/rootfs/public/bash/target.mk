@@ -1,0 +1,3 @@
+ifeq ($(CONFIG_TARGET_PACKAGE_BASH),y)
+TARGET_PACKAGES += bash
+endif

@@ -1,0 +1,3 @@
+ifeq ($(CONFIG_TARGET_PACKAGE_UMTPRD),y)
+TARGET_PACKAGES += umtprd
+endif

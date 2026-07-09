@@ -1,0 +1,5 @@
+config TARGET_PACKAGE_UMTPRD
+	bool "Target package umtprd"
+	default n
+	help
+		Target package umtprd

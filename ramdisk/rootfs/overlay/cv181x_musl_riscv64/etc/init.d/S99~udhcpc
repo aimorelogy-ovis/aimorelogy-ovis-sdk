@@ -1,0 +1,32 @@
+#!/bin/sh
+${CVI_SHOPTS}
+#
+# Start the udhcpc....
+#
+case "$1" in
+  start)
+        if /sbin/ifconfig eth0 | grep -q "UP"; then
+			if [ -f /sbin/udhcpc ]; then
+				printf "Starting udhcpc: "
+				start-stop-daemon -b -q -S -x /sbin/udhcpc -- -b -i eth0 -R
+				[ $? = 0 ] && echo "OK" || echo "FAIL"
+			else
+			echo "system not support udhcpc \n"
+			fi
+		else
+			echo "eth0 is not up \n"
+		fi
+		;;
+  stop)
+		printf "Stopping udhcpc: "
+		start-stop-daemon -K -q --exec /sbin/udhcpc
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+  restart|reload)
+        ;;
+  *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $?

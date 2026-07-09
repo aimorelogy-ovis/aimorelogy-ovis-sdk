@@ -1,0 +1,5 @@
+config TARGET_PACKAGE_RSYSLOG
+	bool "Target package rsyslog"
+	default n
+	help
+	  target package rsyslog

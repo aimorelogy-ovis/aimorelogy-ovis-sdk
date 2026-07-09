@@ -1,0 +1,22 @@
+#!/bin/sh
+${CVI_SHOPTS}
+#
+# deferred initcalls and ko
+#
+
+case "$1" in
+  start)
+		cat /proc/deferred_initcalls
+		sh /system/ko/loaddatako.sh
+		mount -a # mount sysfs here
+		;;
+  stop)
+		;;
+  restart|reload)
+		;;
+  *)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
+exit $?

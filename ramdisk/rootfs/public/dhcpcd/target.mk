@@ -1,0 +1,3 @@
+ifeq ($(CONFIG_TARGET_PACKAGE_DHCPCD),y)
+TARGET_PACKAGES += dhcpcd
+endif

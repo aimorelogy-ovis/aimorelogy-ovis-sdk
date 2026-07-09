@@ -1,0 +1,64 @@
+we have these folders in this repo:
+
+prebuild:
+	to store header files and libraries for cross compling.
+	target:
+		file to build up a root filesystem. there are two subfolders:
+		1. common: for platform independent files
+		2. overlay: for platform dependent files
+		when building rootfs, files in overlay folder will be merged
+		into common folder.
+
+tools:
+	bin and scritps for generating rootfs
+
+configs:
+	we have two types of configuration file:
+	1. txt: for file list in ramdisk
+	2. its: for generating itb file
+
+
+
+License
+
+1. Default license: BSD 3-Clause (see LICENSE at repository root.)
+	Scope: Applies to Sophgo-authored scripts, build logic, and configuration files unless a file explicitly declares another license in its header.
+
+2. rootfs directory:
+	Buildroot-generated root filesystem.
+	includes licenses:
+		1. the GNU General Public License, GNU Library General Public License: See http://gnu.org/licenses/
+		2. Python Software Foundation License: See https://www.python.org/psf/license/
+		3. Apache License 2.0: See http://www.apache.org/licenses/LICENSE-2.0
+		4. Boost Software License: http://www.boost.org/LICENSE_1_0.txt
+
+3. initramfs directory:
+	Buildroot-generated initramfs.
+	includes license: BSD-3-Clause, Apache-2.0, GPL-1.0+, GPL-2.0+, GPL-3.
+
+4. sysroot directory:
+	Cross-toolchain sysroot.
+	includes license: the GNU General Public License, the GNU Lesser General Public License, the GNU Lesser General Public License version 2.1
+
+5. tools directorys:
+    includes licenses: BSD-3-Clause, GPL-2.0, GPL-2.0-only, Apache-2.0.
+
+
+
+How license applies
+
+1. Per-file authority: Each file’s header (and its SPDX tag if present) governs its license.
+2. Default fallback: If a Sophgo-authored file has no explicit license header, BSD 3-Clause applies by default per the top-level LICENSE.
+3. Third-party packages and generated binaries retain their original upstream licenses; do not replace or remove their LICENSE files or headers.
+
+
+
+Distribution and compliance tips
+
+1. When distributing images containing GPL/LGPL components (from rootfs/initramfs/sysroot), comply with corresponding obligations:
+	Provide or offer source code as required.
+	Preserve copyright and license notices.
+	For LGPL, ensure dynamic linking compliance or provide relinking materials as applicable.
+2. Preserve upstream NOTICE/LICENSE files included by Buildroot packages (e.g., Python PSF License, Apache-2.0, Boost, GPL/LGPL).
+3. Keep a manifest of packages included in rootfs/initramfs for easier compliance auditing (Buildroot can generate legal-info; consider enabling it).
+

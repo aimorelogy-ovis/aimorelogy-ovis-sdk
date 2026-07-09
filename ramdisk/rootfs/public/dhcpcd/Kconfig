@@ -1,0 +1,6 @@
+
+config TARGET_PACKAGE_DHCPCD
+	bool "Target package dhcpcd"
+	default n
+	help
+	  target dhcpcd
