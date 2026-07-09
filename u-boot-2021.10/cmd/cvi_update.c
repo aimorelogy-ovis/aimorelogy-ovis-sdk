@@ -1,0 +1,605 @@
+#include <common.h>
+#include <command.h>
+#include <asm/io.h>
+#include <asm/global_data.h>
+#include <imgs.h>
+#include <ubifs_uboot.h>
+#include <serial.h>
+#include <linux/delay.h>
+#include <usb/dwc2_udc.h>
+#ifdef CONFIG_NAND_SUPPORT
+#include <nand.h>
+#endif
+#include "cvi_update.h"
+#ifdef CONFIG_SD_BURNLOGO
+#include <cvitek/logo_data.h>
+#include <cvi_disp.h>
+#endif
+
+#define COMPARE_STRING_LEN 3
+#define SD_UPDATE_MAGIC 0x4D474E32
+#define ETH_UPDATE_MAGIC 0x4D474E35
+#define USB_DRIVE_UPGRADE_MAGIC 0x55425355
+#define FIP_UPDATE_MAGIC 0x55464950
+#define UPDATE_DONE_MAGIC 0x50524F47
+#define OTA_MAGIC 0x5245434F
+//#define ALWAYS_USB_DRVIVE_UPGRATE
+#define HEADER_SIZE 64
+#define HEADER_MAGIC "CIMG"
+#define MAX_LOADSIZE (16 * 1024 * 1024)
+#ifdef CONFIG_CMD_SAVEENV
+#define SET_DL_COMPLETE()			\
+	do {							\
+		env_set("dl_flag", "prog");	\
+		run_command("saveenv", 0);	\
+	} while (0)
+#else
+#define SET_DL_COMPLETE() writel(0x50524F47, (unsigned int *)UPGRADE_SRAM_ADDR)
+#endif /* CONFIG_CMD_SAVEENV */
+
+#ifdef CONFIG_NAND_SUPPORT
+static u32 lastend;
+#endif
+
+uint32_t update_magic;
+enum chunk_type_e { dont_care = 0, check_crc };
+enum storage_type_e { sd_dl = 0, usb_dl };
+
+static uint32_t bcd2hex4(uint32_t bcd)
+{
+	return ((bcd) & 0x0f) + (((bcd) >> 4) & 0xf0) + (((bcd) >> 8) & 0xf00) + (((bcd) >> 12) & 0xf000);
+}
+
+static int _storage_update(enum storage_type_e type);
+
+int _prgImage(char *file, uint32_t chunk_header_size, char *file_name)
+{
+	u32 size = *(u32 *)((uintptr_t)file + 4);
+	u64 offset = *(u64 *)((uintptr_t)file + 8);
+	//uint32_t header_crc = *(uint32_t *)((uintptr_t)file + 28);
+#if (defined CONFIG_SPI_FLASH)
+	u64 part_size = *(u64 *)((uintptr_t)file + 16);
+#endif
+	//uint32_t header_crc = *(uint32_t *)((uintptr_t)file + 28);
+	char cmd[255] = { '\0' };
+	int ret = 0;
+
+	//if (chunk_type == check_crc) {
+	//	uint32_t crc = crc32(
+	//		0, (unsigned char *)file + chunk_header_size, size);
+	//	if (crc != header_crc) {
+	//		printf("Crc check failed header(0x%08x) img(0x%08x), skip it\n",
+	//		       header_crc, crc);
+	//		return 0;
+	//	} else {
+	//		/* Invalidate crc to avoid program garbage */
+	//		*(uint32_t *)((uintptr_t)file + 12) = 0;
+	//	}
+	//}
+#ifdef CONFIG_NAND_SUPPORT
+	int dev = nand_curr_device;
+	struct mtd_info *mtd = nand_info[dev];
+	u64 goodblocks = 0, blocks = 0;
+
+	// Calculate real offset when programming chunk.
+	if (offset < lastend)
+		offset = lastend;
+	else
+		lastend = offset;
+
+	blocks = (size & (mtd->erasesize - 1)) ? ALIGN(size, mtd->erasesize) : size;
+	blocks /= mtd->erasesize;
+	for (; goodblocks  < blocks; lastend += mtd->erasesize) {
+		if (!nand_block_isbad(mtd, lastend))
+			goodblocks++;
+	}
+	//pr_debug("offset:0x%x lastoffset:0x%x, end:0x%x\n", offset, lastend, part_size + offset);
+
+	snprintf(cmd, 255, "nand write %p 0x%llx 0x%x",
+		 (void *)file + chunk_header_size, offset, size);
+#elif defined(CONFIG_SPI_FLASH)
+	if (update_magic == SD_UPDATE_MAGIC && (!strcmp(file_name, "fip_spl.bin") ||
+						!strcmp(file_name, "boot.spinor"))) {
+		snprintf(cmd, 255, "sf update %p 0x%llx 0x%x",
+			 (void *)file + chunk_header_size, offset, size);
+	} else {
+		snprintf(cmd, 255, "sf erase %#llx %#llx;", offset, part_size);
+		pr_debug("%s\n", cmd);
+		run_command(cmd, 0);
+		snprintf(cmd, 255, "sf write %p 0x%llx 0x%x",
+		 (void *)file + chunk_header_size, offset, size);
+	}
+#else
+	if (size & (SECTOR_SIZE - 1))
+		size = ALIGN(size, SECTOR_SIZE);
+
+	size = size / SECTOR_SIZE;
+	offset = offset / SECTOR_SIZE;
+	snprintf(cmd, 255, "mmc write %p 0x%llx 0x%x",
+		 (void *)file + chunk_header_size, offset, size);
+#endif
+	pr_debug("%s\n", cmd);
+	ret = run_command(cmd, 0);
+	if (ret)
+		return 0;
+
+	return size;
+}
+
+static int _checkHeader(char *file, char strStorage[10])
+{
+	char *magic = (void *)HEADER_ADDR;
+	uint32_t version = *(uint32_t *)((uintptr_t)HEADER_ADDR + 4);
+	uint32_t chunk_sz = *(uint32_t *)((uintptr_t)HEADER_ADDR + 8);
+	uint32_t total_chunk = *(uint32_t *)((uintptr_t)HEADER_ADDR + 12);
+	uint64_t file_sz = *(uint64_t *)((uintptr_t)HEADER_ADDR + 16);
+#ifdef CONFIG_NAND_SUPPORT
+	char *extra = (void *)((uintptr_t)HEADER_ADDR + 24);
+	static char prevExtra[EXTRA_FLAG_SIZE + 1] = { '\0' };
+#endif
+	int ret = strncmp(magic, HEADER_MAGIC, 4);
+
+	if (ret) {
+		printf("File:%s Magic number is wrong, skip it\n", file);
+		return ret;
+	}
+	printf("Header Version:%d\n", version);
+	char cmd[255] = { '\0' };
+	uint64_t pos = HEADER_SIZE;
+#ifdef CONFIG_NAND_SUPPORT
+	// Erase partition first
+	if (strncmp(extra, prevExtra, EXTRA_FLAG_SIZE)) {
+		strncpy(prevExtra, extra, EXTRA_FLAG_SIZE);
+		snprintf(cmd, 255, "nand erase.part -y %s", prevExtra);
+		pr_debug("%s\n", cmd);
+		run_command(cmd, 0);
+	}
+#endif
+	for (int i = 0; i < total_chunk; i++) {
+		uint64_t load_size = file_sz > (MAX_LOADSIZE + chunk_sz) ?
+						   MAX_LOADSIZE + chunk_sz :
+						   file_sz;
+		snprintf(cmd, 255, "fatload %s %p %s 0x%llx 0x%llx;", strStorage,
+			 (void *)UPDATE_ADDR, file, load_size, pos);
+		pr_debug("%s\n", cmd);
+
+		uint32_t image_align = 512;
+
+		memset((void *)UPDATE_ADDR + load_size, 0, image_align);
+		pr_debug("clear the last block(%d) to 0 for image padding and making crc pass. offset:%lld\n",
+			image_align, load_size);
+		ret = run_command(cmd, 0);
+		if (ret)
+			return ret;
+
+		ret = _prgImage((void *)UPDATE_ADDR, chunk_sz, file);
+		if (ret == 0) {
+			printf("program file:%s failed\n", file);
+			break;
+		}
+		pos += load_size;
+		file_sz -= load_size;
+	}
+	return 0;
+}
+
+#ifdef CONFIG_SD_BURNLOGO
+static void update_burnlogo(uint32_t percent)
+{
+	char cmd[255] = { '\0' };
+	uint32_t logo_index;
+	int rotation = cvi_disp_get_uboot_rotation();
+
+	run_command("setvobg 0 0x00000000", 0);
+	/* Convert percentage (0~100) to logo index (0 ~ LOGO_FRAME_SIZE-1) */
+	if (percent >= 100)
+		logo_index = LOGO_FRAME_SIZE - 1;
+	else
+		logo_index = percent * (LOGO_FRAME_SIZE - 1) / 100;
+
+	printf("logo_list[%d] = %p, size = %d\n", logo_index,
+	       logo_list[logo_index], logo_size_list[logo_index]);
+
+	/********************************************************************************************/
+	snprintf(cmd, 255, "cvi_jpeg_dec 0x%p 0x%x 0x80000 %d",
+		 logo_list[logo_index], CVIMMAP_BOOTLOGO_ADDR, rotation);
+	printf("cmd = %s\n", cmd);
+	run_command(cmd, 0);
+
+	/********************************************************************************************/
+	snprintf(cmd, 255, "startvl 0  0x%p 0x%x 0x80000 16 %d",
+		 logo_list[logo_index], CVIMMAP_BOOTLOGO_ADDR, rotation);
+	printf("cmd = %s\n", cmd);
+	run_command(cmd, 0);
+}
+
+static int do_update_burnlogo(struct cmd_tbl *cmdtp, int flag, int argc,
+			      char *const argv[])
+{
+	int percent;
+	char *endp;
+
+	if (argc < 2)
+		return CMD_RET_USAGE;
+
+	percent = simple_strtoul(argv[1], &endp, 10);
+	if (*argv[1] == 0 || *endp != 0)
+		return CMD_RET_USAGE;
+
+	update_burnlogo(percent);
+	return CMD_RET_SUCCESS;
+}
+
+U_BOOT_CMD(
+	update_burnlogo, 2, 0, do_update_burnlogo,
+	"update_burnlogo <percent> - update boot logo with given percentage\n",
+	"<percent> percentage value (0-100)");
+#endif
+
+static int _storage_update(enum storage_type_e type)
+{
+	int ret = 0;
+	char cmd[255] = { '\0' };
+	char strStorage[10] = { '\0' };
+	uint8_t sd_index = 0;
+	uint8_t fip_name[16] = {0};
+
+	if (type == sd_dl) {
+		printf("Start SD downloading...\n");
+
+#ifdef CONFIG_SD_BURNLOGO
+#ifndef CONFIG_BOOTLOGO
+		// if not enable bootlogo, should start vo before update logo.
+		run_command(START_VO, 0);
+#endif // CONFIG_BOOTLOGO
+		update_burnlogo(0);
+#endif // CONFIG_SD_BURNLOGO
+
+		// Consider SD card with MBR as default
+#if defined(CONFIG_NAND_SUPPORT) || defined(CONFIG_SPI_FLASH) || defined(CONFIG_SD_BOOT)
+		strlcpy(strStorage, "mmc 0:1", 9);
+		sd_index = 0;
+#elif defined(CONFIG_EMMC_SUPPORT)
+		sd_index = 1;
+		strlcpy(strStorage, "mmc 1:1", 9);
+#endif
+		snprintf(cmd, 255, "mmc dev %u:1 SD_HS", sd_index);
+		run_command(cmd, 0);
+		strcpy(fip_name, "fip_spl.bin");
+		snprintf(cmd, 255, "fatload %s %p %s;", strStorage,
+			 (void *)HEADER_ADDR, fip_name);
+		ret = run_command(cmd, 0);
+		if (ret) {
+			// Consider SD card without MBR
+			printf("** Trying use partition 0 (without MBR) **\n");
+#if defined(CONFIG_NAND_SUPPORT) || defined(CONFIG_SPI_FLASH) || defined(CONFIG_SD_BOOT)
+			strlcpy(strStorage, "mmc 0:0", 9);
+			sd_index = 0;
+#elif defined(CONFIG_EMMC_SUPPORT)
+			sd_index = 1;
+			strlcpy(strStorage, "mmc 1:0", 9);
+#endif
+			snprintf(cmd, 255, "mmc dev %u:0 SD_HS", sd_index);
+			run_command(cmd, 0);
+			snprintf(cmd, 255, "fatload %s %p %s;", strStorage,
+				 (void *)HEADER_ADDR, fip_name);
+			ret = run_command(cmd, 0);
+			if (ret)
+				return ret;
+		}
+#if defined(CONFIG_NAND_SUPPORT)
+		snprintf(cmd, 255, "cvi_sd_update %p spinand fip",
+			 (void *)HEADER_ADDR);
+		ret = run_command(cmd, 0);
+#elif defined(CONFIG_SPI_FLASH)
+		run_command("sf probe", 0);
+		snprintf(cmd, 255,
+			 "sf update %p ${fip_PART_OFFSET} ${filesize};",
+			 (void *)HEADER_ADDR);
+		ret = run_command(cmd, 0);
+#elif defined(CONFIG_EMMC_SUPPORT)
+		// Switch to boot partition
+		ret = run_command("mmc dev 0 1", 0);
+		if (ret) {
+			printf("MMC0:1 boot part swicth fail\n");
+			return ret;
+		}
+
+		/*
+		 *	Check! The EMMC boot partitiion is 4M, but the fip + backup must be less than 3.6M (0x380000)
+		 *	Otherwise the backup will be invalid.
+		 */
+		env_set("filesize", "0");
+		snprintf(cmd, 255, "fatsize %s %s;", strStorage, fip_name);
+		run_command(cmd, 0);
+		char *filesize =  env_get("filesize");
+
+		if (filesize) {
+			if (simple_strtoul(filesize, NULL, 16) > 0x1C0000) {
+				printf("ERROR: The fip size(%s) * 2 must be < 3.6M.\n", filesize);
+				return 1;
+			}
+		}
+
+		run_command("mmc dev 0 1", 0);
+		snprintf(cmd, 255, "mmc write %p 0 0xE00;", (void *)HEADER_ADDR);
+		run_command(cmd, 0);
+		//Write the backup fip.
+		snprintf(cmd, 255, "mmc write %p 0xE00 0xE00;", (void *)HEADER_ADDR);
+		ret = run_command(cmd, 0);
+		printf("Program fip.bin done\n");
+		// Switch to user partition
+		ret |= run_command("mmc dev 0 0", 0);
+		if (ret) {
+			printf("MMC0:0 user part swicth fail\n");
+			return ret;
+		}
+#endif
+		if (ret == 0)
+			SET_DL_COMPLETE();
+		else
+			return ret;
+	}
+	for (int i = 1; i < ARRAY_SIZE(imgs); i++) {
+		snprintf(cmd, 255, "fatload %s %p %s 0x%x 0;", strStorage,
+			 (void *)HEADER_ADDR, imgs[i], HEADER_SIZE);
+		printf("%s\n", cmd);
+		ret = run_command(cmd, 0);
+		if (ret) {
+			printf("load %s failed, skip it!\n", imgs[i]);
+		} else {
+			_checkHeader(imgs[i], strStorage);
+		}
+#ifdef CONFIG_SD_BURNLOGO
+		update_burnlogo((i + 1) * 100 / ARRAY_SIZE(imgs));
+#endif // CONFIG_SD_BURNLOGO
+	}
+	return 0;
+}
+
+static int _usb_update(uint32_t usb_pid)
+{
+	int ret = 0;
+	char cmd[255] = { '\0' };
+	char utask_cmd[255] = { '\0' };
+
+	printf("Start USB downloading...\n");
+
+	// Clean download flags
+	writel(0x0, (unsigned int *)BOOT_SOURCE_FLAG_ADDR); //mw.l 0xe00fc00 0x0;
+	// Always download Fip first
+	snprintf(utask_cmd, 255, "cvi_utask vid 0x3346 pid 0x%x", usb_pid);
+	ret = run_command(utask_cmd, 0);
+#ifdef CONFIG_NAND_SUPPORT
+	snprintf(cmd, 255, "cvi_sd_update %p spinand fip", (void *)UPDATE_ADDR);
+	pr_debug("%s\n", cmd);
+	ret = run_command(cmd, 0);
+#elif defined(CONFIG_SPI_FLASH)
+	ret = run_command("sf probe", 0);
+	snprintf(cmd, 255, "sf update %p ${fip_PART_OFFSET} ${fip_PART_SIZE};", (void *)UPDATE_ADDR);
+	pr_debug("%s\n", cmd);
+	ret = run_command(cmd, 0);
+#else
+	// Switch to boot partition
+	run_command("mmc dev 0 1", 0);
+	snprintf(cmd, 255, "mmc write %p 0 0x800;", (void *)UPDATE_ADDR);
+	pr_debug("%s\n", cmd);
+	run_command(cmd, 0);
+	snprintf(cmd, 255, "mmc write %p 0x800 0x800;", (void *)UPDATE_ADDR);
+	pr_debug("%s\n", cmd);
+	run_command(cmd, 0);
+	printf("Program fip.bin done\n");
+	// Switch to user partition
+	run_command("mmc dev 0 0", 0);
+#endif
+	// Since device will reset by host tool, set flag first
+	SET_DL_COMPLETE();
+	while (1) {
+		ret = run_command(utask_cmd, 0);
+		if (ret) {
+			pr_debug("cvi_utask failed(%d)\n", ret);
+			return ret;
+		}
+		//_prgImage((void *)UPDATE_ADDR, readl(HEADER_ADDR + 8));
+	};
+	return 0;
+}
+
+DECLARE_GLOBAL_DATA_PTR;
+static void set_baudrate(unsigned int baudrate)
+{
+	mdelay(50);
+	gd->baudrate = baudrate;
+	serial_setbrg();
+	mdelay(50);
+}
+
+int uart_download(void *buf, const char *filename)
+{
+	int ret = 0;
+	char cmd[255] = { '\0' };
+
+	snprintf(cmd, 255, "loadb %p %d ", (void *)HEADER_ADDR, UART_DL_BAUDRATE);
+	ret = run_command(cmd, 0);
+	if (ret)
+		return ret;
+
+	char *magic = (void *)HEADER_ADDR;
+
+	if (!strncmp(magic, "O", 1)) {
+		printf("File %s not exist, skip it!\n", filename);
+		return ret;
+	}
+
+	uint32_t version = *(uint32_t *)((uintptr_t)HEADER_ADDR + 4);
+	uint32_t chunk_header_sz = *(uint32_t *)((uintptr_t)HEADER_ADDR + 8);
+	uint32_t total_chunk = *(uint32_t *)((uintptr_t)HEADER_ADDR + 12);
+	uint32_t file_sz = *(uint32_t *)((uintptr_t)HEADER_ADDR + 16);
+#ifdef CONFIG_NAND_SUPPORT
+	char *extra = (void *)((uintptr_t)HEADER_ADDR + 20);
+	static char prevExtra[EXTRA_FLAG_SIZE + 1] = { '\0' };
+#endif
+
+	ret = strncmp(magic, HEADER_MAGIC, 4);
+	if (ret) {
+		printf("File %s's magic number is wrong, skip it!\n", filename);
+		return ret;
+	}
+
+	printf("Header Version:%d\n", version);
+	uint32_t pos = HEADER_SIZE;
+#ifdef CONFIG_NAND_SUPPORT
+	// Erase partition first
+	if (strncmp(extra, prevExtra, EXTRA_FLAG_SIZE)) {
+		strncpy(prevExtra, extra, EXTRA_FLAG_SIZE);
+		snprintf(cmd, 255, "nand erase.part -y %s", prevExtra);
+		pr_debug("%s\n", cmd);
+		run_command(cmd, 0);
+	}
+#endif
+
+	for (int i = 0; i < total_chunk; i++) {
+		uint32_t load_size = file_sz > (MAX_LOADSIZE + chunk_header_sz) ?
+				     MAX_LOADSIZE + chunk_header_sz :
+				     file_sz;
+		snprintf(cmd, 255, "loadb %p %d ", (void *)UPDATE_ADDR, UART_DL_BAUDRATE);
+		pr_debug("%s\n", cmd);
+		ret = run_command(cmd, 0);
+		if (ret)
+			return ret;
+
+		ret = _prgImage((void *)UPDATE_ADDR, chunk_header_sz, NULL);
+		if (ret == 0) {
+			printf("program file:%s failed\n", filename);
+			break;
+		}
+		pos += load_size;
+		file_sz -= load_size;
+	}
+	return 0;
+}
+
+static int _uart_update(void)
+{
+	int ret = 0;
+	char cmd[255] = { '\0' };
+
+	printf("Start UART downloading... Change boadrate to %d\n", UART_DL_BAUDRATE);
+	set_baudrate(UART_DL_BAUDRATE);
+
+	snprintf(cmd, 255, "loadb %p %d ", (void *)HEADER_ADDR, UART_DL_BAUDRATE);
+	ret = run_command(cmd, 0);
+	if (ret) {
+		printf("Download fip.bin failed!\n");
+		return ret;
+	}
+
+#ifdef CONFIG_NAND_SUPPORT
+	snprintf(cmd, 255, "cvi_sd_update %p spinand fip", (void *)UPDATE_ADDR);
+	pr_debug("%s\n", cmd);
+	ret = run_command(cmd, 0);
+#elif defined(CONFIG_SPI_FLASH)
+	ret = run_command("sf probe", 0);
+	snprintf(cmd, 255, "sf update %p ${fip_PART_OFFSET} ${fip_PART_SIZE};", (void *)UPDATE_ADDR);
+	pr_debug("%s\n", cmd);
+	ret = run_command(cmd, 0);
+#else
+	// Switch to boot partition
+	ret = run_command("mmc dev 0 1", 0);
+	snprintf(cmd, 255, "mmc write %p 0 0x800;", (void *)UPDATE_ADDR);
+	pr_debug("%s\n", cmd);
+	ret = run_command(cmd, 0);
+	snprintf(cmd, 255, "mmc write %p 0x800 0x800;", (void *)UPDATE_ADDR);
+	pr_debug("%s\n", cmd);
+	ret = run_command(cmd, 0);
+	// Switch to user partition
+	ret = run_command("mmc dev 0 0", 0);
+#endif
+	if (ret) {
+		printf("Program fip.bin failed!\n");
+		return ret;
+	}
+
+	SET_DL_COMPLETE();
+	printf("Program fip.bin done\n");
+
+	for (int i = 1; i < ARRAY_SIZE(imgs); i++) {
+		ret = uart_download((void *)HEADER_ADDR, imgs[i]);
+		if (ret) {
+			printf("Load %s failed, skip it!\n", imgs[i]);
+			continue;
+		}
+	}
+	// set_baudrate(CONFIG_BAUDRATE);
+
+	return ret;
+}
+
+static int do_cvi_update(struct cmd_tbl *cmdtp, int flag, int argc,
+			 char *const argv[])
+{
+	int ret = 1;
+	uint32_t usb_pid = 0;
+
+	if (argc == 1) {
+		update_magic = readl((unsigned int *)BOOT_SOURCE_FLAG_ADDR);
+		if (update_magic == UART_UPDATE_MAGIC) {
+			run_command("env default -a", 0);
+			ret = _uart_update();
+		} else if (update_magic == SD_UPDATE_MAGIC) {
+			run_command("env default -a", 0);
+			ret = _storage_update(sd_dl);
+		} else if (update_magic == USB_UPDATE_MAGIC) {
+			#ifdef CONFIG_CHECK_USB_PLUG
+			if (cvi_get_chg_plug() != CHG_PLUG_HUB) {
+				printf("usb download but not plug into pc\n");
+				return -1;
+			}
+			#endif
+			run_command("env default -a", 0);
+			usb_pid = in_be32(UBOOT_PID_SRAM_ADDR);
+			usb_pid = bcd2hex4(usb_pid);
+			ret = _usb_update(usb_pid);
+		}
+	} else {
+		printf("Usage:\n%s\n", cmdtp->usage);
+	}
+#if defined(CONFIG_MMC_SKIP_TUNING)
+	uint32_t tuning_tap_reg, emmc_tuning_tap;
+	uint32_t update_load_addr;
+	uint32_t et_part_offset = 4 * 1024 * 1024 - 512;	//tunning tap save to eMMC boot1 last block
+	char cmd[255] = { '\0' };
+
+	emmc_tuning_tap = env_get_hex("tuning_tap", 0);
+	if (emmc_tuning_tap == 0) {
+		tuning_tap_reg = (readl((unsigned int *)0x4300240) >> 16) & 0x7F;
+		printf("uboot: tuning tap: 0x%x.\n", tuning_tap_reg);
+		update_load_addr = env_get_hex("update_addr", 0);
+
+		//swtich to eMMC boot1
+		run_command("mmc dev 0 1", 0);
+
+		snprintf(cmd, 255, "mw.l 0x%x 0x%x", update_load_addr, tuning_tap_reg);
+		printf("%s.\n", cmd);
+		run_command(cmd, 0);
+
+		snprintf(cmd, 255, "mmc write 0x%x 0x%x 1", update_load_addr, et_part_offset/512);
+		printf("%s.\n", cmd);
+		run_command(cmd, 0);
+
+		env_set_hex("tuning_tap", tuning_tap_reg);
+		env_save();
+	}
+#endif
+#if defined(CONFIG_EFUSE_ENABLE_FASTBOOT)
+	// Only update success, set fastboot flag
+	if (ret == 0)
+		run_command("efusew FASTBOOT", 0);
+#endif
+	return ret;
+}
+
+U_BOOT_CMD(
+	cvi_update, 2, 0, do_cvi_update,
+	"cvi_update [eth, sd, usb]- check boot status and update if necessary\n",
+	"run cvi_update without parameter will check the boot status and try to update");
