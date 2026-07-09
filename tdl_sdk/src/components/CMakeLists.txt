@@ -1,0 +1,40 @@
+
+
+add_subdirectory(nn)
+add_subdirectory(snapshot)
+add_subdirectory(tracker)
+add_subdirectory(matcher)
+add_subdirectory(encoder/image_encoder)
+add_subdirectory(video_decoder)
+add_subdirectory(cv/intrusion_detect)
+add_subdirectory(cv/occlusion_detect)
+add_subdirectory(cv/target_search)
+if(("${CVI_PLATFORM}" STREQUAL "BM1688") OR 
+    ("${CVI_PLATFORM}" STREQUAL "BM1684X") OR 
+    ("${CVI_PLATFORM}" STREQUAL "BM1684"))
+  add_subdirectory(llm)
+endif()
+if(NOT "${CVI_PLATFORM}" STREQUAL "CMODEL_CV181X" AND NOT "${CVI_PLATFORM}" STREQUAL "CMODEL_CV184X")
+  add_subdirectory(network)
+  add_subdirectory(media_analysis)
+endif()
+
+if ("${CVI_PLATFORM}" STREQUAL "CV180X" OR
+    "${CVI_PLATFORM}" STREQUAL "CV181X" OR
+    "${CVI_PLATFORM}" STREQUAL "CV182X" OR
+    "${CVI_PLATFORM}" STREQUAL "CV183X" OR
+    "${CVI_PLATFORM}" STREQUAL "CV184X" )
+  add_subdirectory(audio)
+endif()
+
+if("${CVI_PLATFORM}" STREQUAL "CMODEL_CV184X" OR
+   "${CVI_PLATFORM}" STREQUAL "CV184X")
+   add_subdirectory(ive)
+endif()
+if ("${CVI_PLATFORM}" STREQUAL "CV180X" OR
+    "${CVI_PLATFORM}" STREQUAL "CV181X" OR
+    "${CVI_PLATFORM}" STREQUAL "CV184X" OR
+    "${CVI_PLATFORM}" STREQUAL "SOPHON" OR
+    "${CVI_PLATFORM}" STREQUAL "CMODEL_CV184X")
+  add_subdirectory(cv/motion_detect)
+endif()

@@ -1,0 +1,312 @@
+#include "sample_utils.h"
+#include <memory>
+#if !defined(__BM168X__)
+#include "encoder/rtsp/rtsp.hpp"
+#include "utils/frame_dump.hpp"
+#endif
+#include <string.h>
+#include <sys/stat.h>
+#include "tdl_type_internal.hpp"
+#include "utils/tdl_log.hpp"
+#include "video_decoder/video_decoder_type.hpp"
+
+#if !defined(__BM168X__)
+namespace {
+// 全局存储RTSP实例
+std::shared_ptr<RTSP> g_rtsp_instance;
+}  // namespace
+#endif
+
+extern "C" {
+
+#if !defined(__BM168X__)
+int32_t SendFrameRTSP(VIDEO_FRAME_INFO_S *frame, RtspContext *rtsp_context) {
+  if (g_rtsp_instance == nullptr) {
+    g_rtsp_instance = std::make_shared<RTSP>(
+        rtsp_context->chn, rtsp_context->pay_load_type,
+        rtsp_context->frame_width, rtsp_context->frame_height);
+  }
+  g_rtsp_instance->sendFrame(frame);
+  return 0;
+}
+#endif
+
+void InitQueue(ImageQueue *q) {
+  q->front = q->rear = q->count = 0;
+  q->to_exit = 0;
+  pthread_mutex_init(&q->mutex, NULL);
+  pthread_cond_init(&q->cond_full, NULL);
+  pthread_cond_init(&q->cond_empty, NULL);
+}
+
+void ExitQueue(ImageQueue *q) {
+  pthread_mutex_lock(&q->mutex);
+  q->to_exit = 1;
+  pthread_cond_broadcast(&q->cond_full);
+  pthread_cond_broadcast(&q->cond_empty);
+  pthread_mutex_unlock(&q->mutex);
+}
+
+void DestroyQueue(ImageQueue *q) {
+  pthread_mutex_lock(&q->mutex);
+  q->to_exit = 1;
+  pthread_cond_broadcast(&q->cond_full);
+  pthread_cond_broadcast(&q->cond_empty);
+  while (q->count > 0) {
+    TDL_DestroyImage(q->queue[q->front]);
+    q->front = (q->front + 1) % QUEUE_SIZE;
+    q->count--;
+  }
+  pthread_mutex_unlock(&q->mutex);
+  pthread_mutex_destroy(&q->mutex);
+  pthread_cond_destroy(&q->cond_full);
+  pthread_cond_destroy(&q->cond_empty);
+}
+
+int Image_Enqueue(ImageQueue *q, TDLImage img) {
+  int ret = 0;
+  pthread_mutex_lock(&q->mutex);
+  while (q->count == QUEUE_SIZE && !q->to_exit) {
+    pthread_cond_wait(&q->cond_full, &q->mutex);
+  }
+  if (q->to_exit) {
+    ret = -1;
+  } else {
+    q->queue[q->rear] = img;
+    q->rear = (q->rear + 1) % QUEUE_SIZE;
+    q->count++;
+    pthread_cond_signal(&q->cond_empty);
+    ret = 0;
+  }
+  pthread_mutex_unlock(&q->mutex);
+  return ret;
+}
+
+int Image_GetQueueSize(ImageQueue *q) {
+  pthread_mutex_lock(&q->mutex);
+  int size = q->count;
+  pthread_mutex_unlock(&q->mutex);
+  return size;
+}
+
+TDLImage Image_Dequeue(ImageQueue *q) {
+  TDLImage img = NULL;
+  pthread_mutex_lock(&q->mutex);
+  while (q->count == 0 && !q->to_exit) {
+    pthread_cond_wait(&q->cond_empty, &q->mutex);
+  }
+  if (q->count == 0 && q->to_exit) {
+    img = NULL;
+  } else {
+    img = q->queue[q->front];
+    q->front = (q->front + 1) % QUEUE_SIZE;
+    q->count--;
+    pthread_cond_signal(&q->cond_full);
+  }
+  pthread_mutex_unlock(&q->mutex);
+  return img;
+}
+
+#if !defined(__BM168X__) && !defined(__CMODEL_CV181X__)
+static ImageFormat ConvertPixelFormat(ImageFormatE image_fmt) {
+  switch (image_fmt) {
+    case IMAGE_GRAY:
+      return ImageFormat::GRAY;
+    case IMAGE_RGB_PLANAR:
+      return ImageFormat::RGB_PLANAR;
+    case IMAGE_RGB_PACKED:
+      return ImageFormat::RGB_PACKED;
+    case IMAGE_BGR_PLANAR:
+      return ImageFormat::BGR_PLANAR;
+    case IMAGE_BGR_PACKED:
+      return ImageFormat::BGR_PACKED;
+    case IMAGE_YUV420SP_UV:
+      return ImageFormat::YUV420SP_UV;
+    case IMAGE_YUV420SP_VU:
+      return ImageFormat::YUV420SP_VU;
+    case IMAGE_YUV420P_UV:
+      return ImageFormat::YUV420P_UV;
+    case IMAGE_YUV420P_VU:
+      return ImageFormat::YUV420P_VU;
+    case IMAGE_YUV422P_UV:
+      return ImageFormat::YUV422P_UV;
+    case IMAGE_YUV422P_VU:
+      return ImageFormat::YUV422P_VU;
+    case IMAGE_YUV422SP_UV:
+      return ImageFormat::YUV422SP_UV;
+    case IMAGE_YUV422SP_VU:
+      return ImageFormat::YUV422SP_VU;
+    default:
+      return ImageFormat::UNKOWN;
+  }
+}
+
+int32_t InitCamera(TDLHandle handle, int w, int h, ImageFormatE image_fmt,
+                   int vb_buffer_num) {
+  TDLContext *context = (TDLContext *)handle;
+  if (context == nullptr) {
+    return -1;
+  }
+
+  context->video_decoder =
+      VideoDecoderFactory::createVideoDecoder(VideoDecoderType::VI);
+  if (context->video_decoder == nullptr) {
+    LOGE("create video decoder failed\n");
+    return -1;
+  }
+
+  context->video_decoder->initialize(w, h, ConvertPixelFormat(image_fmt),
+                                     vb_buffer_num);
+
+  return 0;
+}
+
+TDLImage GetCameraFrame(TDLHandle handle, int chn) {
+  TDLContext *context = (TDLContext *)handle;
+
+  TDLImageContext *image_context = new TDLImageContext();
+
+  context->video_decoder->read(image_context->image, chn);
+
+  return (TDLImage)image_context;
+}
+
+int32_t ReleaseCameraFrame(TDLHandle handle, int chn) {
+  TDLContext *context = (TDLContext *)handle;
+  if (context->video_decoder->release(chn) != 0) {
+    LOGE("release camera frame failed\n");
+    return -1;
+  }
+  return 0;
+}
+
+int32_t DestoryCamera(TDLHandle handle) {
+  TDLContext *context = (TDLContext *)handle;
+  if (context->video_decoder != nullptr) {
+    context->video_decoder.reset();
+    context->video_decoder = nullptr;
+  }
+  return 0;
+}
+
+int32_t DumpFrame(char *filename, VIDEO_FRAME_INFO_S *pstVideoFrame) {
+  return FrameDump::saveFrame(filename, pstVideoFrame);
+}
+
+#endif
+
+#ifdef __BM168X__
+void *SaveVideo_Init(const char *filename, TDLImage image, int fps) {
+  if (image == NULL) return NULL;
+  TDLImageContext *image_context = (TDLImageContext *)image;
+  int w = image_context->image->getWidth();
+  int h = image_context->image->getHeight();
+
+  cv::VideoWriter *writer = new cv::VideoWriter();
+  int fourcc = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
+  if (!writer->open(filename, fourcc, fps, cv::Size(w, h))) {
+    LOGE("open video writer failed: %s\n", filename);
+    delete writer;
+    return NULL;
+  }
+  return (void *)writer;
+}
+
+int32_t SaveVideo_WriteFrame(void *writer, TDLImage img) {
+  if (writer == NULL || img == NULL) {
+    return -1;
+  }
+  cv::VideoWriter *vw = (cv::VideoWriter *)writer;
+  TDLImageContext *image_context = (TDLImageContext *)img;
+
+  cv::Mat mat;
+  bool is_rgb;
+  int32_t ret = ImageFactory::convertToMat(image_context->image, mat, is_rgb);
+  if (ret != 0) {
+    LOGE("Failed to convert to mat\n");
+    return -1;
+  }
+
+  if (is_rgb) {
+    cv::Mat bgr_mat;
+    cv::cvtColor(mat, bgr_mat, cv::COLOR_RGB2BGR);
+    vw->write(bgr_mat);
+  } else {
+    vw->write(mat);
+  }
+
+  return 0;
+}
+
+int32_t SaveVideo_Release(void *writer) {
+  if (writer == NULL) {
+    return -1;
+  }
+  cv::VideoWriter *vw = (cv::VideoWriter *)writer;
+  vw->release();
+  delete vw;
+  return 0;
+}
+#else
+void *SaveVideo_Init(const char *filename, TDLImage image, int fps) {
+  return NULL;
+}
+int32_t SaveVideo_WriteFrame(void *writer, TDLImage img) { return -1; }
+int32_t SaveVideo_Release(void *writer) { return -1; }
+#endif
+
+TDLImage GetVideoFrame(TDLHandle handle, const char *video_path) {
+  TDLContext *context = (TDLContext *)handle;
+
+  if (context == nullptr) {
+    LOGE("context is nullptr\n");
+    return NULL;
+  }
+
+  if (!context->video_decoder) {
+    VideoDecoderType decoder_type;
+    // 检查是否为MP4文件
+    size_t path_len = strlen(video_path);
+    if (path_len >= 4 && strcmp(video_path + path_len - 4, ".mp4") == 0) {
+#ifdef __BM168X__
+      decoder_type = VideoDecoderType::OPENCV;
+#else
+      fprintf(stderr,
+              "Error: MP4 format is only supported on BM168X platform\n");
+      return nullptr;
+#endif
+    } else {
+      // 检查是否为文件夹路径
+      struct stat path_stat;
+      if (stat(video_path, &path_stat) == 0 && S_ISDIR(path_stat.st_mode)) {
+        decoder_type = VideoDecoderType::IMAGE_FOLDER;
+      } else {
+        fprintf(stderr, "Error: Unsupported path type - %s\n", video_path);
+        return nullptr;
+      }
+    }
+
+    // 创建相应类型的解码器
+    context->video_decoder =
+        VideoDecoderFactory::createVideoDecoder(decoder_type);
+    if (!context->video_decoder) {
+      fprintf(stderr, "Failed to create video decoder\n");
+      return nullptr;
+    }
+
+    context->video_decoder->init(std::string(video_path));
+  }
+
+  TDLImageContext *image_context = new TDLImageContext();
+  context->video_decoder->read(image_context->image);
+
+  if (image_context->image == NULL) {
+    delete image_context;
+    image_context = NULL;
+    return NULL;
+  }
+
+  return (TDLImage)image_context;
+}
+
+}  // extern "C"

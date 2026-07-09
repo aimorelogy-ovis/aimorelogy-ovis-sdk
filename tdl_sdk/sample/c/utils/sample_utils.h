@@ -1,0 +1,182 @@
+#ifndef _RTSP_UTILS_H_
+#define _RTSP_UTILS_H_
+
+#if !defined(__BM168X__)
+#include <cvi_comm_video.h>
+#endif
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "tdl_sdk.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define QUEUE_SIZE 8
+
+#if !defined(__BM168X__)
+typedef struct {
+  int32_t chn;
+  PAYLOAD_TYPE_E pay_load_type;
+  int32_t frame_width;
+  int32_t frame_height;
+} RtspContext;
+#endif
+
+typedef struct {
+  TDLImage queue[QUEUE_SIZE];
+  int front;
+  int rear;
+  int count;
+  pthread_mutex_t mutex;
+  pthread_cond_t cond_full;
+  pthread_cond_t cond_empty;
+  int to_exit;
+} ImageQueue;
+
+/**
+ * @brief 初始化图像队列
+ *
+ * @param q 图像队列
+ */
+void InitQueue(ImageQueue *q);
+
+/**
+ * @brief 销毁图像队列
+ *
+ * @param q 图像队列
+ */
+void DestroyQueue(ImageQueue *q);
+
+/**
+ * @brief 退出图像队列，唤醒所有等待线程
+ *
+ * @param q 图像队列
+ */
+void ExitQueue(ImageQueue *q);
+
+/**
+ * @brief 从图像队列中获取图像
+ *
+ * @param q 图像队列
+ * @return 返回获取的图像
+ */
+TDLImage Image_Dequeue(ImageQueue *q);
+
+/**
+ * @brief 将图像加入队列
+ *
+ * @param q 图像队列
+ * @param img 要加入的图像
+ * @return 成功返回 0，失败返回-1
+ */
+int Image_Enqueue(ImageQueue *q, TDLImage img);
+
+/**
+ * @brief 获取图像队列中当前的图像数量
+ *
+ * @param q 图像队列
+ * @return 返回队列中的图像数量
+ */
+int Image_GetQueueSize(ImageQueue *q);
+
+#if !defined(__BM168X__) && !defined(__CMODEL_CV181X__)
+/**
+ * @brief 初始化Camera，板端的/mnt/data路径下需要有sensor_cfg.ini
+ * @param handle 已初始化的 TDLHandle 对象，通过 TDL_CreateHandle 创建
+ * @param w Camera图像的输出长度
+ * @param h Camera图像的输出宽度
+ * @param image_fmt Camera图像的输出格式
+ * @param vb_buffer_num Camera模块使用的vb buffer数量
+ * @return 成功返回 0，失败返回-1
+ */
+int32_t InitCamera(TDLHandle handle, int w, int h, ImageFormatE image_fmt,
+                   int vb_buffer_num);
+
+/**
+ * @brief 获取camera的一帧图像
+ *
+ * @param handle 已初始化的 TDLHandle 对象，通过 TDL_CreateHandle 创建
+ * @param chn Camera图像的chn通道
+ * @return 返回包装的TDLImageHandle对象, 如果失败返回 NULL
+ */
+TDLImage GetCameraFrame(TDLHandle handle, int chn);
+
+/**
+ * @brief 释放图像资源
+ *
+ * @param handle 已初始化的 TDLHandle 对象，通过 TDL_CreateHandle 创建
+ * @param chn Camera图像的chn通道
+ * @return 成功返回 0，失败返回-1
+ */
+int32_t ReleaseCameraFrame(TDLHandle handle, int chn);
+
+/**
+ * @brief 销毁Camera
+ *
+ * @return 成功返回 0，失败返回-1
+ */
+int32_t DestoryCamera(TDLHandle handle);
+
+/**
+ * @brief 发送图像到RTSP服务器
+ *
+ * @param frame 图像数据
+ * @param rtsp_context RTSP上下文
+ * @return 成功返回 0，失败返回-1
+ */
+int32_t SendFrameRTSP(VIDEO_FRAME_INFO_S *frame, RtspContext *rtsp_context);
+
+/**
+ * @brief 将frame图像保存为图片文件
+ *
+ * @param filename 文件路径
+ * @param pstVideoFrame frame图像
+ * @return 成功返回 0，失败返回-1
+ */
+int32_t DumpFrame(char *filename, VIDEO_FRAME_INFO_S *pstVideoFrame);
+
+#endif
+
+/**
+ * @brief 获取视频文件的一帧图像
+ *
+ * @param handle 已初始化的 TDLHandle 对象，通过 TDL_CreateHandle 创建
+ * @param video_path 视频文件路径
+ * @return 返回包装的TDLImageHandle对象, 如果失败返回 NULL
+ */
+TDLImage GetVideoFrame(TDLHandle handle, const char *video_path);
+
+/**
+ * @brief 初始化视频保存
+ *
+ * @param filename 视频保存路径
+ * @param image 初始图像帧，用于获取宽度和高度
+ * @param fps 视频帧率
+ * @return 返回视频保存上下文指针，失败返回 NULL
+ */
+void *SaveVideo_Init(const char *filename, TDLImage image, int fps);
+
+/**
+ * @brief 将一帧图像写入视频文件
+ *
+ * @param writer 视频保存上下文指针
+ * @param img 图像数据
+ * @return 成功返回 0，失败返回-1
+ */
+int32_t SaveVideo_WriteFrame(void *writer, TDLImage img);
+
+/**
+ * @brief 释放视频保存资源
+ *
+ * @param writer 视频保存上下文指针
+ * @return 成功返回 0，失败返回-1
+ */
+int32_t SaveVideo_Release(void *writer);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // _RTSP_UTILS_H_
