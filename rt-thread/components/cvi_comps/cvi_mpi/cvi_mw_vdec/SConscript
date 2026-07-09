@@ -1,0 +1,19 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+# include
+CPPPATH += [cwd + r'/include']
+CPPPATH += [cwd + r'/../cvi_mw_venc/include']
+CPPPATH += [cwd + r'/../include']
+
+
+# source
+src += Glob(r'./src/*.c')
+
+cvi_mw_vdec = DefineGroup('cvi_mw_vdec', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_vdec')

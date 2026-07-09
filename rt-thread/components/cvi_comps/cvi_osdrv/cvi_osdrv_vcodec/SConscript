@@ -1,0 +1,30 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+CPPPATH += [cwd + r'/../../../libc/posix/ipc']
+
+# include
+CPPPATH += [cwd + r'/common/include']
+CPPPATH += [cwd + r'/fw_h26x/include']
+CPPPATH += [cwd + r'/h26x/include']
+CPPPATH += [cwd + r'/jpeg/include']
+CPPPATH += [cwd + r'/../include/common/kapi']
+
+# to do: add chip include path
+CPPPATH += [cwd + r'/../include/chip/cv180x/uapi']
+CPPPATH += [cwd + r'/../include/chip/cv181x/uapi']
+# source
+src += Glob(r'./common/src/*.c')
+src += Glob(r'./fw_h26x/src/*.c')
+src += Glob(r'./h26x/src/*.c')
+src += Glob(r'./jpeg/src/*.c')
+
+CPPDEFINES += ['-DUSE_POSIX','-DCVI_H26X_ES_BUFFER_QUEUE_ENABLE','-DCVI_H26X_USE_ION_MEM','-DBITSTREAM_ION_CACHED_MEM','-DCVI_JPG_USE_ION_MEM']
+
+cvi_osdrv_vcodec = DefineGroup('cvi_osdrv_vcodec', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_osdrv_vcodec')

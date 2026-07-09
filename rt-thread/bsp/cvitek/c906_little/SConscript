@@ -1,0 +1,21 @@
+# for module compiling
+import os
+import multiprocessing
+
+Import('RTT_ROOT')
+
+# Get the number of CPU cores
+cpu_count = multiprocessing.cpu_count()
+# Set the number of jobs
+SetOption('num_jobs', cpu_count)
+
+cwd = str(Dir('#'))
+objs = []
+list = os.listdir(cwd)
+
+for d in list:
+    path = os.path.join(cwd, d)
+    if os.path.isfile(os.path.join(path, 'SConscript')):
+        objs = objs + SConscript(os.path.join(d, 'SConscript'))
+objs.extend(SConscript('#/../../../components/cvi_comps/cvi_mpi/cvi_mw_rgn/SConscript'))
+Return('objs')

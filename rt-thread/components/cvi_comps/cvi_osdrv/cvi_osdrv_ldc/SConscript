@@ -1,0 +1,40 @@
+from building import *
+
+# Import SOC_TYPE from upper level SConscript
+Import('SOC_TYPE')
+
+# Parse SOC_TYPE to get chip series
+chip_series = "cv181x" if "181" in SOC_TYPE else "cv180x"
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd]
+CPPPATH += [cwd + r'/common/']
+CPPPATH += [cwd + r'/chip/' + chip_series + '/']
+CPPPATH += [cwd + r'/chip/' + chip_series + '/proc/']
+CPPPATH += [cwd + r'/../include/common/uapi/']
+CPPPATH += [cwd + r'/../include/common/kapi/']
+CPPPATH += [cwd + r'/../include/chip/' + chip_series + '/uapi']
+CPPPATH += [cwd + r'/../cvi_osdrv_base/chip/' + chip_series + '/']
+# Add common include paths
+CPPPATH += [cwd + r'/../include/']
+CPPPATH += [cwd + r'/../common/']
+CPPPATH += [cwd + r'/../../../../components/libc/posix/ipc/']
+
+# src files
+src += [r'./chip/' + chip_series + '/gdc.c']
+src += [r'./chip/' + chip_series + '/ldc.c']
+src += [r'./chip/' + chip_series + '/mesh.c']
+src += [r'./common/cvi_vip_gdc_proc.c']
+src += [r'./common/ldc_platform.c']
+
+print("CPPPATH =", CPPPATH)
+print("Source files =", src)
+
+cvi_osdrv_ldc = DefineGroup('cvi_osdrv_ldc', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_osdrv_ldc')

@@ -1,0 +1,22 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd + r'/../include/']
+CPPPATH += [cwd + r'/../cvi_mw_vpu/include/']
+
+
+
+print(CPPPATH)
+# src
+src += Glob(cwd + r'/src/*.c')
+
+print(src)
+cvi_mw_isp = DefineGroup('cvi_mw_isp', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_isp')

@@ -1,0 +1,120 @@
+from building import *
+import os
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+
+CHIP_TYPE = 'cv184x'
+if GetDepend('SOC_TYPE_CV180XB_QFN'):
+    CHIP_TYPE = 'cv180x'
+elif GetDepend('SOC_TYPE_CV181XC_QFN') or GetDepend('SOC_TYPE_CV181XH_BGA'):
+    CHIP_TYPE = 'cv181x'
+elif GetDepend('SOC_TYPE_CV184XC_QFN') or GetDepend('SOC_TYPE_CV184XH_BGA'):
+    CHIP_TYPE = 'cv184x'
+
+CPPPATH = [cwd]
+
+CPPPATH += [cwd + r'/libraries']
+CPPPATH += [cwd + r'/libraries/' + CHIP_TYPE]
+
+CPPPATH += [cwd + r'/../cvi_hal']
+CPPPATH += [cwd + r'/../../../../libcpu/risc-v/common']
+CPPPATH += [cwd + r'/../../../../libcpu/risc-v/rv64']
+
+src += Glob('drv_por.c')
+src += Glob('drv_gpio.c')
+src += Glob('drv_pinmux.c')
+src += Glob('../cvi_hal/hal_gpio.c')
+
+if GetDepend('BSP_USING_I2S'):
+    src += ['i2s/drv_dw_i2s.c']
+    src += ['i2s/drv_i2s.c']
+    CPPPATH += [cwd + r'/i2s']
+
+if GetDepend('BSP_USING_CODEC'):
+    src += ['codec/drv_phy_adc.c']
+    src += ['codec/drv_phy_dac.c']
+    CPPPATH += [cwd + r'/codec']
+
+if GetDepend('BSP_USING_CARD'):
+    src += ['audio/test_audio_record.c']
+    src += ['audio/test_audio_play.c']
+    CPPPATH += [cwd + r'/audio']
+
+if GetDepend('BSP_USING_DMA'):
+    src += ['drv_dma.c']
+
+if GetDepend('BSP_USING_UART'):
+    src += ['drv_uart.c']
+
+if GetDepend('BSP_USING_I2C'):
+    src += ['drv_hw_i2c.c']
+    src += Glob('../cvi_hal/hal_i2c.c')
+    CPPPATH += [cwd + r'/i2c_dw']
+
+if GetDepend('BSP_USING_ADC'):
+    src += ['drv_adc.c']
+
+if GetDepend('BSP_USING_WDT'):
+    src += ['drv_wdt.c']
+
+if GetDepend(['BSP_USING_SPI']):
+    src += ['drv_spi.c']
+    src += ['libraries/spi/dw_spi.c']
+    CPPPATH += [cwd + r'/libraries/spi']
+
+if GetDepend(['BSP_USING_SPI_FLASH']):
+    src += Glob('libraries/spiflash/src/*.c')
+    CPPPATH += [cwd + r'/libraries/spiflash/include']
+
+if GetDepend('BSP_USING_PWM'):
+    src += ['drv_pwm.c']
+    CPPPATH += [cwd + r'/libraries/cv180x/pwm']
+
+if GetDepend('BSP_ROOTFS_TYPE_CROMFS'):
+    src += ['port/mnt_cromfs.c']
+elif GetDepend('BSP_ROOTFS_TYPE_DISKFS'):
+    src += ['port/mnt_diskfs.c']
+elif GetDepend('BSP_ROOTFS_TYPE_ROMFS'):
+    src += ['port/mnt_romfs.c']
+
+if GetDepend('RT_USING_FAL'):
+    src += ['port/fal_flash_sfud_port.c']
+    CPPPATH += [cwd + r'/port']
+
+if GetDepend('BSP_USING_SDH'):
+    src += ['drv_sdhci.c']
+    CPPPATH += [cwd + r'/libraries/sdif']
+
+if GetDepend('BSP_USING_ETH'):
+    src += ['drv_eth.c']
+    src += ['libraries/eth/dw_eth_mac.c']
+    src += ['libraries/eth/cvi_eth_phy.c']
+    src += ['libraries/eth/eth_phy_cvitek.c']
+    
+    CPPPATH += [cwd + r'/libraries/eth']
+
+CPPDEFINES += ['-DCONFIG_64BIT']
+
+if GetDepend('BSP_USING_RTC'):
+    src += ['drv_rtc.c']
+
+if GetDepend('BSP_USING_TIMER'):
+    src += ['drv_timer.c']
+
+if GetDepend('BSP_USING_TPU'):
+    src += ['drv_tpu.c']
+
+if GetDepend('BSP_USING_MAILBOX'):
+    src += ['mailbox/drv_rtoscmu.c']
+    src += ['mailbox/drv_spinlock.c']
+    src += ['mailbox/drv_dump_uart.c']
+    CPPPATH += [cwd + r'/mailbox']
+
+group = DefineGroup('drivers', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+if GetDepend('BSP_USING_USB'):
+    group +=  SConscript('usb/SConscript')
+
+Return('group')

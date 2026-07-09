@@ -1,0 +1,30 @@
+# For module compiling
+import os
+import multiprocessing
+from building import *
+
+# Set the number of CPU cores as the number of parallel compilation jobs 
+SetOption('num_jobs', multiprocessing.cpu_count())
+
+cwd = GetCurrentDir()
+objs = []
+
+# Traverse all entries in the current directory
+for entry in os.listdir(cwd):
+    entry_path = os.path.join(cwd, entry)
+    # Check whther entry is directory
+    if os.path.isdir(entry_path):
+        # Check whether contain SConscript file
+        sconscript = os.path.join(entry_path, 'SConscript')
+        if os.path.isfile(sconscript):
+            # Execute SConscript in subdirectory 
+            objs.extend(SConscript(sconscript))
+
+# Handle cvi_rtt
+cvi_rtt_path = '../../../../cvi_rtt/'
+cvi_rtt_sconscript = os.path.join(cvi_rtt_path, 'SConscript')
+if os.path.isfile(cvi_rtt_sconscript):
+    objs.extend(SConscript(cvi_rtt_sconscript))
+
+# Return all compilation targets
+Return('objs')

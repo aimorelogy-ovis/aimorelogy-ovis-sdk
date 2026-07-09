@@ -1,0 +1,484 @@
+
+BSP_DIR := ../..
+menu "General Drivers Configuration"
+
+choice BSP_ROOTFS_TYPE
+    prompt "rootfs type"
+    default BSP_ROOTFS_TYPE_ROMFS
+
+    config BSP_ROOTFS_TYPE_ROMFS
+        bool "ROMFS"
+        select RT_USING_DFS_ROMFS
+
+    config BSP_ROOTFS_TYPE_DISKFS
+        bool "Disk FileSystems, e.g. ext4, fat ..."
+        select RT_USING_DFS_DISKFS
+
+    config BSP_ROOTFS_TYPE_CROMFS
+        bool "CROMFS"
+        select RT_USING_DFS_CROMFS
+        select PKG_USING_ZLIBq
+        select PKG_USING_ZLIB_LATEST_VERSION
+endchoice
+
+    config BSP_USING_DMA
+        bool "Using DesignWare DMA"
+        default y
+
+    menuconfig BSP_USING_UART
+        bool "Using UART"
+        select RT_USING_SERIAL
+        default y
+
+        if BSP_USING_UART
+            config BSP_USING_UART0
+                bool "Enable UART 0"
+                default n
+
+                if BSP_USING_UART0
+                    config BSP_UART0_RX_PINNAME
+                        string "uart0 rx pin name"
+                        default ""
+                    config BSP_UART0_TX_PINNAME
+                        string "uart0 tx pin name"
+                        default ""
+                endif
+
+            config BSP_USING_UART1
+                bool "Enable UART 1"
+                default y
+
+                if BSP_USING_UART1
+                    config BSP_UART1_RX_PINNAME
+                        string "uart1 rx pin name"
+                        default "IIC0_SDA"
+                    config BSP_UART1_TX_PINNAME
+                        string "uart1 tx pin name"
+                        default "IIC0_SCL"
+                endif
+
+            config BSP_USING_UART2
+                bool "Enable UART 2"
+                default n
+
+                if BSP_USING_UART2
+                    config BSP_UART2_RX_PINNAME
+                        string "uart2 rx pin name"
+                        default ""
+                    config BSP_UART2_TX_PINNAME
+                        string "uart2 tx pin name"
+                        default ""
+                endif
+
+            config BSP_UART_IRQ_BASE
+                int
+                default 46
+        endif
+
+    menuconfig BSP_USING_I2C
+        bool "Using I2C"
+        select RT_USING_I2C
+        select RT_USING_I2C_BITOPS
+        select RT_USING_PIN
+        default n
+
+        if BSP_USING_I2C
+            config BSP_USING_I2C0
+                bool "Enable I2C0"
+                default n
+
+                if BSP_USING_I2C0
+                    config BSP_I2C0_SCL_PINNAME
+                        string "i2c0 scl pin name"
+                        default ""
+                    config BSP_I2C0_SDA_PINNAME
+                        string "i2c0 sda pin name"
+                        default ""
+                endif
+
+            config BSP_USING_I2C1
+                bool "Enable I2C1"
+                default n
+
+                if BSP_USING_I2C1
+                    config BSP_I2C1_SCL_PINNAME
+                        string "i2c1 scl pin name"
+                        default ""
+                    config BSP_I2C1_SDA_PINNAME
+                        string "i2c1 sda pin name"
+                        default ""
+                endif
+
+            config BSP_USING_I2C2
+                bool "Enable I2C2"
+                default n
+
+                if BSP_USING_I2C2
+                    config BSP_I2C2_SCL_PINNAME
+                        string "i2c2 scl pin name"
+                        default ""
+                    config BSP_I2C2_SDA_PINNAME
+                        string "i2c2 sda pin name"
+                        default ""
+                endif
+
+            config BSP_USING_I2C3
+                bool "Enable I2C3"
+                default n
+
+                if BSP_USING_I2C3
+                    config BSP_I2C3_SCL_PINNAME
+                        string "i2c3 scl pin name"
+                        default ""
+                    config BSP_I2C3_SDA_PINNAME
+                        string "i2c3 sda pin name"
+                        default ""
+                endif
+
+            config BSP_USING_I2C4
+                bool "Enable I2C4"
+                default n
+
+                if BSP_USING_I2C4
+                    config BSP_I2C4_SCL_PINNAME
+                        string "i2c4 scl pin name"
+                        default ""
+                    config BSP_I2C4_SDA_PINNAME
+                        string "i2c4 sda pin name"
+                        default ""
+                endif
+
+            config BSP_I2C_IRQ_BASE
+                int
+                default 49
+        endif
+
+    menuconfig BSP_USING_ADC
+        bool "Using ADC"
+        select RT_USING_ADC
+        default n
+
+        if BSP_USING_ADC
+            config BSP_USING_ADC_ACTIVE_1
+                bool "Enable ADC Controller 1 in Active Domain"
+                default n
+
+                if BSP_USING_ADC_ACTIVE_1
+                    config BSP_ACTIVE_ADC1_PINNAME
+                        string "Pin name for VIN1 in Active Domain"
+                        default ""
+                    config BSP_ACTIVE_ADC2_PINNAME
+                        string "Pin name for VIN2 in Active Domain"
+                        default ""
+                    config BSP_ACTIVE_ADC3_PINNAME
+                        string "Pin name for VIN3 in Active Domain"
+                        default ""
+                endif
+
+            config BSP_USING_ADC_ACTIVE_2
+                bool "Enable ADC Controller 2 in Active Domain"
+                default n
+
+                if BSP_USING_ADC_ACTIVE_2
+                    config BSP_ACTIVE_ADC4_PINNAME
+                        string "Pin name for VIN4 in Active Domain"
+                        default ""
+                    config BSP_ACTIVE_ADC5_PINNAME
+                        string "Pin name for VIN5 in Active Domain"
+                        default ""
+                    config BSP_ACTIVE_ADC6_PINNAME
+                        string "Pin name for VIN6 in Active Domain"
+                        default ""
+                endif
+
+            config BSP_USING_ADC_ACTIVE_3
+                bool "Enable ADC Controller 3 in Active Domain"
+                default n
+
+                if BSP_USING_ADC_ACTIVE_3
+                    config BSP_ACTIVE_ADC7_PINNAME
+                        string "Pin name for VIN7 in Active Domain"
+                        default ""
+                    config BSP_ACTIVE_ADC8_PINNAME
+                        string "Pin name for VIN8 in Active Domain"
+                        default ""
+                    config BSP_ACTIVE_ADC9_PINNAME
+                        string "Pin name for VIN9 in Active Domain"
+                        default ""
+                endif
+
+            config BSP_USING_ADC_NODIE_1
+                bool "Enable ADC Controller 1 in No-die Domain"
+                default n
+
+                if BSP_USING_ADC_NODIE_1
+                    config BSP_NODIE_ADC1_PINNAME
+                        string "Pin name for VIN1 in No-die Domain"
+                        default ""
+                    config BSP_NODIE_ADC2_PINNAME
+                        string "Pin name for VIN2 in No-die Domain"
+                        default ""
+                    config BSP_NODIE_ADC3_PINNAME
+                        string "Pin name for VIN3 in No-die Domain"
+                        default ""
+                endif
+
+            config BSP_USING_ADC_NODIE_2
+                bool "Enable ADC Controller 2 in No-die Domain"
+                default n
+
+                if BSP_USING_ADC_NODIE_2
+                    config BSP_NODIE_ADC4_PINNAME
+                        string "Pin name for VIN4 in No-die Domain"
+                        default ""
+                    config BSP_NODIE_ADC5_PINNAME
+                        string "Pin name for VIN5 in No-die Domain"
+                        default ""
+                    config BSP_NODIE_ADC6_PINNAME
+                        string "Pin name for VIN6 in No-die Domain"
+                        default ""
+                endif
+        endif
+
+    config BSP_USING_SPI
+        bool "Using SPI"
+        select RT_USING_SPI
+        default n
+        help
+            C906L can only use SPI0/SPI1
+
+        if BSP_USING_SPI
+            config BSP_USING_SPI0
+                bool "Enable SPI 0"
+                default n
+
+                if BSP_USING_SPI0
+                    config BSP_SPI0_SCK_PINNAME
+                        string "spi0 sck pin name"
+                        default ""
+                    config BSP_SPI0_SDO_PINNAME
+                        string "spi0 sdo pin name"
+                        default ""
+                    config BSP_SPI0_SDI_PINNAME
+                        string "spi0 sdi pin name"
+                        default ""
+                    config BSP_SPI0_CS_PINNAME
+                        string "spi0 cs pin name"
+                        default ""
+                endif
+
+            config BSP_USING_SPI1
+                bool "Enable SPI 1"
+                default n
+
+                if BSP_USING_SPI1
+                    config BSP_SPI1_SCK_PINNAME
+                        string "spi1 sck pin name"
+                        default ""
+                    config BSP_SPI1_SDO_PINNAME
+                        string "spi1 sdo pin name"
+                        default ""
+                    config BSP_SPI1_SDI_PINNAME
+                        string "spi1 sdi pin name"
+                        default ""
+                    config BSP_SPI1_CS_PINNAME
+                        string "spi1 cs pin name"
+                        default ""
+                endif
+        endif
+
+    menuconfig BSP_USING_WDT
+        bool "Enable Watchdog Timer"
+        select RT_USING_WDT
+        default n
+        help
+            C906L can only use WDT2
+
+        if BSP_USING_WDT
+            config BSP_USING_WDT2
+                bool "Enable WDT2"
+                default n
+        endif
+
+    menuconfig BSP_USING_TIMER
+        bool "Enable TIMER"
+        default n
+        select RT_USING_HWTIMER
+        help
+            C906L can only use TIMER6/TIMER7
+
+        if BSP_USING_TIMER
+            config BSP_USING_TIMER6
+                bool "Enable TIMER6"
+                default n
+
+            config BSP_USING_TIMER7
+                bool "Enable TIMER7"
+                default n
+
+            config BSP_TIMER_IRQ_BASE
+                int
+                default 59
+        endif
+
+    menuconfig BSP_USING_PWM
+        bool "Using PWM"
+        select RT_USING_PWM
+        default n
+
+        if BSP_USING_PWM
+            config BSP_USING_PWM0
+                bool "Enable PWM 0"
+                default n
+
+                if BSP_USING_PWM0
+                    config BSP_PWM0_0_PINNAME
+                        string "pwm[0] pin name"
+                        default ""
+                    config BSP_PWM0_1_PINNAME
+                        string "pwm[1] pin name"
+                        default ""
+                    config BSP_PWM0_2_PINNAME
+                        string "pwm[2] pin name"
+                        default ""
+                    config BSP_PWM0_3_PINNAME
+                        string "pwm[3] pin name"
+                        default ""
+                endif
+
+            config BSP_USING_PWM1
+                bool "Enable PWM 1"
+                default n
+
+                if BSP_USING_PWM1
+                    config BSP_PWM1_4_PINNAME
+                        string "pwm[4] pin name"
+                        default ""
+                    config BSP_PWM1_5_PINNAME
+                        string "pwm[5] pin name"
+                        default ""
+                    config BSP_PWM1_6_PINNAME
+                        string "pwm[6] pin name"
+                        default ""
+                    config BSP_PWM1_7_PINNAME
+                        string "pwm[7] pin name"
+                        default ""
+                endif
+
+            config BSP_USING_PWM2
+                bool "Enable PWM 2"
+                default n
+
+                if BSP_USING_PWM2
+                    config BSP_PWM2_8_PINNAME
+                        string "pwm[8] pin name"
+                        default ""
+                    config BSP_PWM2_9_PINNAME
+                        string "pwm[9] pin name"
+                        default ""
+                    config BSP_PWM2_10_PINNAME
+                        string "pwm[10] pin name"
+                        default ""
+                    config BSP_PWM2_11_PINNAME
+                        string "pwm[11] pin name"
+                        default ""
+                endif
+
+            config BSP_USING_PWM3
+                bool "Enable PWM 3"
+                default n
+
+                if BSP_USING_PWM3
+                    config BSP_PWM3_12_PINNAME
+                        string "pwm[12] pin name"
+                        default ""
+                    config BSP_PWM3_13_PINNAME
+                        string "pwm[13] pin name"
+                        default ""
+                    config BSP_PWM3_14_PINNAME
+                        string "pwm[14] pin name"
+                        default ""
+                    config BSP_PWM3_15_PINNAME
+                        string "pwm[15] pin name"
+                        default ""
+                endif
+        endif
+
+    config BSP_USING_SDH
+        select RT_USING_SDIO
+        select RT_USING_DFS
+        select RT_USING_DFS_ELMFAT
+        select RT_USING_DFS_DISKFS
+        bool "Enable Secure Digital Host Controller"
+        default n
+
+    config BSP_USING_TPU
+        bool "Enable TPU"
+        default n
+
+    menuconfig BSP_USING_DRIVER_TOOL
+        bool "ENABLE DRIVER_TOOLS"
+        select RT_USING_DRIVER_TOOL
+        default n
+
+        if BSP_USING_DRIVER_TOOL
+            config BSP_USING_I2C_TOOL
+                bool "Enable I2C_TOOL"
+                default n
+
+            config BSP_USING_PINMUX
+                bool "Enable CVI_PINMUX"
+                default n
+        endif
+
+    menuconfig BSP_USING_SELFTEST
+        bool "ENABLE SELFTEST"
+        select RT_USING_SELFTEST
+        default n
+
+        if BSP_USING_SELFTEST
+            config BSP_TEST_GPIO
+                bool "Enable GPIO_SELFTEST"
+                default n
+            config BSP_TEST_SPI
+                bool "Enable SPI_SELFTEST"
+                default n
+            config BSP_TEST_TPU
+                bool "Enable TPU_SELFTEST"
+                default n
+            config BSP_TEST_UART
+                bool "Enable BSP_TEST_UART"
+                default n
+            config BSP_TEST_SD
+                bool "Enable BSP_TEST_SD"
+                default n
+            config BSP_TEST_WDT
+                bool "Enable BSP_TEST_WDT"
+                default n
+            config BSP_TEST_TIMER
+                bool "Enable BSP_TEST_TIMER"
+                default n
+            config BSP_TEST_ADC
+                bool "Enable BSP_TEST_ADC"
+                default n
+            config BSP_TEST_PWM
+                bool "Enable BSP_TEST_PWM"
+                default n
+            config BSP_TEST_RTC
+                bool "Enable BSP_TEST_RTC"
+                default n
+            config BSP_TEST_DMA
+                bool "Enable BSP_TEST_DMA"
+                default n
+        endif
+
+    config BSP_USING_MAILBOX
+        bool "Enable Mailbox"
+        default y
+        if BSP_USING_MAILBOX
+            config BSP_MAILBOX_IRQ_BASE
+                int
+                default 61
+        endif
+
+endmenu

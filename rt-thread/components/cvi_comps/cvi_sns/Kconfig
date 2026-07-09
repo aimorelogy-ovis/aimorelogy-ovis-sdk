@@ -1,0 +1,7 @@
+menu "CVI Sensor Support List"
+    config SENSOR_GCORE_GC2053
+        int "GCORE GC2053"
+        default 1
+        
+        
+endmenu

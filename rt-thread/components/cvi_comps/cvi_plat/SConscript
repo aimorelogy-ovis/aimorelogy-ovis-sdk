@@ -1,0 +1,18 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+include = []
+src = []
+
+if GetDepend('CVI_MEDIA_PLAT_ENABLE'):
+    include += [cwd + r'/param/include/']
+    include += [cwd + r'/media/include/']
+    src += [r'./param/src/cvi_param.c']
+    # src += [r'./media/src/common_vi.c']
+    src += [r'./media/src/media_video.c']
+
+    
+cvi_plat = DefineGroup('cvi_plat', src, depend=[''], CPPPATH=include)
+            
+Return('cvi_plat')

@@ -1,0 +1,7 @@
+<physical_partition type="spinor">
+    <partition label="BOOT0" size_in_kb="48" readonly="false" file="boot0"/>
+    <partition label="BOOT" size_in_kb="128" readonly="false" file="boot"/>
+    <partition label="IMTB" size_in_kb="8" file="imtb" />
+    <partition label="PRIM" size_in_kb="3912" file="rtt.bin" />
+</physical_partition>
+

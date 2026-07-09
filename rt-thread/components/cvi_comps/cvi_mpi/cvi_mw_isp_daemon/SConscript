@@ -1,0 +1,26 @@
+import re
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd + r'/src/']
+CPPPATH += [cwd + r'/../cvi_json_c/include/']
+CPPPATH += [cwd + r'/../cvi_mw_isp_common/cvi_mw_isp_com_raw_replay/include/']
+
+# src
+src += Glob("src/*.c")
+
+Import('SOC_TYPE')
+if re.search(r'cv180', SOC_TYPE, re.IGNORECASE):
+    Execute("bash prebuild.sh {}".format("cv180xx"))
+elif re.search(r'cv181', SOC_TYPE, re.IGNORECASE):
+    Execute("bash prebuild.sh {}".format("cv181xx"))
+
+cvi_mw_isp_daemon = DefineGroup('cvi_mw_isp_daemon', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_isp_daemon')

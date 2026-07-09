@@ -1,0 +1,10 @@
+from building import *
+
+Import('SDK_ROOT', 'CVI_COMMON_PATH', 'HAL_PATH', 'DRIVER_PATH', 'TOOL_PATH', 'TEST_PATH')
+cwd     = GetCurrentDir()
+src     = Glob('*.c') + Glob('*.cpp') + Glob('*.S')
+CPPPATH = [cwd, HAL_PATH]
+
+group = DefineGroup('Board', src, depend = [''], CPPPATH = CPPPATH)
+
+Return('group')

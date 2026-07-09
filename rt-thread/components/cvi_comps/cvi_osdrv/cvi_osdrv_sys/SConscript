@@ -1,0 +1,30 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+CPPPATH += [cwd + r'/../../../libc/posix/ipc']
+#include
+CPPPATH += [cwd]
+CPPPATH += [cwd + r'/uapi/']
+CPPPATH += [cwd +r'/../include/']
+CPPPATH += [cwd + r'/../cvi_osdrv_base']
+CPPPATH += [cwd +r'/../include/common/uapi/']
+CPPPATH += [cwd +r'/../include/common/kapi/']
+CPPPATH += [cwd +r'/../include/chip/cv181x//uapi']
+CPPPATH += [cwd + r'/../cvi_osdrv_base/chip/cv181x/']
+
+print(CPPPATH)
+# src
+src += [r'./cmdq.c']
+src += [r'./cvi_sys_proc.c']
+src += [r'./sys_context.c']
+src += [r'./sys.c']
+src += [r'./vip_sys.c']
+
+print(src)
+cvi_osdrv_sys = DefineGroup('cvi_osdrv_sys', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_osdrv_sys')

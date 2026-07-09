@@ -1,0 +1,23 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd + r'/../include/']
+
+
+print(CPPPATH)
+# src
+src += [r'./src/cvi_vc_drv_proc.c']
+src += [r'./src/cvi_venc.c']
+src += [r'./src/enc_ctx.c']
+
+CPPDEFINES += ['-DUSE_POSIX']
+
+cvi_mw_venc = DefineGroup('cvi_mw_venc', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_venc')

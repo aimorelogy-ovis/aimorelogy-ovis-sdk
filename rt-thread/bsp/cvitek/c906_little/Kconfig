@@ -1,0 +1,148 @@
+mainmenu "RT-Thread Project Configuration"
+
+BSP_DIR := .
+
+RTT_DIR := ../../..
+
+PKGS_DIR := packages
+
+source "$(RTT_DIR)/Kconfig"
+osource "$PKGS_DIR/Kconfig"
+rsource "board/Kconfig"
+
+config BSP_USING_C906_LITTLE
+    bool
+    select ARCH_RISCV64
+    select ARCH_RISCV_FPU_D
+    select RT_USING_SYSTEM_WORKQUEUE
+    select RT_USING_COMPONENTS_INIT
+    select RT_USING_USER_MAIN
+    select RT_USING_CACHE
+    select RT_USING_DEVICE_OPS
+    select RT_USING_HEAP_ISR
+    default y
+
+config BSP_PLIC_PHY_ADDR
+    hex
+    default 0x70000000
+
+config C906_PLIC_PHY_ADDR
+    hex
+    default 0x70000000
+
+config IRQ_MAX_NR
+    int 
+    default 63
+
+config IDLE_THREAD_STACK_SIZE
+	int "The stack size of idle thread"
+	default 2048
+        
+config BSP_TIMER_CLK_FREQ
+    int
+    default 25000000
+
+config BSP_GPIO_IRQ_BASE
+    int
+    default 57
+
+config BSP_SYS_GPIO_IRQ_BASE
+    int
+    default 35
+
+config BSP_SPI_IRQ_BASE
+    int
+    default 54
+
+config BSP_SDIO0_IRQ_BASE
+    int
+    default 0
+
+config BSP_SDIO1_IRQ_BASE
+    int
+    default 44
+
+config BSP_SDIO2_IRQ_BASE
+    int
+    default 0
+
+config SOC_TYPE_CV180X
+    bool
+    default n
+
+config SOC_TYPE_CV181X
+    bool
+    default n
+
+config SOC_TYPE_CV184X
+    bool
+    default n
+
+choice
+    prompt "Board Type"
+    default BOARD_TYPE_CV1842C_WEVB_0015A_SPINOR
+
+    config BOARD_TYPE_CV1842CP_WEVB_0015A_SPINOR
+        select SOC_TYPE_CV184XC_QFN
+        select SOC_TYPE_CV184X
+        select __CV184X__
+        bool "cv1842cp_wevb_0015a_spinor"
+
+    config BOARD_TYPE_CV1842CP_WEVB_0015A_SPINAND
+        select SOC_TYPE_CV184XC_QFN
+        select SOC_TYPE_CV184X
+        select __CV184X__
+        bool "cv1842cp_wevb_0015a_spinand"
+
+    config BOARD_TYPE_CV1842CP_WEVB_0015A_EMMC
+        select SOC_TYPE_CV184XC_QFN
+        select SOC_TYPE_CV184X
+        select __CV184X__
+        bool "cv1842cp_wevb_0015a_emmc"
+endchoice
+
+config BSP_USING_CV18XX
+    bool
+    select ARCH_RISCV64
+    select ARCH_USING_RISCV_COMMON64
+    default y
+
+config MAIN_STACK_SIZE
+    hex "stack size of main stack"
+    default 0x20000
+
+config __STACKSIZE__
+    int "stack size for interrupt"
+    default 4096
+
+config SOC_TYPE_CV180XB_QFN
+    bool
+    default n
+
+config SOC_TYPE_CV181XC_QFN
+    bool
+    default n
+
+config SOC_TYPE_CV181XH_BGA
+    bool
+    default n
+
+config SOC_TYPE_CV184XC_QFN
+    bool
+    default n
+
+config SOC_TYPE_CV184XH_BGA
+    bool
+    default n
+
+config __CV180X__
+    bool
+    default n
+
+config __CV181X__
+    bool
+    default n
+
+config __CV184X__
+    bool
+    default n

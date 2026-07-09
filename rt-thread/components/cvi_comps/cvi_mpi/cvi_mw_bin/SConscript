@@ -1,0 +1,20 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd + r'/../../cvi_osdrv/include/common/uapi/']
+
+
+print(CPPPATH)
+# src
+src += Glob(cwd + r'/src/*.c')
+
+print(src)
+cvi_mw_bin = DefineGroup('cvi_mw_bin', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_bin')

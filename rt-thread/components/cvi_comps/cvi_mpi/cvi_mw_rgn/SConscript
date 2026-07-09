@@ -1,0 +1,22 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd +r'/../include/']
+
+
+print(CPPPATH)
+# src
+src += [r'./src/cmpr_canvas.c']
+src += [r'./src/osd_cmpr.c']
+src += [r'./src/osdc.c']
+# CPPDEFINES += ['-D__CV181X__']
+print(src)
+cvi_mw_rgn = DefineGroup('cvi_mw_rgn', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_rgn')

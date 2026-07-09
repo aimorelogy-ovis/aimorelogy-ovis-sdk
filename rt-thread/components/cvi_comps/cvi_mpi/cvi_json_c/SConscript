@@ -1,0 +1,19 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+
+
+print(CPPPATH)
+# src
+src += Glob(cwd + r'/src/*.c')
+
+print(src)
+cvi_json_c = DefineGroup('cvi_json_c', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_json_c')

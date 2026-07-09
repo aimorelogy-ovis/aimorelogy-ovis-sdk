@@ -1,0 +1,18 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/']
+
+print(CPPPATH)
+# src
+src += Glob('*.cpp') # add cvi_tpu_test here.
+# src += Glob('*.c')
+print(src)
+# import pdb; pdb.set_trace()
+cvi_tpu_test = DefineGroup('cvi_tpu_test', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+Return('cvi_tpu_test')

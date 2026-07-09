@@ -1,0 +1,22 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd +r'/../include/']
+CPPPATH += [cwd + r'/../cvi_mw_vpss/include']
+CPPPATH += [cwd + r'/../cvi_mw_vpu/include']
+
+
+print(CPPPATH)
+# src
+src += [r'./src/cvi_vpss.c']
+src += [r'./src/vpss_ioctl.c']
+print(src)
+cvi_mw_vpss = DefineGroup('cvi_mw_vpss', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_vpss')

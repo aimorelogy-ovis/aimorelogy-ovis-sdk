@@ -1,0 +1,25 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd +r'/../include/']
+CPPPATH += [cwd +r'/../include/isp/cv181x/']
+# CPPPATH += [cwd + r'/../cvi_mw_isp/include']
+CPPPATH += [cwd + r'/../cvi_mw_vpu/include']
+CPPPATH += [cwd + r'/../../cvi_sns/sensor_cfg/']
+
+
+print(CPPPATH)
+# src
+src += [r'./src/cvi_vi.c']
+src += [r'./src/vi_ioctl.c']
+src += [r'./src/dump_register.c']
+print(src)
+cvi_mw_vi = DefineGroup('cvi_mw_vi', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_vi')

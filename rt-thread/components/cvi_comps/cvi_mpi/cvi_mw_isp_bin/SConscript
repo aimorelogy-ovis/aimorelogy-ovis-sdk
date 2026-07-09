@@ -1,0 +1,20 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+
+if GetDepend('CVI_PQ_TOOL_ENABLE'):
+    CPPDEFINES += ['CONFIG_PQTOOL_SUPPORT=1']
+print(CPPPATH)
+# src
+src += Glob(cwd + r'/src/*.c')
+
+print(src)
+cvi_mw_isp_bin = DefineGroup('cvi_mw_isp_bin', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_isp_bin')

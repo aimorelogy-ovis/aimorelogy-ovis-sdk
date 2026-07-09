@@ -1,0 +1,27 @@
+from building import *
+import os
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'../../../../bsp/cvitek/cvi_common/cvi_hal']
+CPPPATH += [cwd + r'/../internal_include']
+# CPPPATH += [cwd + r'/chip/cv180x/']
+CPPPATH += [cwd]
+CPPPATH += [cwd + r'/drv/']
+CPPPATH += [cwd + r'/drv/inc/']
+
+
+print(CPPPATH)
+# src
+src += Glob(r'../../../../bsp/cvitek/cvi_common/cvi_hal/hal_gpio.c')
+src += Glob(r'./drv/*.c')
+src += Glob(r'./*.c')
+#CPPDEFINES += ['-D__CV181X__']
+print(src)
+cvi_osdrv_cif = DefineGroup('cvi_osdrv_cif', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_osdrv_cif')

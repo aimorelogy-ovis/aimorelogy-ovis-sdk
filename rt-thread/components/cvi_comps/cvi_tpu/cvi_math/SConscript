@@ -1,0 +1,20 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd +r'/../include/']
+CPPPATH += [cwd + r'/../cvi_math/']
+CPPPATH += [cwd + r'/../include/cvimath/']
+
+print(CPPPATH)
+# src
+src += Glob('src/*.cpp')
+src += Glob('src/*.c')
+print(src)
+cvi_math = DefineGroup('cvi_math', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+Return('cvi_math')

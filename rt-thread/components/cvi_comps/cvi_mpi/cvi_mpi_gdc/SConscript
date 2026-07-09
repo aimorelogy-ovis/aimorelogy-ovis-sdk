@@ -1,0 +1,24 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+# Add optimization flags as a string
+LOCAL_CCFLAGS = ' -O3'
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd +r'/../include/']
+
+print(CPPPATH)
+# src
+src += [r'./src/cvi_gdc.c']
+src += [r'./src/gdc_mesh.c']
+src += [r'./src/grid_info.c']
+src += [r'./src/ldc_ioctl.c']
+print(src)
+cvi_mw_gdc = DefineGroup('cvi_mw_gdc', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH, LOCAL_CCFLAGS = LOCAL_CCFLAGS)
+
+Return('cvi_mw_gdc')

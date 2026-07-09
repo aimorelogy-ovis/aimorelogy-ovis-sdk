@@ -1,0 +1,23 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+objs = []
+include = []
+group = []
+
+if GetDepend('CVI_MPI_ENABLE'):
+    # Traverse all entries in the current directory
+    for entry in os.listdir(cwd):
+        entry_path = os.path.join(cwd, entry)
+        # Check whther entry is directory
+        if os.path.isdir(entry_path):
+            # Check whether contain SConscript file
+            sconscript = os.path.join(entry_path, 'SConscript')
+            if os.path.isfile(sconscript):
+                # Execute SConscript in subdirectory 
+                objs.extend(SConscript(sconscript))
+    include += [cwd + r'/include/']
+    group = DefineGroup('cvi_mpi', objs, depend = [''], CPPPATH=include)
+    
+Return('group')

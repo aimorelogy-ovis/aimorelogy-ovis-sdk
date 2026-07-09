@@ -1,0 +1,80 @@
+import os
+import sys
+import rtconfig
+
+if os.getenv('RTT_ROOT'):
+    RTT_ROOT = os.getenv('RTT_ROOT')
+else:
+    RTT_ROOT = os.path.normpath(os.getcwd() + '/../../..')
+
+sys.path = sys.path + [os.path.join(RTT_ROOT, 'tools')]
+from building import *
+
+TARGET = 'rtthread.' + rtconfig.TARGET_EXT
+
+DefaultEnvironment(tools=[])
+env = Environment(tools = ['mingw'],
+    AS = rtconfig.AS, ASFLAGS = rtconfig.AFLAGS,
+    CC = rtconfig.CC, CFLAGS = rtconfig.CFLAGS,
+    CXX= rtconfig.CXX, CXXFLAGS = rtconfig.CFLAGS,
+    AR = rtconfig.AR, ARFLAGS = '-rc',
+    LINK = rtconfig.LINK, LINKFLAGS = rtconfig.LFLAGS)
+env.PrependENVPath('PATH', rtconfig.EXEC_PATH)
+
+Export('RTT_ROOT')
+Export('rtconfig')
+
+SDK_ROOT = os.path.abspath('.')
+CVITEK_ROOT = os.path.abspath('..')
+CVI_COMMON_PATH = os.path.join(CVITEK_ROOT, 'cvi_common')
+CVI_PATHS = {
+    'HAL': os.path.join(CVI_COMMON_PATH, 'cvi_hal'),
+    'DRIVER': os.path.join(CVI_COMMON_PATH, 'drivers'),
+    'TOOL': os.path.join(CVI_COMMON_PATH, 'cvi_tool'),
+    'TEST': os.path.join(CVI_COMMON_PATH, 'cvi_test'),
+    'SYS': os.path.join(CVI_COMMON_PATH, 'sys')
+}
+
+HAL_PATH = CVI_PATHS['HAL']
+DRIVER_PATH = CVI_PATHS['DRIVER']
+TOOL_PATH = CVI_PATHS['TOOL']
+TEST_PATH = CVI_PATHS['TEST']
+
+Export('SDK_ROOT', 'CVITEK_ROOT', 'CVI_COMMON_PATH', 'HAL_PATH', 'DRIVER_PATH', 'TOOL_PATH', 'TEST_PATH')
+
+objs = PrepareBuilding(env, RTT_ROOT, has_libcpu=False)
+
+objs.extend(SConscript(
+    os.path.join(CVI_PATHS['DRIVER'], 'SConscript'),
+    variant_dir='build/cvi_common/drivers',
+    duplicate=0
+))
+
+objs.extend(SConscript(
+    os.path.join(CVI_PATHS['TOOL'], 'SConscript'),
+    variant_dir='build/cvi_common/cvi_tool',
+    duplicate=0
+))
+
+objs.extend(SConscript(
+    os.path.join(CVI_PATHS['TEST'], 'SConscript'),
+    variant_dir='build/cvi_common/cvi_test',
+    duplicate=0
+))
+objs.extend(SConscript(
+    os.path.join(CVI_PATHS['SYS'], 'SConscript'),
+    variant_dir='build/cvi_common/sys',
+    duplicate=0
+))
+
+# Change the link script if target not cv184x
+if GetDepend('SOC_TYPE_CV180X'):
+    env['LINKFLAGS'] = env['LINKFLAGS'].replace('cv184x_lscript.ld', 'cv180x_lscript.ld')
+    env['LINKFLAGS'] = env['LINKFLAGS'].replace('-L board/script/cv184x', '-L board/script/cv180x')
+
+if GetDepend('SOC_TYPE_CV181X'):
+    env['LINKFLAGS'] = env['LINKFLAGS'].replace('cv184x_lscript.ld', 'cv181x_lscript.ld')
+    env['LINKFLAGS'] = env['LINKFLAGS'].replace('-L board/script/cv184x', '-L board/script/cv181x')
+
+# make a building
+DoBuilding(TARGET, objs)

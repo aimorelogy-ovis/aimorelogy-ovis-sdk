@@ -1,0 +1,51 @@
+from building import *
+Import('SOC_TYPE')
+# Parse SOC_TYPE to get chip series
+chip_series = "cv181x" if "181" in SOC_TYPE else "cv180x"
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+# Add optimization flags as a string
+# LOCAL_CCFLAGS = ' -O3'
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd + r'/../include/runtime']
+CPPPATH += [cwd +r'/../include/']
+
+CPPPATH += [cwd +r'/src/soc/common']
+CPPPATH += [cwd +r'/src/soc/cv181x/']
+CPPPATH += [cwd +r'/src/soc/cv180x/']
+CPPPATH += [cwd +r'/src/common']
+CPPPATH += [cwd +r'/include/common']
+CPPPATH += [cwd +r'/include/third']
+CPPPATH += [cwd +r'/include/third/flatbuffers/include/']
+
+CPPPATH += [cwd +r'']
+print(CPPPATH)
+
+src += Glob('src/soc/*.cpp')
+src += Glob('src/soc/common/*.cpp')
+src += Glob('src/common/*.cpp')
+src += Glob('src/common/kernel_function/*.cpp')
+src += Glob('src/common/cpu_function/*.cpp')
+
+
+if chip_series == "cv181x" :
+    src += Glob('src/soc/cv181x/*.cpp')
+    src += Glob('src/soc/cv181x/*.c')
+    # src += Glob('test/181x/*.c')
+
+if chip_series == "cv180x" :
+    src += Glob('src/soc/cv180x/*.cpp')
+    src += Glob('src/soc/cv180x/*.c')
+    # src += Glob('test/180x/*.c')
+
+
+print(src)
+
+cvi_runtime = DefineGroup('cvi_runtime', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+Return('cvi_runtime')

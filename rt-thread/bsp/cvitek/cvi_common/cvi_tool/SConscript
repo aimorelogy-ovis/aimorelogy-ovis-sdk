@@ -1,0 +1,24 @@
+from building import *
+import os
+
+cwd = GetCurrentDir()
+
+src = []
+
+CPPPATH = [cwd]
+
+if GetDepend('BSP_USING_DRIVER_TOOL'):
+    src += Glob('devmem_tool.c')
+    if GetDepend('BSP_USING_PINMUX'):
+        if GetDepend('SOC_TYPE_CV180XB_QFN'):
+            src += Glob('cvi_pinmux/chip_cv180x/cvi_pinmux.c')
+        if GetDepend('SOC_TYPE_CV181XC_QFN') or GetDepend('SOC_TYPE_CV181XH_BGA'):
+            src += Glob('cvi_pinmux/chip_cv181x/cvi_pinmux.c')
+        if GetDepend('SOC_TYPE_CV184XC_QFN') or GetDepend('SOC_TYPE_CV184XH_BGA'):
+            src += Glob('cvi_pinmux/chip_cv184x/cvi_pinmux.c')
+        if GetDepend('BSP_USING_I2C_TOOL'):
+            src += Glob('i2c_tool.c')
+
+group = DefineGroup('cvi_tools', src, depend=[''], CPPPATH=CPPPATH)
+
+Return('group')

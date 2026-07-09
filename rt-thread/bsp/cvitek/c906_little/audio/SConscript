@@ -1,0 +1,8 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = [r'./src/aud_task.c']
+LOCAL_CPPPATH = [r'./include/']
+LIBPATH = [r'./../../../components/cvi_comps/cvi_mpi/cvi_mw_audio/lib']
+audio_task = DefineGroup('audio_task', src, depend = [''], LOCAL_CPPPATH = LOCAL_CPPPATH, LIBS=['ssp'], LIBPATH=LIBPATH)
+Return('audio_task')

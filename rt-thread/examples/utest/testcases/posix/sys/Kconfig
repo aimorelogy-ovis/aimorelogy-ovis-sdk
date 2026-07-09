@@ -1,0 +1,3 @@
+rsource "mman_h/Kconfig"
+rsource "shm_h/Kconfig"
+rsource "utsname_h/Kconfig"

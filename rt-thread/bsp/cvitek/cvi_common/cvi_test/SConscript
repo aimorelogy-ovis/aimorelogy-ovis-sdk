@@ -1,0 +1,36 @@
+from building import *
+import os
+
+cwd = GetCurrentDir()
+
+src = []
+
+CPPPATH = [cwd]
+
+if GetDepend('BSP_USING_SELFTEST'):
+    if GetDepend('BSP_TEST_GPIO'):
+        src += Glob('bsp/gpio_test.c')
+    if GetDepend('BSP_TEST_SPI'):
+        src += Glob('bsp/spi_loopback_test.c')
+    if GetDepend('BSP_TEST_TPU'):
+        src += Glob('bsp/tpu_tdma_test.c')
+    if GetDepend('BSP_TEST_UART'):
+        src += Glob('bsp/uart_test.c')
+    if GetDepend('BSP_TEST_SD'):
+        src += Glob('bsp/sd_test.c')
+    if GetDepend('BSP_TEST_WDT'):
+        src += Glob('bsp/wdt_test.c')
+    if GetDepend('BSP_TEST_TIMER'):
+        src += Glob('bsp/timer_test.c')
+    if GetDepend('BSP_TEST_ADC'):
+        src += Glob('bsp/adc_test.c')
+    if GetDepend('BSP_TEST_PWM'):
+        src += Glob('bsp/pwm_test.c')
+    if GetDepend('BSP_TEST_RTC'):
+        src += Glob('bsp/rtc_test.c')
+    if GetDepend('BSP_TEST_DMA'):
+        src += Glob('bsp/dma_test.c')
+
+group = DefineGroup('cvi_test', src, depend=[''], CPPPATH=CPPPATH)
+
+Return('group')

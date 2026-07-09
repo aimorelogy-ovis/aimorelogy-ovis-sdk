@@ -1,0 +1,9 @@
+cvitek_bootloader
+fip.bin
+boot.sd
+output
+Image.lzma
+rtthread.asm
+*.config
+c906_little/board/script/memmap/*
+!c906_little/board/script/memmap/.gitkeep

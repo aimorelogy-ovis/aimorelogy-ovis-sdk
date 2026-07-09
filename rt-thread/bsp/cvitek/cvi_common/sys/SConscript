@@ -1,0 +1,9 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src =Glob("heartbeat.c")
+CPPPATH = [cwd]
+
+group = DefineGroup('Heartbeat', src, depend = [''], CPPPATH = CPPPATH)
+
+Return('group')

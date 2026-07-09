@@ -1,0 +1,28 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+# rtt include
+CPPPATH += [cwd + r'/../../../libc/posix/pthreads']
+
+#include
+CPPPATH += [cwd]
+CPPPATH += [cwd + r'/chip/cv181x/']
+CPPPATH += [cwd + r'/../internal_include']
+CPPPATH += [cwd + r'/../include/common/uapi']
+CPPPATH += [cwd + r'/../include/common/kapi']
+CPPPATH += [cwd + r'/../include/chip/cv181x/uapi']
+CPPPATH += [cwd + r'/../../../../bsp/cvitek/cvi_commno/drivers/libraries/']
+
+print(CPPPATH)
+# src
+src += Glob(r'./*.c')
+src += Glob(r'./chip/cv181x/*.c')
+# CPPDEFINES += ['-DCONFIG_64BIT']
+print(src)
+cvi_osdrv_base = DefineGroup('cvi_osdrv_base', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_osdrv_base')

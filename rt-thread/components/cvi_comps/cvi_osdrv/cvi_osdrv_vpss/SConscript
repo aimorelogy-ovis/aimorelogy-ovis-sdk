@@ -1,0 +1,54 @@
+from building import *
+
+# Import SOC_TYPE from upper level SConscript
+Import('SOC_TYPE')
+
+# Parse SOC_TYPE to get chip series
+chip_series = "cv181x" if "181" in SOC_TYPE else "cv180x"
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+# # rtt include (path: rt-thread/components/libc/posix/pthreads)
+CPPPATH += [cwd + r'/../../../libc/posix/pthreads']
+CPPPATH += [cwd + r'/../../../libc/posix/ipc']
+
+# include
+CPPPATH += [cwd]
+CPPPATH += [cwd + r'/../internal_include']
+# CPPPATH += [cwd + r'/chip/cv180x/']
+# CPPPATH += [cwd + r'/chip/cv181x/']
+CPPPATH += [cwd + r'/chip/' + chip_series + '/']
+CPPPATH += [cwd + r'/../include']
+CPPPATH += [cwd + r'/../include/common/uapi']
+CPPPATH += [cwd + r'/../include/common/kapi']
+
+# CPPPATH += [cwd + r'/../cvi_osdrv_base/chip/cv181x/']
+# CPPPATH += [cwd + r'/../cvi_osdrv_ldc/chip/cv181x/']
+CPPPATH += [cwd + r'/../cvi_osdrv_base/chip/' + chip_series + '/']
+CPPPATH += [cwd + r'/../cvi_osdrv_ldc/chip/' + chip_series + '/']
+CPPPATH += [cwd + r'/../cvi_osdrv_base/']
+CPPPATH += [cwd + r'/../cvi_osdrv_sys/uapi']
+
+# to do: add chip include path
+# CPPPATH += [cwd + r'/../include/chip/<CVI_SOC_NAME>/uapi']
+# CPPPATH += [cwd + r'/../include/chip/cv180x/uapi']
+# CPPPATH += [cwd + r'/../include/chip/cv181x/uapi']
+CPPPATH += [cwd + r'/../include/chip/' + chip_series + '/uapi']
+
+# src
+# src += Glob(r'./chip/cv181x/*.c')
+src += Glob(r'./chip/{}/*.c'.format(chip_series))
+src += [r'./cvi_vip_vpss_proc.c']
+src += [r'./vpss_os_ioctl.c']
+src += [r'./vpss_rgn_ctrl.c']
+src += [r'./vpss.c']
+
+
+# CPPDEFINES += ['-DUSE_POSIX']
+
+cvi_osdrv_vpss = DefineGroup('cvi_osdrv_vpss', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_osdrv_vpss')

@@ -1,0 +1,33 @@
+from building import *
+Import('SOC_TYPE')
+
+# Parse SOC_TYPE to get chip series
+chip_series = "cv181x" if "181" in SOC_TYPE else "cv180x"
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+
+#internal_include
+CPPPATH += [cwd +r'/src/']
+CPPPATH += [cwd + r'/src/bm1822']
+CPPPATH += [cwd + r'/src/cv181x']
+
+print(CPPPATH)
+# src
+src += Glob('src/*.c')
+src += Glob('src/bm1822/*.c')
+
+if chip_series == "cv181x" :
+    src += Glob('src/cv181x/*.cpp')
+    src += Glob('src/cv181x/*.c')
+
+if chip_series == "cv180x" :
+    src += Glob('src/cv180x/*.cpp')
+    src += Glob('src/cv180x/*.c')
+cvi_kernel = DefineGroup('cvi_kernel', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_kernel')

@@ -1,0 +1,22 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/sensor_i2c/']
+CPPPATH += [cwd + r'../../../../bsp/cvitek/cvi_common/cvi_hal']
+
+
+print(CPPPATH)
+# src
+src += Glob(r'../../../../bsp/cvitek/cvi_common/cvi_hal/hal_i2c.c')
+src += Glob(r'./gcore_gc2053/*.c')
+src += Glob(r'./sensor_cfg/*.c')
+src += Glob(r'./sensor_i2c/*.c')
+print(src)
+cvi_sns = DefineGroup('cvi_sns', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_sns')

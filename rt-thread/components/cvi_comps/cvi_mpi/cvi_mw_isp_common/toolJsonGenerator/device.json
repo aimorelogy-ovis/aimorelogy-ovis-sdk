@@ -1,0 +1,26 @@
+    "DEVICE": {
+        "FULL_NAME": "cv180x",
+        "CODE_NAME": "cv180x",
+        "SDK_VERSION": "20250218",
+        "GENERATOR_VERSION": "(I2db8c42,8fa5a9ce)",
+        "ISP_VERSION": "(Iaa68769,a871ba61)",
+        "ISP_BRANCH": "master",
+        "COMM_PROTOCOL": "1.0",
+        "ROUTES": {
+            "ROUTE": [
+                {
+                    "ID": "Route 0",
+                    "NUMBER": 0,
+                    "DEFAULT": true
+                }
+            ]
+        },
+        "PARAMETERS": {
+            "PARAM": [
+                {
+                    "KEY": "Vendor",
+                    "VALUE": "CVITEK"
+                }
+            ]
+        }
+    },

@@ -1,0 +1,21 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+# CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd + r'/cvi_mw_isp_com_raw_replay/include/']
+
+
+print(CPPPATH)
+# src
+# src += Glob(cwd + r'/cvi_mw_isp_com_raw_dump/src/*.c')
+src += Glob(cwd + r'/cvi_mw_isp_com_raw_replay/src/*.c')
+
+print(src)
+cvi_mw_isp_common = DefineGroup('cvi_mw_isp_common', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_isp_common')

@@ -1,0 +1,24 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd +r'/../include/']
+
+
+print(CPPPATH)
+# src
+src += [r'./src/cvi_base.c']
+src += [r'./src/cvi_sys.c']
+src += [r'./src/cvi_vb.c']
+src += [r'./src/sys_ioctl.c']
+src += [r'./src/vb_ioctl.c']
+src += [r'./src/proc/cvi_log_proc.c']
+print(src)
+cvi_mw_sys = DefineGroup('cvi_mw_sys', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_mw_sys')

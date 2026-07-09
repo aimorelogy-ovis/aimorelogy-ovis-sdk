@@ -1,0 +1,20 @@
+from building import *
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+#include
+CPPPATH += [cwd + r'/include/']
+CPPPATH += [cwd +r'/../comm/']
+CPPPATH += [cwd +r'/../../../../components/cvi_comps/cvi_mpi/cvi_mw_rgn/include/']
+CPPPATH += [cwd +r'/../../../../components/cvi_comps/cvi_osdrv/include/common/uapi/']
+CPPPATH += [cwd +r'/../../../../components/cvi_comps/cvi_osdrv/include/chip/cv181x/uapi/']
+
+# src
+src += [r'./src/rgn_main.c']
+
+rgn_osdc = DefineGroup('rgn_osdc', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('rgn_osdc')

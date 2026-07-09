@@ -1,0 +1,40 @@
+from building import *
+
+# Import SOC_TYPE from upper level SConscript
+Import('SOC_TYPE')
+
+# Parse SOC_TYPE to get chip series
+chip_series = "cv181x" if "181" in SOC_TYPE else "cv180x"
+
+cwd     = GetCurrentDir()
+src     = []
+CPPDEFINES = []
+CPPPATH = []
+
+# rtt include
+CPPPATH += [cwd + r'/../../../../include/']
+
+#include
+CPPPATH += [cwd]
+CPPPATH += [cwd + r'/common/']
+CPPPATH += [cwd + r'/chip/' + chip_series + '/']
+CPPPATH += [cwd + r'/chip/' + chip_series + '/proc/']
+CPPPATH += [cwd + r'/../internal_include']
+CPPPATH += [cwd + r'/../include/common/uapi/']
+CPPPATH += [cwd + r'/../include/common/kapi/']
+CPPPATH += [cwd + r'/../include/chip/' + chip_series + '/uapi']
+
+CPPPATH += [cwd + r'/../cvi_osdrv_base/']
+CPPPATH += [cwd + r'/../../../../libcpu/risc-v/rv64/']
+
+print(CPPPATH)
+# src
+src += [r'./chip/' + chip_series + '/rgn.c']
+src += [r'./chip/' + chip_series + '/proc/rgn_proc.c']
+src += [r'./common/rgn_core.c']
+# CPPDEFINES += ['-D__CV181X__']
+
+print(src)
+cvi_osdrv_rgn = DefineGroup('cvi_osdrv_rgn', src, depend = [''], CPPDEFINES = CPPDEFINES, CPPPATH = CPPPATH)
+
+Return('cvi_osdrv_rgn')

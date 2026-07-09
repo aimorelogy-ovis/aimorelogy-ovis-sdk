@@ -1,0 +1,20 @@
+# for module compiling
+import os
+import multiprocessing
+from building import *
+
+# Get the number of CPU cores
+cpu_count = multiprocessing.cpu_count()
+# Set the number of jobs
+SetOption('num_jobs', cpu_count)
+
+cwd = GetCurrentDir()
+objs = []
+list = os.listdir(cwd)
+
+for d in list:
+    path = os.path.join(cwd, d)
+    if os.path.isfile(os.path.join(path, 'SConscript')):
+        objs = objs + SConscript(os.path.join(d, 'SConscript'))
+
+Return('objs')
