@@ -1,0 +1,1 @@
+../../../driver/include/ipcm_plat_adapter_common.h
