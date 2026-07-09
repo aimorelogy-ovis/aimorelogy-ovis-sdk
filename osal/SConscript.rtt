@@ -1,0 +1,16 @@
+from building import *
+import os
+
+cwd = GetCurrentDir()
+
+src = Glob(os.path.join(cwd, './src/rtt/*.c'))
+src += Glob(os.path.join(cwd, './test/*.c'))
+
+CPPPATH = [cwd]
+CPPPATH += [os.path.join(cwd, './test')]
+CPPPATH += [os.path.join(cwd, './include')]
+CPPPATH += [os.path.join(cwd, './include/module')]
+
+group = DefineGroup('Osal', src, depend=['CVI_OSAL_ENABLE'], CPPPATH=CPPPATH)
+
+Return('group')

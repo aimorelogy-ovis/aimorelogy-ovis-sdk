@@ -1,0 +1,33 @@
+SHELL=/bin/bash
+
+CONFIG_BUILD_TEST = 0
+
+SRC_DIR = src/linux/kernel
+SRC = $(PWD)/$(SRC_DIR)
+SRCS = $(notdir $(wildcard $(SRC)/*.c))
+OBJS = $(patsubst %.c,$(SRC_DIR)/%.o,$(SRCS))
+
+$(CHIP_ARCH_L)_osal-objs = $(OBJS)
+obj-m += $(CHIP_ARCH_L)_osal.o
+
+ifeq ($(CONFIG_BUILD_TEST), 1)
+TEST_DIR = test
+TEST = $(PWD)/$(TEST_DIR)
+TEST_SRCS = $(notdir $(wildcard $(TEST)/*.c))
+TEST_OBJS = $(patsubst %.c,$(TEST_DIR)/%.o,$(TEST_SRCS))
+$(CHIP_ARCH_L)_osal_test-objs = $(TEST_OBJS)
+obj-m += $(CHIP_ARCH_L)_osal_test.o
+endif
+
+ccflags-y += -I$(PWD)/include -I$(SRC) -I$(PWD)/include/module -I$(PWD)/test
+ccflags-y += -std=gnu99
+ccflags-y += -Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare
+
+all:
+	$(MAKE) ARCH=$(ARCH) -C $(KERNEL_DIR) M=$(PWD) modules
+
+
+clean:
+	@rm -f *.o .*.cmd modules.order Module.symvers *.ko *.mod *.mod.c
+	@rm -rf .tmp_versions
+	@find . -name \*.o* -type f -delete
