@@ -1,0 +1,121 @@
+#ifndef PANELS_DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_H
+#define PANELS_DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_H
+
+#include "panel_platform.h"
+
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_VACT 1024
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_VSA 3
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_VBP 5
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_VFP 7
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_HACT 600
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_HSA 20
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_HBP 20
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_HFP 90
+#define DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_FPS 60
+struct combo_dev_cfg_s dev_cfg_dsi_3aml069lp01g_600x1024_NULL_4lane_60fps = {
+    .devno = 0,
+    .lane_id = { MIPI_TX_LANE_0, MIPI_TX_LANE_1, MIPI_TX_LANE_CLK,
+        MIPI_TX_LANE_2, MIPI_TX_LANE_3 },
+    .lane_pn_swap = { false, false, false, false, false },
+    .output_mode = OUTPUT_MODE_DSI_VIDEO,
+    .video_mode = BURST_MODE,
+    .output_format = OUT_FORMAT_RGB_24_BIT,
+    .sync_info = {
+        .vid_hsa_pixels = DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_HSA,
+        .vid_hbp_pixels = DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_HBP,
+        .vid_hfp_pixels = DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_HFP,
+        .vid_hline_pixels = DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_HACT,
+        .vid_vsa_lines = DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_VSA,
+        .vid_vbp_lines = DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_VBP,
+        .vid_vfp_lines = DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_VFP,
+        .vid_active_lines = DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_VACT,
+        .vid_vsa_pos_polarity = false,
+        .vid_hsa_pos_polarity = true,
+    },
+    .pixel_clk = PIXEL_CLK(DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS),
+};
+
+struct hs_settle_s hs_timing_cfg_dsi_3aml069lp01g_600x1024_NULL_4lane_60fps = {
+    .prepare = 6,
+    .zero = 32,
+    .trail = 1,
+};
+
+struct dsc_instr dsi_init_cmds_dsi_3aml069lp01g_600x1024_NULL_4lane_60fps[] = {
+    DSI_CMD(0, 0xee, 0x50),
+    DSI_CMD(0, 0xea, 0x85, 0x55),
+    DSI_CMD(0, 0x24, 0x20),
+    DSI_CMD(0, 0x30, 0x00),
+    DSI_CMD(0, 0x39, 0x02, 0x07, 0x10),
+    DSI_CMD(0, 0x79, 0x00),
+    DSI_CMD(0, 0x7b, 0x00),
+    DSI_CMD(0, 0x7a, 0x00),
+    DSI_CMD(0, 0x90, 0x50, 0xc0),
+    DSI_CMD(0, 0x93, 0x80),
+    DSI_CMD(0, 0x95, 0x74),
+    DSI_CMD(0, 0x97, 0x37),
+    DSI_CMD(0, 0x99, 0x00),
+    DSI_CMD(0, 0x56, 0x83),
+    DSI_CMD(0, 0x33, 0x83),
+    DSI_CMD(0, 0x34, 0x3f),
+    DSI_CMD(0, 0xee, 0x60),
+    DSI_CMD(0, 0x30, 0x03),
+    DSI_CMD(0, 0x32, 0xd9),
+    DSI_CMD(0, 0x3b, 0x00),
+    DSI_CMD(0, 0x3c, 0x07),
+    DSI_CMD(0, 0x3d, 0x11),
+    DSI_CMD(0, 0x3e, 0x94),
+    DSI_CMD(0, 0x42, 0x55),
+    DSI_CMD(0, 0x43, 0x55),
+    DSI_CMD(0, 0x86, 0x20),
+    DSI_CMD(0, 0x8b, 0x90),
+    DSI_CMD(0, 0x8d, 0x40),
+    DSI_CMD(0, 0x91, 0x11),
+    DSI_CMD(0, 0x92, 0x11),
+    DSI_CMD(0, 0x93, 0x9f),
+    DSI_CMD(0, 0x9a, 0x07),
+    DSI_CMD(0, 0x9b, 0x02, 0x00),
+    DSI_CMD(0, 0x47, 0x05, 0x1e, 0x2f, 0x39, 0x40),
+    DSI_CMD(0, 0x5a, 0x05, 0x1e, 0x2f, 0x39, 0x40),
+    DSI_CMD(0, 0x4c, 0x53, 0x4a, 0x5d, 0x40, 0x40),
+    DSI_CMD(0, 0x5f, 0x53, 0x4a, 0x5d, 0x40, 0x40),
+    DSI_CMD(0, 0x51, 0x42, 0x29, 0x3e, 0x3d, 0x48),
+    DSI_CMD(0, 0x64, 0x42, 0x29, 0x3e, 0x3d, 0x48),
+    DSI_CMD(0, 0x56, 0x4c, 0x57, 0x66, 0x7f),
+    DSI_CMD(0, 0x56, 0x4c, 0x57, 0x66, 0x7f),
+    DSI_CMD(0, 0xee, 0x70),
+    DSI_CMD(0, 0x00, 0x01, 0x04, 0x00, 0x01),
+    DSI_CMD(0, 0x04, 0x06, 0x09, 0x44, 0x01),
+    DSI_CMD(0, 0x0c, 0x05, 0x2d),
+    DSI_CMD(0, 0x10, 0x05, 0x09, 0x00, 0x00, 0x00),
+    DSI_CMD(0, 0x15, 0x00, 0x19, 0x0c, 0x08, 0x00),
+    DSI_CMD(0, 0x20, 0x01, 0x05, 0x00, 0x00, 0x00),
+    DSI_CMD(0, 0x25, 0x00, 0x15, 0x0c, 0x07, 0x00),
+    DSI_CMD(0, 0x29, 0x05, 0x2d),
+    DSI_CMD(0, 0x45, 0x01),
+    DSI_CMD(0, 0x46, 0xff, 0x00, 0x00, 0x00, 0x50),
+    DSI_CMD(0, 0x4b, 0x88),
+    DSI_CMD(0, 0x60, 0x3c, 0x05, 0x07, 0x19, 0x1d),
+    DSI_CMD(0, 0x65, 0x1b, 0x1f, 0x11, 0x11, 0x3c),
+    DSI_CMD(0, 0x6a, 0x3c, 0x3c, 0x3c, 0x15, 0x15),
+    DSI_CMD(0, 0x6f, 0x13, 0x13, 0x17, 0x17, 0x01),
+    DSI_CMD(0, 0x74, 0x03, 0x3c),
+    DSI_CMD(0, 0x80, 0x3c, 0x04, 0x06, 0x18, 0x1c),
+    DSI_CMD(0, 0x85, 0x1a, 0x1e, 0x10, 0x10, 0x3c),
+    DSI_CMD(0, 0x8a, 0x3c, 0x3c, 0x3c, 0x14, 0x14),
+    DSI_CMD(0, 0x8f, 0x12, 0x12, 0x16, 0x16, 0x00),
+    DSI_CMD(0, 0x94, 0x02, 0x3c),
+    DSI_CMD(0, 0xea, 0x00, 0x00),
+    DSI_CMD(0, 0xee, 0x00),
+    DSI_CMD(120, 0x11),
+    DSI_CMD(120, 0x29),
+    DSI_CMD(0, 0xee, 0x60),
+    DSI_CMD(200, 0xea, 0x7a, 0xaa),
+    DSI_CMD(0, 0x21, 0x10),
+    DSI_CMD(40, 0x11),
+    DSI_CMD(1, 0x29),
+};
+
+#else
+#error "MIPI_TX_PARAM multi-declaration!!"
+#endif // PANELS_DSI_3AML069LP01G_600X1024_NULL_4LANE_60FPS_H
