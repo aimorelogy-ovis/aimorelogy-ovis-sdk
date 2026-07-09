@@ -1,0 +1,5 @@
+source "build/toolchain/Kconfig"
+source "build/platform/Kconfig"
+source "build/module/Kconfig"
+source "build/resource/Kconfig"
+source "build/peripheral/Kconfig"

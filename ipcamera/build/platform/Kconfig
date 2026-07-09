@@ -1,0 +1,24 @@
+menu "platform options"
+
+config MULTI_PROCESS_SUPPORT
+	bool "mulit procees support"
+	help
+		"enable mulit procees"
+
+config STATIC_COMPILER_SUPPORT
+	bool "static compiler support"
+	help
+		"enable static compier"
+
+config SUPPORT_ATOMIC
+	bool "support atomic"
+	help
+		"enable atomic"
+
+config SDK_DIR
+	string "config sdk path"
+	default ""
+	help
+		"Config SDK path default use TOP_DIR"
+
+endmenu

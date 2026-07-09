@@ -1,0 +1,315 @@
+menu "module options"
+
+comment "Select module functions"
+
+
+config MODULE_MEDIA
+	bool "enable module media"
+	default y
+	help
+		enable media in applicant
+
+config MODULE_MEDIA_SYS
+	bool "enable module media sys"
+	default y
+	depends on MODULE_MEDIA
+	help
+		enable media sys in applicant
+
+config MODULE_MEDIA_VI
+	bool "enable module media vi"
+	default y
+	depends on MODULE_MEDIA
+	help
+		enable media vi in applicant
+
+config MODULE_MEDIA_VPSS
+	bool "enable module media vpss"
+	default y
+	depends on MODULE_MEDIA
+	help
+		enable media vpss in applicant
+
+config MODULE_MEDIA_VENC
+	bool "enable module media venc"
+	default y
+	depends on MODULE_MEDIA
+	help
+		enable media venc in applicant
+
+config MODULE_MEDIA_VO
+	bool "enable module media vo"
+	default n
+	depends on MODULE_MEDIA
+	help
+		enable media vo in applicant
+
+config MODULE_MEDIA_DEC
+	bool "enable module vdec(hard)"
+	default n
+	depends on MODULE_MEDIA
+	help
+		enable media vdec in applicant
+
+config MODULE_MEDIA_OSD
+	bool "enable module media osd"
+	depends on MODULE_MEDIA
+	default n
+	help
+		enable media osd in applicant
+
+config MODULE_MEDIA_AUDIO
+	bool "enable module audio"
+	default n
+	depends on MODULE_MEDIA
+	help
+		enable audio in applicant
+
+config MODULE_AUDIO_MP3
+	bool "enable module audio mp3"
+	default n
+	depends on MODULE_MEDIA_AUDIO && MODULE_MEDIA
+	help
+		enable audio mp3 in applicant
+
+config MODULE_PROTOCOL
+	bool "enable module protocol"
+	default n
+	help
+		enable protocol in applicant
+
+config MODULE_CVIUAC
+	bool "enale module uac"
+	default n
+	select MODULE_PROTOCOL
+	help 
+		enable uac in applicant
+
+config MODULE_CVIUVC
+	bool "enale module uvc"
+	default n
+	depends on !MODULE_CVIUVC_HOST
+	select MODULE_PROTOCOL
+	help 
+		enable uvc in applicant
+
+config MODULE_CVIUVC_HOST
+	bool "enale module uvc host"
+	default n
+	select MODULE_PROTOCOL
+	help
+		enable uvc host in applicant
+
+config MODULE_MEDIA_MSG
+	bool "enale module msg"
+	default n
+	depends on MODULE_MEDIA
+	help
+		enable msg in applicant
+
+config MODULE_MEDIA_EFUSE
+	bool "enale module efuse"
+	default n
+	depends on MODULE_MEDIA
+	help
+		enable efuse in applicant
+
+config MODULE_MEDIA_ANONMSG
+	bool "enale module ipcm anonymous"
+	default n
+	depends on MODULE_MEDIA
+	help
+		enable ipcm anonymous in applicant
+
+config MODULE_NETWORK
+	bool "enable module network"
+	default n
+	select MODULE_PROTOCOL
+	help 
+		enable network in appllicant, support web
+
+config MODULE_RTSP
+	bool "enable module rtsp"
+	default n
+	depends on MODULE_MEDIA && MODULE_MBUF 
+	select MODULE_PROTOCOL
+	help
+		enable rtsp in applicant
+
+config RTSP_AUDIO_ENABLE
+	bool "enable rtsp audio stream"
+	default n
+	depends on MODULE_RTSP && MODULE_MEDIA_AUDIO
+	help
+		enable audio streaming for rtsp when audio module is enabled
+
+config MODULE_OTA
+	bool "enable module ota"
+	default n
+	select MODULE_PROTOCOL
+	help 
+		enable ota in appllicant
+
+config MODULE_DISPLAY
+	bool "enable module display"
+	default n
+	help
+		enable display in applicant
+
+config MODULE_AI
+	bool "enable module ai"
+	default n
+	help
+		enable ai in applicant
+
+config MODULE_AI_MD
+	bool "enable module ai md"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai motion detect in applicant
+
+config MODULE_AI_PD
+	bool "enable module ai pd"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai people detect in applicant
+
+config MODULE_AI_FD_FACE
+	bool "enable module ai fd face"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai face detect in applicant
+	
+config MODULE_AI_IRFAECE
+	bool "enable module ai ir face detect"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai ir face detect in applicant
+
+config MODULE_AI_BABYCRY
+	bool "enable module ai babycry"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai babycry in applicant
+
+config MODULE_AI_HUMAN_KEYPOINT
+	bool "enable module ai human keypoint detect"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai human keypoint detect in applicant
+
+config MODULE_AI_OBJECT_TRACK
+	bool "enable module ai object tracking"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai object tracking in applicant
+		
+config MODULE_AI_KEYPOINT_HAND_GESTURE
+	bool "enable module ai keypoint hand gesture detect"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai keypoint hand gesture detect in applicant
+
+config MODULE_AI_IMG_TXT_CLIP
+	bool "enable module ai img txt clip"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai img txt clip in applicant
+
+config MODULE_AI_LPR
+	bool "enable module ai lpr"
+	default n
+	depends on MODULE_AI
+	help
+		enable ai license plate recognition in applicant
+config MODULE_PERIPHERAL
+	bool "enable module peripheral"
+	default n
+	help
+		enable peripheral in applicant
+
+config MODULE_ADC
+	bool "enable module adc"
+	default n
+	depends on MODULE_PERIPHERAL
+	help
+		enable adc peripheral in applicant
+
+config MODULE_GPIO
+	bool "enable module gpio"
+	default n
+	depends on MODULE_PERIPHERAL
+	help
+		enable gpio peripheral in applicant
+
+config MODULE_IRCUT
+	bool "enable module ircut"
+	default n
+	depends on MODULE_PERIPHERAL
+	help
+		enable ircut peripheral in applicant
+
+config MODULE_PWM
+	bool "enable module pwm"
+	default n
+	depends on MODULE_PERIPHERAL
+	help
+		enable pwm peripheral in applicant
+
+config MODULE_PQTOOL
+	bool "enable module pqtool"
+	default n
+	depends on MODULE_MEDIA
+	help
+		enable pqtool in applicant
+
+config MODULE_RECORD
+	bool "enable module record"
+	default n
+	help
+		enable record in applicant
+
+config MODULE_COMMON
+	bool "enable module common"
+	default y
+	help
+		enable common in applicant
+
+config MODULE_PARAMPARSE
+	bool "enable module paramprase"
+	default y
+	depends on MODULE_COMMON && MODULE_MININI
+	help
+		enable paramprase in applicant
+
+config MODULE_CJSON
+	bool "eanble module cjson"
+	default n
+	depends on MODULE_COMMON
+	help
+		enable cjson in applicant
+
+config MODULE_MININI
+	bool "eanble module minini"
+	default n
+	depends on MODULE_COMMON
+	help
+		enable minini in applicant
+
+config MODULE_MBUF
+	bool "eanble module mbuf"
+	default n
+	depends on MODULE_COMMON
+	help
+		enable mbuf in applicant
+
+endmenu

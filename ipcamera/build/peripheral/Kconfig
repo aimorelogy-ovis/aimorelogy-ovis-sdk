@@ -1,0 +1,67 @@
+menu "peripheral support list"
+
+menu "panel support list"
+
+config MIPI_PANEL_HX8394
+bool "MIPI_PANEL_HX8394"
+help
+	"enable MIPI_PANEL_HX8394"
+
+config MIPI_PANEL_ILI9881C
+bool "MIPI_PANEL_ILI9881C"
+help
+	"enable MIPI_PANEL_ILI9881C"
+
+config MIPI_PANEL_ILI9881D
+bool "MIPI_PANEL_ILI9881D"
+help
+	"enable MIPI_PANEL_ILI9881D"
+
+config MIPI_PANEL_JD9366AB
+bool "MIPI_PANEL_JD9366AB"
+help
+	"enable MIPI_PANEL_JD9366AB"
+
+config MIPI_PANEL_NT35521
+bool "MIPI_PANEL_NT35521"
+help
+	"enable MIPI_PANEL_NT35521"
+
+config MIPI_PANEL_OTA7290B
+bool "MIPI_PANEL_OTA7290B"
+help
+	"enable MIPI_PANEL_OTA7290B"
+
+config MIPI_PANEL_OTA7290B_1920
+bool "MIPI_PANEL_OTA7290B_1920"
+help
+	"enable MIPI_PANEL_OTA7290B_1920"
+
+config MIPI_PANEL_ICN9707
+bool "MIPI_PANEL_ICN9707"
+help
+	"enable MIPI_PANEL_ICN9707"
+
+config MIPI_PANEL_3AML069LP01G
+bool "MIPI_PANEL_3AML069LP01G"
+help
+	"enable MIPI_PANEL_3AML069LP01G"
+
+config MIPI_PANEL_ST7701
+bool "MIPI_PANEL_ST7701"
+help
+	"enable MIPI_PANEL_ST7701"
+
+config MIPI_PANEL_4_LANES
+bool "MIPI_PANEL_4_LANES"
+help
+	"enable MIPI_PANEL_4_LANES"
+
+config MIPI_PANEL_2_LANES
+bool "MIPI_PANEL_2_LANES"
+help
+	"enable MIPI_PANEL_2_LANES"
+
+endmenu
+
+endmenu

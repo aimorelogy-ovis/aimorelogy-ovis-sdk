@@ -1,0 +1,10 @@
+out
+install
+.config
+.config.old
+scripts
+components/cvi_rtsp/lib/*
+components/cvi_osal/lib/*
+components/ringbuffer/lib/*
+solutions/**/obj/
+modules/**/obj/

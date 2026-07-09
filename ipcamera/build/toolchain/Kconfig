@@ -1,0 +1,49 @@
+menu "cross_compile options"
+
+choice
+	prompt "cross_compile"
+	default TOOLCHAIN_MUSL_RISCV64
+
+config TOOLCHAIN_GLIBC_RISCV64
+	bool "riscv glibc toolchain 64bit"
+	help
+	  glibc library for riscv64(RISCV64).
+
+config TOOLCHAIN_MUSL_RISCV64
+	bool "riscv musl toolchain 64bit"
+	help
+	  musl library for riscv64(RISCV64).
+	  select on compiler option through menuconfig
+	  default value is false.
+
+config TOOLCHAIN_MUSL_32BIT_ARM
+	bool "arm musl toolchain 32bit"
+	help
+	  musl library for arm(arm32).
+	  select on compiler option through menuconfig
+	  default value is false.
+
+config TOOLCHAIN_GLIBC_32BIT_ARM
+	bool "arm glibc toolchain 32bit"
+	help
+	  glibc library for arm(arm32)
+
+config TOOLCHAIN_GLIBC_64BIT_ARM
+	bool "arm glibc 64bit toolchain 64bit"
+	help
+	  glibc library for arm(arm64)
+
+
+endchoice
+
+config CROSS_COMPILE
+	string
+	default "riscv64-unknown-linux-gnu-" if TOOLCHAIN_GLIBC_RISCV64
+	default "riscv64-unknown-linux-musl-" if TOOLCHAIN_MUSL_RISCV64
+	default "arm-none-linux-gnueabihf-" if TOOLCHAIN_GLIBC_32BIT_ARM
+	default "aarch64-none-linux-gnu-" if TOOLCHAIN_GLIBC_64BIT_ARM
+	default "arm-none-linux-musleabihf-" if TOOLCHAIN_MUSL_32BIT_ARM
+	help
+	  Cross compile toolchain.
+
+endmenu
