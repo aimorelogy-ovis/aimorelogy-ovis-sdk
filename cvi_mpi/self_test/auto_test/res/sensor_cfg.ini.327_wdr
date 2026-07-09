@@ -1,0 +1,17 @@
+;section for source
+[source]
+;type = SOURCE_USER_FE
+dev_num = 1
+;section for sensor
+[sensor]
+;sensor name
+name = 0X283433C0
+;name = SONY_IMX327_MIPI_2M_30FPS_12BIT_WDR2TO1
+;bus/i2c dev number
+bus_id = 2
+;mipi-rx dev number
+mipi_dev = 0
+lane_id = 2, 1, 3, 0, 4
+pn_swap = 0, 0, 0, 0, 0
+mclk_en = 1
+mclk = 1

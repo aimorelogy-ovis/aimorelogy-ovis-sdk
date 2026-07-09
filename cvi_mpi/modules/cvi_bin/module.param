@@ -1,0 +1,13 @@
+## INCLUDE PATH ##
+
+ifeq ($(OS_TYPE), DUAL_OS)
+SYS_INC = $(MW_PATH)/modules/sys/platform/linux
+VPSS_INC = $(MW_PATH)/modules/vpss/platform/linux
+UAPI_INC = $(TOP_DIR)/build/media/include/internal/mpi_uapi
+else
+SYS_INC = $(MW_PATH)/modules/sys/platform/linux
+VPSS_INC = $(MW_PATH)/modules/vpss/platform/linux
+UAPI_INC = $(MW_PATH)/modules/uapi
+endif
+
+INCS += -I$(UAPI_INC) -I$(SYS_INC) -I$(VPSS_INC) -I$(OSAL_INC)

@@ -1,0 +1,28 @@
+;section for source
+[source]
+;type = SOURCE_USER_FE
+dev_num = 2
+;section for sensor
+[sensor]
+;sensor name
+name = 0X283433C0
+;name = SONY_IMX327_MIPI_2M_30FPS_12BIT_WDR2TO1
+;bus/i2c dev number
+bus_id = 2
+;mipi-rx dev number
+mipi_dev = 0
+lane_id = 2, 1, 3, 0, 4
+pn_swap = 0, 0, 0, 0, 0
+mclk_en = 1
+mclk = 1
+[sensor2]
+; sensor name
+name = 0X480C3B40
+;name = GCORE_GC4653_MIPI_4M_30FPS_10BIT
+;bus/i2c dev number
+bus_id = 2
+;mipi-rx dev number
+mipi_dev = 1
+;mipi-rx lane mapping
+lane_id = 3, 4, -1, -1, -1
+pn_swap = 0, 0, 0, 0, 0

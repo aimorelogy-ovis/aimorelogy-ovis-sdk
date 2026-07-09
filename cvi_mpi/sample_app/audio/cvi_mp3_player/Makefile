@@ -1,0 +1,43 @@
+SHELL = /bin/bash
+
+ifeq ($(PARAM_FILE), )
+PARAM_FILE:=../../../Makefile.param
+include $(PARAM_FILE)
+endif
+
+SDIR = $(CURDIR)
+SRCS = $(wildcard $(SDIR)/*.c)
+INCS = -I$(MW_INC) -I../common/ -I$(MW_INC)/../3rdparty/libmad/include -I ./
+INCS += -I$(KERNEL_INC)
+
+OBJS = $(SRCS:.c=.o)
+DEPS = $(SRCS:.c=.d)
+
+TARGET = cvi_mp3player
+
+EXTRA_CFLAGS = $(INCS)
+EXTRA_LDFLAGS +=  -lcvi_audio
+EXTRA_LDFLAGS +=  -lm -lpthread  -ldl -lcvi_mp3 -lcvi_VoiceEngine -lmad
+EXTRA_LDFLAGS +=  -lcvi_vqe -ltinyalsa -lcvi_RES1
+
+ifeq ($(SAMPLE_STATIC),1)
+LIB_DEP := $(MW_LIB)/libmad.a
+else
+LIB_DEP := $(MW_LIB)/libmad.so
+endif
+
+.PHONY : clean all
+all : $(TARGET)
+
+$(SDIR)/%.o : $(SDIR)/%.c
+	@$(CC) $(DEPFLAGS) $(CFLAGS) $(EXTRA_CFLAGS) -o $@ -c $<
+	@echo [$(notdir $(CC))] $(notdir $@)
+
+$(TARGET) : $(OBJS) $(LIB_DEP)
+	@$(CXX) -o $@ $(OBJS) $(ELFFLAGS) $(EXTRA_LDFLAGS)
+	@echo -e $(BLUE)[LINK]$(END)[$(notdir $(CC))] $(notdir $@)
+
+clean:
+	@rm -f $(OBJS) $(DEPS) $(TARGET)
+
+-include $(DEPS)

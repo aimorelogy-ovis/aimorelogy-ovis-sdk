@@ -1,0 +1,81 @@
+/*
+ * Copyright (C) Cvitek Co., Ltd. 2019-2021. All rights reserved.
+ *
+ * File Name: sample_dsi_panel.h
+ * Description:
+ */
+
+#ifndef __SAMPLE_DSI_PANEL_H__
+#define __SAMPLE_DSI_PANEL_H__
+
+#ifdef __cplusplus
+#if __cplusplus
+extern "C" {
+#endif
+#endif /* End of #ifdef __cplusplus */
+
+#include <cvi_comm_vo.h>
+#include "dsi_hx8394_720x1280_NULL_4lane_60fps.h"
+#include "dsi_ili9881c_720x1280_NULL_4lane_60fps.h"
+#include "dsi_ili9881d_720x1280_NULL_4lane_60fps.h"
+#include "dsi_jd9366ab_800x1280_NULL_4lane_60fps.h"
+#include "dsi_nt35521_800x1280_NULL_4lane_60fps.h"
+#include "dsi_ota7290b_320x1280_NULL_4lane_60fps.h"
+#include "dsi_ota7290b_440x1920_NULL_4lane_60fps.h"
+#include "dsi_icn9707_480x1920_NULL_4lane_60fps.h"
+#include "dsi_3aml069lp01g_600x1024_NULL_4lane_60fps.h"
+#include "dsi_st7701_480x800_NULL_2lane_60fps.h"
+#include "dsi_st7701_480x640_NULL_2lane_60fps.h"
+#include "dsi_st7703_640x480_NULL_2lane_60fps.h"
+#include "dsi_hx8399_1080x1920_NULL_4lane_60fps.h"
+#include "dsi_gm8775c_1920x1080_NULL_4lane_60fps.h"
+#include "dsi_lt9611_multi_NULL_4lane_60fps.h"
+#include "lvds_lcm185x56_NULL_NULL_NULL.h"
+#include "i80_st7789v3_240x320_NULL_60fps_hw_mcu.h"
+#include "bt656_pt1000k_NULL_NULL_NULL.h"
+#include "bt1120_pt1000k_NULL_NULL_NULL.h"
+#include "bt656_ms7024_NULL_NULL_NULL.h"
+#include "panel_i2c.h"
+
+typedef enum {
+	PANEL_MODE_DSI,
+	PANEL_MODE_LVDS,
+	PANEL_MODE_BT,
+	PANEL_MODE_MCU,
+} PANEL_TYPE;
+
+typedef struct dsi_panel_desc_s {
+	struct combo_dev_cfg_s *dev_cfg;
+	const struct hs_settle_s *hs_timing_cfg;
+	const struct dsc_instr *dsi_init_cmds;
+	int dsi_init_cmds_size;
+} dsi_panel_desc;
+
+typedef struct lvds_panel_desc_s {
+	VO_PUB_ATTR_S stVoPubAttr;
+	VO_LVDS_ATTR_S LvdsAttr;
+} lvds_panel_desc;
+
+typedef struct bt_panel_desc_s {
+	VO_PUB_ATTR_S stVoPubAttr;
+	VO_BT_ATTR_S BtAttr;
+} bt_panel_desc;
+
+struct panel_desc_s {
+	char *panel_mode;
+	PANEL_TYPE panel_type;
+	union {
+		dsi_panel_desc stdsicfg;
+		lvds_panel_desc stlvdscfg;
+		bt_panel_desc stbtcfg;
+		VO_PUB_ATTR_S stVoPubAttr;
+	};
+};
+
+#ifdef __cplusplus
+#if __cplusplus
+}
+#endif
+#endif /* End of #ifdef __cplusplus */
+
+#endif

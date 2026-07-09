@@ -1,0 +1,18 @@
+[source]
+;type = SOURCE_USER_FE
+dev_num = 1
+[sensor]
+; sensor name
+name = 0X18053241
+;name = PIXELPLUS_PR2100_2M_2CH_25FPS_8BIT
+;name = SONY_IMX335_MIPI_5M_30FPS_10BIT_WDR2TO1
+;name = SONY_IMX327_MIPI_2M_30FPS_12BIT
+;name = SONY_IMX307_MIPI_2M_30FPS_12BIT
+;name = SOI_F35_MIPI_2M_30FPS_10BIT
+;bus/i2c dev number
+bus_id = 3
+;mipi-rx dev number
+mipi_dev = 0
+;mipi-rx lane mapping
+lane_id = 1, 2, 3, 4, 0
+pn_swap = 0, 0, 0, 0, 0

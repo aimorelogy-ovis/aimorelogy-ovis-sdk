@@ -1,0 +1,15 @@
+*.d
+*.o
+*.a
+*.so
+*.dep
+*.dwo
+
+src/*.d
+src/*.o
+src/*.a
+src/*.so
+src/*.dep
+src/*.dwo
+
+sample_sensor

@@ -1,0 +1,11 @@
+tmp
+__pycache__
+*.autogen.c
+*.autogen.h
+obj
+cvi_bin_struct.h
+cvi_bin_profile.json
+*.swp
+*.swo
+
+!include
