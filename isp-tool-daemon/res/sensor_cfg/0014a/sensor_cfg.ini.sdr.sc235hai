@@ -1,0 +1,20 @@
+;section for source
+[source]
+;type = SOURCE_USER_FE
+dev_num = 1
+;section for sensor
+[sensor]
+;sensor name
+
+name = 0X20B83320
+
+bus_id = 3
+sns_i2c_addr = 48
+mipi_dev = 0
+lane_id = 2, 3, 1, -1, -1
+pn_swap = 1, 1, 1, 0, 0
+port = 0
+pin = 2
+pol = 0
+mclk_en = 1
+mclk = 0

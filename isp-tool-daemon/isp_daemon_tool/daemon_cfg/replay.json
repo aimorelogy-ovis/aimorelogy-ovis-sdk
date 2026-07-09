@@ -1,0 +1,17 @@
+{
+	"//": "ReplayScene: 0: offline mode, 1: online mode",
+	"//": "PixelFormat: 0 raw, !0 yuv(22 yuyv422,...) ",
+	"//": "CompressMode: none,tile,line,frame",
+	"//": "BayerFormat: 0 bggr, 1 gbrg, 2 grbg, 3 rggb",
+	"//": "OfflineRawDir: just for replayScene offline mode",
+	"ReplayScene": 0,
+	"PixelFormat": 0,
+	"Width": 1920,
+	"Height": 1080,
+	"TimingEnable": true,
+	"FrameRate": 25,
+	"WDRMode": 0,
+	"BayerFormat": 3,
+	"CompressMode": "none",
+	"OfflineRawDir": "/mnt/data/raw"
+}

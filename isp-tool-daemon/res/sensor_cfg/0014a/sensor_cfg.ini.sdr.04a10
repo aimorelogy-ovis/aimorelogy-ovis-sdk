@@ -1,0 +1,15 @@
+; section for source
+[source]
+;type = SOURCE_USER_FE
+dev_num = 1
+; section for sensor
+[sensor]
+; sensor name
+;name = 0X10083BC0
+name = 0X10083B40
+mipi_dev = 0
+;bus/i2c dev number
+bus_id = 3
+lane_id = 0, 1, 4, 2, 3
+pn_swap = 1, 1, 1, 1, 1
+

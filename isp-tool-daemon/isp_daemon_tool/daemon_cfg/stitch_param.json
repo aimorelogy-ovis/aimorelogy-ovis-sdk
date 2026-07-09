@@ -1,0 +1,28 @@
+{
+    "isp_stitch_attr": [
+        {
+            "enable": true,
+            "bMainPipe": true,
+            "bCalibEnable": true,
+            "bCombineSts": true,
+            "u8CombChn": 0,
+            "u8CombChnSum": 2,
+            "u8Group": 0,
+            "u32CalibLumaRatio": 1024,
+            "u32CalibRGainRatio": 1024,
+            "u32CalibBGainRatio": 1024
+        },
+        {
+            "enable": true,
+            "bMainPipe": false,
+            "bCalibEnable": true,
+            "bCombineSts": true,
+            "u8CombChn": 1,
+            "u8CombChnSum": 2,
+            "u8Group": 0,
+            "u32CalibLumaRatio": 1024,
+            "u32CalibRGainRatio": 1024,
+            "u32CalibBGainRatio": 1024
+        }
+    ]
+}

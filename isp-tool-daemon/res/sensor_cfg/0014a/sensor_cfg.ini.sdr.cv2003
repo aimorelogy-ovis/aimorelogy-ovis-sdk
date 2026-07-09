@@ -1,0 +1,15 @@
+[source]
+dev_num = 1
+[sensor]
+name = 0X44003340
+bus_id = 3
+sns_i2c_addr = 53
+mipi_dev = 0
+lane_id = 1, 2, -1, -1, -1
+pn_swap = 1, 1, 0, 0, 0
+port = 0
+pin = 2
+pol = 0
+mclk_en = 1
+mclk = 0
+

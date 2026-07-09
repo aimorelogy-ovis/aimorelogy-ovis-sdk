@@ -1,0 +1,22 @@
+[source]
+;type = SOURCE_USER_FE
+dev_num     = 1
+
+;section for sensor
+[sensor]
+
+;30fps
+name        = 0X48145B40
+
+;25fps
+
+;name        = 0X48145A40
+bus_id      = 3
+sns_i2c_addr= 49
+
+mipi_dev    = 0
+lane_id     = 2, 0, 1, 3, 4
+pn_swap     = 0, 0, 0, 0, 0
+mclk_en     = 1
+mclk        = 0
+
