@@ -1,0 +1,7 @@
+*.tar.gz
+cv184x/**/*.h
+cv184x/**/*.c
+tmp/
+
+pqjson2ccode_test
+code_test/
