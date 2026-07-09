@@ -1264,15 +1264,14 @@ cvi_print_env()
 function print_usage()
 {
   printf "  -------------------------------------------------------------------------------------------------------\n"
+  printf "    AIMORELOGY LIMITED\n"
+  printf "    aimorelogy.com\n"
+  printf "\n"
   printf "    Usage:\n"
   printf "    (1)\33[94m menuconfig \33[0m- Use menu to configure your board.\n"
   printf "        ex: $ menuconfig\n\n"
-  printf "    (2)\33[96m defconfig \$CHIP_ARCH \33[0m- List EVB boards(\$BOARD) by CHIP_ARCH.\n"
-  "${BUILD_PATH}/scripts/boards_scan.py" --list-chip-arch
-  printf "        ex: $ defconfig cv184x\n\n"
-  printf "    (3)\33[92m defconfig \$BOARD\33[0m - Choose EVB board settings.\n"
-  printf "        ex: $ defconfig cv1842hp_wevb_0014a_spinor\n"
-  printf "        ex: $ defconfig cv1842cp_wevb_0015a_spinand\n"
+  printf "    (2)\33[92m defconfig \$BOARD\33[0m - Choose board settings.\n"
+  printf "        ex: $ defconfig cv1842hp_ovis_spinand\n"
   printf "  -------------------------------------------------------------------------------------------------------\n"
 }
 
