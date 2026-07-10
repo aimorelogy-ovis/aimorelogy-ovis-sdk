@@ -32,10 +32,10 @@ $(TOPSUBDIRS): $(PROJECT)
 
 $(TOPTARGETS): $(TOPSUBDIRS)
 
-#Use defconfig cv184x_ipcamera_defconfig
+# Use defconfig cv184x_ovis_app_defconfig
 .config :
 ifeq ($(SOC_SEGMENT), CV184X)
-	$(MAKE) -f $(SRCTREE)/Kbuild cv184x_ipcamera_defconfig
+	$(MAKE) -f $(SRCTREE)/Kbuild cv184x_ovis_app_defconfig
 endif
 
 all : $(SRCTREE)/.config $(SUBDIRS) $(TARGET)

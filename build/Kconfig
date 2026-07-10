@@ -793,10 +793,12 @@ config BUILD_TURNKEY_ACCESSGUARD
 	  Add turnkey Access Guard to SDK release.
 
 config BUILD_TURNKEY_IPC
-	bool "Enable IP Camera Turnkey"
+	bool "Build and install ipcamera"
+	depends on CHIP_ARCH_cv184x
 	default n
 	help
-	  Add turnkey IPC to SDK release.
+	  Build the ipcamera application from the SDK top-level ipcamera
+	  directory and install it into the target rootfs image.
 
 endmenu
 

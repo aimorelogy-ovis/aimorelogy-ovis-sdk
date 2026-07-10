@@ -69,7 +69,7 @@ sdk编译完成后，将在install目录下生成固件，将固件放置在tf�
 将ipcamera程序与sdk放置在同一目录下，按一下流程即可进行编译，编译完成后的可执行文件ipcamera位置为install目录下。
 ```bash
 cd ipcamera                     # 进入ipcamera目录
-make cv184x_ipcamera_defconfig  # 配置需要编译的组件，这里以cv184x_ipcamera_defconfig为例，文件在configs目录下
+make cv184x_ovis_app_defconfig  # 配置需要编译的组件，文件在configs目录下
 make ipcamera clean_all && make ipcamera && make ipcamera install
 ```
 
