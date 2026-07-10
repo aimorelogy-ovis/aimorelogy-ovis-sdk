@@ -749,8 +749,8 @@ function build_ipcamera()
     make ipcamera || return $?
     make ipcamera install || return $?
 
-    # Keep every board parameter available; the init script selects the
-    # persistent /mnt/data override first and a CV1842HP fallback second.
+    # Keep every board parameter available for inspection and manual testing.
+    # The OVIS runtime uses install/param_config.ini selected by the defconfig.
     mkdir -p install/parameter
     cp -a resource/parameter/. install/parameter/
   popd

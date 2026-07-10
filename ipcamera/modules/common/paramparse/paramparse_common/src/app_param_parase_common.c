@@ -11,13 +11,13 @@
 /**************************************************************************
  *                              M A C R O S                               *
  **************************************************************************/
-#define PARAM_CFG_INI "/mnt/data/param_config.ini"
+#define PARAM_CFG_INI "/usr/share/ipcamera/param_config.ini"
 
 /**************************************************************************
  *                 V A R I A B L E    D E F I N I T I O N                 *
  **************************************************************************/
 static char *input_file;
-static char ParamCfgFile[64] = "/mnt/data/param_config.ini";
+static char ParamCfgFile[64] = PARAM_CFG_INI;
 
 /**************************************************************************
  *               F U N C T I O N    D E C L A R A T I O N S               *
@@ -457,7 +457,7 @@ const char ** app_ipcam_Param_get_payload_type()
 static void print_usage(const char *prog)
 {
     printf("Usage: %s [-i]\n", prog);
-    puts("  -i --input    input param config ini file (e.g. \"/mnt/data/param_config.ini\")\n");
+    puts("  -i --input    input param config ini file (e.g. \"/usr/share/ipcamera/param_config.ini\")\n");
     exit(1);
 }
 

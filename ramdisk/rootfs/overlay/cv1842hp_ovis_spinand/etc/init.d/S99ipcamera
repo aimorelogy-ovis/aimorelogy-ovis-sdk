@@ -7,24 +7,17 @@ PIDFILE=/var/run/ipcamera.pid
 start() {
 	[ -x "$DAEMON" ] || return 0
 
-	PARAM_CONFIG=/mnt/data/param_config.ini
-	if [ ! -f "$PARAM_CONFIG" ]; then
-		PARAM_CONFIG="$APP_DIR/param_config.ini"
-	fi
-	if [ ! -f "$PARAM_CONFIG" ]; then
-		PARAM_CONFIG="$APP_DIR/parameter/sbm/cv1842hp_cv2003.ini"
-	fi
+	PARAM_CONFIG="$APP_DIR/param_config.ini"
 	if [ ! -f "$PARAM_CONFIG" ]; then
 		echo "ipcamera parameter config not found"
 		return 1
 	fi
 
-	printf "Starting ipcamera: "
 	cd "$APP_DIR" || return 1
-	start-stop-daemon -S -q -b -m -p "$PIDFILE" -x "$DAEMON" -- \
-		-i "$PARAM_CONFIG"
+	printf 'Starting ipcamera: %s -i %s &\n' "$DAEMON" "$PARAM_CONFIG"
+	"$DAEMON" -i "$PARAM_CONFIG" &
 	status=$?
-	[ "$status" -eq 0 ] && echo "OK" || echo "FAIL"
+	[ "$status" -eq 0 ] && echo $! > "$PIDFILE"
 	return "$status"
 }
 

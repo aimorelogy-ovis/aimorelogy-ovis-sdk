@@ -111,6 +111,12 @@ endmenu
 
 menu "sbm"
 
+config RESOURCE_INSTALL_SBM_CV1842HP_CV2003
+	bool "install sbm cv1842hp_cv2003"
+	default n
+	help
+		"support install sbm cv1842hp_cv2003.ini"
+
 endmenu
 
 endmenu

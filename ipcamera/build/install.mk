@@ -90,3 +90,6 @@ ifeq ($(CONFIG_RESOURCE_INSTALL_FBM_CV1843HP_WEVB_OS04A10),y)
 	@cp -rf $(APP_RESOURCE_DIR)/parameter/fbm/cv1843hp_wevb_os04a10.ini $(APP_INSTALL_DIR)/param_config.ini
 	@$(call pack_param ,$(APP_RESOURCE_DIR)/parameter/fbm/cv1843hp_wevb_os04a10.ini)
 endif
+ifeq ($(CONFIG_RESOURCE_INSTALL_SBM_CV1842HP_CV2003),y)
+	@cp -f $(APP_RESOURCE_DIR)/parameter/sbm/cv1842hp_cv2003.ini $(APP_INSTALL_DIR)/param_config.ini
+endif
