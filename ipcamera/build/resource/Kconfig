@@ -117,6 +117,12 @@ config RESOURCE_INSTALL_SBM_CV1842HP_CV2003
 	help
 		"support install sbm cv1842hp_cv2003.ini"
 
+config RESOURCE_INSTALL_SBM_CV1842HP_OVIS_SC235HAI
+	bool "install sbm cv1842hp_ovis_sc235hai"
+	default n
+	help
+		"support install sbm cv1842hp_ovis_sc235hai.ini"
+
 endmenu
 
 endmenu

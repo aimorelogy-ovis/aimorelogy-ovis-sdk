@@ -93,3 +93,6 @@ endif
 ifeq ($(CONFIG_RESOURCE_INSTALL_SBM_CV1842HP_CV2003),y)
 	@cp -f $(APP_RESOURCE_DIR)/parameter/sbm/cv1842hp_cv2003.ini $(APP_INSTALL_DIR)/param_config.ini
 endif
+ifeq ($(CONFIG_RESOURCE_INSTALL_SBM_CV1842HP_OVIS_SC235HAI),y)
+	@cp -f $(APP_RESOURCE_DIR)/parameter/sbm/cv1842hp_ovis_sc235hai.ini $(APP_INSTALL_DIR)/param_config.ini
+endif
