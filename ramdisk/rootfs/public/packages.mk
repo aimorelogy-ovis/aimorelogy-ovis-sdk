@@ -42,3 +42,4 @@ include $(TOP_DIR)/ramdisk/rootfs/public/bash/target.mk
 include $(TOP_DIR)/ramdisk/rootfs/public/evtest/target.mk
 include $(TOP_DIR)/ramdisk/rootfs/public/dhcpcd/target.mk
 include $(TOP_DIR)/ramdisk/rootfs/public/umtprd/target.mk
+include $(TOP_DIR)/ramdisk/rootfs/public/ncm/target.mk
