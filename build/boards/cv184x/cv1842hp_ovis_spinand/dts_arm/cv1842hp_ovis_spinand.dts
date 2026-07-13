@@ -6,3 +6,8 @@
 
 / {
 };
+
+&mipi_rx {
+	snsr-reset = <&porte 0 GPIO_ACTIVE_LOW>,
+		     <&porte 1 GPIO_ACTIVE_LOW>;
+};
