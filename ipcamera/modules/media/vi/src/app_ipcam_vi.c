@@ -439,6 +439,7 @@ int app_ipcam_Vi_Mipi_Start(void)   // Initialize MIPI interface for sensors
 
         s32Ret = CVI_MIPI_SetSensorReset(devno, rstport, rstpin, rstpol, 0);
         APP_IPCAM_CHECK_RET(s32Ret, "CVI_MIPI_SetSensorReset(%d) failed!\n", ViPipe);
+        usleep(10 * 1000);
 
         if (CVI_SNS_SetSnsProbe(i) != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "sensor_%d probe failed!\n", i);
