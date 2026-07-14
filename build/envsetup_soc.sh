@@ -779,6 +779,47 @@ function clean_ipc_app()
   clean_ipcamera
 }
 
+function build_ovis_manager()
+{(
+  print_notice "Run ${FUNCNAME[0]}() function"
+
+  [[ "$BUILD_OVIS_MANAGER" = "y" ]] || return 0
+
+  local manager_path="$TOP_DIR/ovis-manager"
+  local manager_cc="$CROSS_COMPILE_PATH/bin/${CROSS_COMPILE}gcc"
+  if [[ ! -d "$manager_path" ]]; then
+    print_error "ovis-manager source directory does not exist: $manager_path"
+    return 1
+  fi
+  if [[ ! -x "$manager_cc" ]]; then
+    print_error "ovis-manager cross compiler does not exist: $manager_cc"
+    return 1
+  fi
+
+  pushd "$manager_path"
+    make clean || return $?
+    make CC="$manager_cc" || return $?
+    make CC="$manager_cc" install || return $?
+    test -x install/usr/sbin/ovis-managerd || {
+      print_error "ovis-manager install output is missing: $manager_path/install/usr/sbin/ovis-managerd"
+      return 1
+    }
+  popd
+)}
+
+function clean_ovis_manager()
+{(
+  print_notice "Run ${FUNCNAME[0]}() function"
+
+  [[ "$BUILD_OVIS_MANAGER" = "y" ]] || return 0
+  local manager_path="$TOP_DIR/ovis-manager"
+  [[ -d "$manager_path" ]] || return 0
+
+  pushd "$manager_path"
+    make clean
+  popd
+)}
+
 function clean_libsophon()
 {
   print_notice "Run ${FUNCNAME[0]}() function"
@@ -967,6 +1008,7 @@ function build_all()
     build_pqtool_server || return $?
     build_access_guard_turnkey_app || return $?
     build_ipc_app || return $?
+    build_ovis_manager || return $?
   fi
   pack_cfg || return $?
   pack_rootfs || return $?
@@ -996,6 +1038,7 @@ function clean_all()
   fi
   clean_access_guard_turnkey_app
   clean_ipc_app
+  clean_ovis_manager
   clean_middleware
   clean_osdrv
   clean_libsophon

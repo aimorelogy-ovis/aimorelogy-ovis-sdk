@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OVIS 设备管理</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div>
+      <strong>OVIS Manager</strong>
+      <span id="version">--</span>
+    </div>
+    <button id="loginButton" type="button">管理员登录</button>
+  </header>
+  <main>
+    <section class="service-band">
+      <div>
+        <p class="eyebrow">IPCAMERA 服务</p>
+        <h1 id="serviceState">正在查询</h1>
+        <p id="serviceDetail">--</p>
+      </div>
+      <div class="actions">
+        <button data-action="start" type="button">启动</button>
+        <button data-action="stop" type="button" class="secondary">停止</button>
+        <button data-action="restart" type="button" class="danger">重启</button>
+      </div>
+    </section>
+
+    <section class="config-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">运行配置</p>
+          <h2>视频与检测参数</h2>
+        </div>
+        <div class="actions">
+          <button id="reloadConfig" type="button" class="secondary">刷新</button>
+          <button id="saveConfig" type="button">保存配置</button>
+        </div>
+      </div>
+      <form id="configForm">
+        <fieldset>
+          <legend>主码流</legend>
+          <label class="toggle"><input name="main_enabled" type="checkbox"><span>启用主码流</span></label>
+          <label>宽度<input name="main_width" type="number" min="320" max="3840" step="2"></label>
+          <label>高度<input name="main_height" type="number" min="240" max="2160" step="2"></label>
+          <label>帧率<input name="main_fps" type="number" min="1" max="60"></label>
+          <label>码率（Kbps）<input name="main_bitrate" type="number" min="128" max="50000"></label>
+        </fieldset>
+        <fieldset>
+          <legend>子码流</legend>
+          <label class="toggle"><input name="sub_enabled" type="checkbox"><span>启用子码流</span></label>
+          <label>宽度<input name="sub_width" type="number" min="320" max="1920" step="2"></label>
+          <label>高度<input name="sub_height" type="number" min="240" max="1080" step="2"></label>
+          <label>帧率<input name="sub_fps" type="number" min="1" max="60"></label>
+          <label>码率（Kbps）<input name="sub_bitrate" type="number" min="128" max="20000"></label>
+        </fieldset>
+        <fieldset>
+          <legend>画面与检测</legend>
+          <label class="toggle"><input name="osd_enabled" type="checkbox"><span>启用 OSD</span></label>
+          <label class="toggle"><input name="person_enabled" type="checkbox"><span>启用人员检测</span></label>
+          <label>人员检测阈值<input name="person_threshold" type="number" min="0.01" max="1" step="0.01"></label>
+        </fieldset>
+      </form>
+      <div class="reset-row">
+        <button id="resetConfig" type="button" class="danger">恢复出厂配置</button>
+      </div>
+    </section>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="loginDialog">
+    <form method="dialog" id="loginForm">
+      <h2>管理员登录</h2>
+      <label>用户名<input id="username" autocomplete="username" value="admin" required></label>
+      <label>密码<input id="password" type="password" autocomplete="current-password" required></label>
+      <p id="loginError"></p>
+      <div class="actions">
+        <button value="cancel" class="secondary">取消</button>
+        <button id="confirmLogin" value="default">登录</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="/app.js"></script>
+</body>
+</html>
