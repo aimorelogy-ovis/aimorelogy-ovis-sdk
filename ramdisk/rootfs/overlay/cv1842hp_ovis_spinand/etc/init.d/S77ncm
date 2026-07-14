@@ -1,0 +1,83 @@
+#!/bin/sh
+${CVI_SHOPTS}
+
+UDHCPD=/usr/sbin/udhcpd
+UDHCPD_CONFIG=/etc/ncm-udhcpd.conf
+UDHCPD_PID=/var/run/udhcpd-ncm.pid
+UDHCPD_LEASES=/var/lib/misc/udhcpd-ncm.leases
+
+wait_for_path() {
+	path=$1
+	retries=50
+
+	while [ ! -e "$path" ] && [ "$retries" -gt 0 ]; do
+		sleep 0.1
+		retries=$((retries - 1))
+	done
+
+	if [ ! -e "$path" ]; then
+		echo "Timed out waiting for $path" >&2
+		return 1
+	fi
+}
+
+start_dhcp() {
+	mkdir -p /var/lib/misc /var/run
+	touch "$UDHCPD_LEASES"
+	if [ -s "$UDHCPD_PID" ] && kill -0 "$(cat "$UDHCPD_PID")" 2>/dev/null; then
+		return 0
+	fi
+	rm -f "$UDHCPD_PID"
+	"$UDHCPD" "$UDHCPD_CONFIG"
+}
+
+stop_dhcp() {
+	if [ -s "$UDHCPD_PID" ]; then
+		pid=$(cat "$UDHCPD_PID")
+		kill "$pid" 2>/dev/null
+		rm -f "$UDHCPD_PID"
+	fi
+}
+
+start() {
+	printf "Starting USB NCM + UVC: "
+	/etc/uhubon.sh device || return 1
+	/etc/run_usb.sh probe ncm || return 1
+	/etc/run_usb.sh probe uvc || return 1
+	sh /etc/ConfigUVC.sh setup || return 1
+	/etc/run_usb.sh start || return 1
+
+	wait_for_path /sys/class/net/usb0 || return 1
+	wait_for_path /dev/video0 || return 1
+	ifconfig usb0 192.168.42.1 netmask 255.255.255.0 up || return 1
+	start_dhcp
+}
+
+stop() {
+	printf "Stopping USB NCM + UVC: "
+	stop_dhcp
+	ifconfig usb0 down 2>/dev/null
+	/etc/run_usb.sh stop
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart|reload)
+		stop
+		sleep 1
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac
+
+status=$?
+[ "$status" -eq 0 ] && echo "OK" || echo "FAIL"
+exit "$status"

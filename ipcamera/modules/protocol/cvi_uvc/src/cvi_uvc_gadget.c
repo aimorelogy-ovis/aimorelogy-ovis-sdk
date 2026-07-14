@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/video.h>
 #include <linux/videodev2.h>
@@ -80,10 +81,9 @@
 #define PU_BRIGHTNESS_STEP_SIZE 1
 #define PU_BRIGHTNESS_DEFAULT_VAL 127
 
-#define MAX_BITSTREAM_BUFFER_SIZE (2 * 1024 * 1024)
-#define MJPG_PAYLOAD_SIZE 1024
-#define H264_PAYLOAD_SIZE 512
-#define H265_PAYLOAD_SIZE 1024
+#define MAX_BITSTREAM_BUFFER_SIZE CACHE_MEM_SIZE
+#define UVC_CONFIGFS_GADGET_PATH "/tmp/usb/usb_gadget/cvitek"
+#define UVC_VIDEO_CLASS_PATH "/sys/class/video4linux"
 
 /* ---------------------------------------------------------------------------
  * Generic stuff
@@ -231,6 +231,8 @@ typedef struct tagUVC_DEVICE_CTX_S {
     struct uvc_streaming_control probe;
     struct uvc_streaming_control commit;
     int control;
+    uint8_t control_intf;
+    uint8_t streaming_intf;
     struct uvc_request_data request_error_code;
     uint32_t brightness_val;
 
@@ -741,6 +743,92 @@ err:
     return ret;
 }
 
+static int uvc_read_uint(const char *path, unsigned int *value) {
+    FILE *file;
+    int ret;
+
+    file = fopen(path, "r");
+    if (file == NULL) {
+        printf("UVC: unable to open %s: %s (%d)\n", path, strerror(errno), errno);
+        return -1;
+    }
+
+    ret = fscanf(file, "%u", value);
+    fclose(file);
+
+    if (ret != 1) {
+        printf("UVC: unable to read an integer from %s\n", path);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int uvc_load_interface_numbers(const char *devname, UVC_DEVICE_CTX_S *dev) {
+    const char *gadget_path;
+    const char *video_name;
+    char function_name[128];
+    char path[PATH_MAX];
+    FILE *file;
+    unsigned int control_intf;
+    unsigned int streaming_intf;
+    int ret;
+
+    video_name = strrchr(devname, '/');
+    video_name = video_name == NULL ? devname : video_name + 1;
+    if (*video_name == '\0') {
+        return -1;
+    }
+
+    ret = snprintf(path, sizeof(path), "%s/%s/function_name", UVC_VIDEO_CLASS_PATH, video_name);
+    if (ret < 0 || (size_t)ret >= sizeof(path)) {
+        return -1;
+    }
+
+    file = fopen(path, "r");
+    if (file == NULL) {
+        printf("UVC: unable to open %s: %s (%d)\n", path, strerror(errno), errno);
+        return -1;
+    }
+
+    ret = fscanf(file, "%127s", function_name);
+    fclose(file);
+    if (ret != 1) {
+        printf("UVC: unable to read function name from %s\n", path);
+        return -1;
+    }
+
+    gadget_path = getenv("CVI_GADGET");
+    if (gadget_path == NULL || *gadget_path == '\0') {
+        gadget_path = UVC_CONFIGFS_GADGET_PATH;
+    }
+
+    ret = snprintf(path, sizeof(path), "%s/functions/%s/control/bInterfaceNumber",
+        gadget_path, function_name);
+    if (ret < 0 || (size_t)ret >= sizeof(path) || uvc_read_uint(path, &control_intf) != 0) {
+        return -1;
+    }
+
+    ret = snprintf(path, sizeof(path), "%s/functions/%s/streaming/bInterfaceNumber",
+        gadget_path, function_name);
+    if (ret < 0 || (size_t)ret >= sizeof(path) || uvc_read_uint(path, &streaming_intf) != 0) {
+        return -1;
+    }
+
+    if (control_intf > UINT8_MAX || streaming_intf > UINT8_MAX) {
+        printf("UVC: invalid interface numbers control=%u streaming=%u\n",
+            control_intf, streaming_intf);
+        return -1;
+    }
+
+    dev->control_intf = control_intf;
+    dev->streaming_intf = streaming_intf;
+    printf("UVC interfaces: control=%u streaming=%u\n",
+        dev->control_intf, dev->streaming_intf);
+
+    return 0;
+}
+
 static inline CVI_UVC_STREAM_FORMAT_E UVC_FCC_TO_STREAM_FORMAT(uint32_t fcc) {
     switch (fcc) {
         case V4L2_PIX_FMT_YUYV:
@@ -1224,6 +1312,12 @@ static int uvc_handle_streamon_event(UVC_DEVICE_CTX_S *dev) {
 
     /* Common setup. */
 
+    /* The initial QBUF path waits for encoded frames, so enable the
+     * producer before filling those buffers. */
+    if (dev->run_standalone) {
+        cvi_uvc_stream_set_enabled(true);
+    }
+
     /* Queue buffers to UVC domain and start streaming. */
     ret = uvc_video_qbuf(dev);
     if (ret < 0) {
@@ -1232,7 +1326,10 @@ static int uvc_handle_streamon_event(UVC_DEVICE_CTX_S *dev) {
     }
 
     if (dev->run_standalone) {
-        uvc_video_stream(dev, 1);
+        ret = uvc_video_stream(dev, 1);
+        if (ret < 0) {
+            goto err;
+        }
         dev->first_buffer_queued = 1;
         dev->is_streaming = 1;
     }
@@ -1240,6 +1337,11 @@ static int uvc_handle_streamon_event(UVC_DEVICE_CTX_S *dev) {
     return 0;
 
 err:
+    cvi_uvc_stream_set_enabled(false);
+    if (dev->run_standalone) {
+        uvc_video_reqbufs(dev, 0);
+        clear_waited_node();
+    }
     return ret;
 }
 
@@ -1294,8 +1396,10 @@ static void uvc_fill_streaming_control(UVC_DEVICE_CTX_S *dev, struct uvc_streami
     else
         ctrl->dwMaxPayloadTransferSize = ctrl->dwMaxVideoFrameSize;
 
+    ctrl->dwClockFrequency = 48000000;
     ctrl->bmFramingInfo = 3;
     ctrl->bPreferedVersion = 1;
+    ctrl->bMinVersion = 1;
     ctrl->bMaxVersion = 1;
 }
 
@@ -1560,18 +1664,19 @@ static void uvc_events_process_control(UVC_DEVICE_CTX_S *dev, uint8_t req, uint8
 static void uvc_events_process_streaming(UVC_DEVICE_CTX_S *dev, uint8_t req, uint8_t cs,
                                          struct uvc_request_data *resp) {
     struct uvc_streaming_control *ctrl;
+    const uint16_t control_size = sizeof(*ctrl);
 
     printf("streaming request (req %02x cs %02x)\n", req, cs);
 
     if (cs != UVC_VS_PROBE_CONTROL && cs != UVC_VS_COMMIT_CONTROL) return;
 
     ctrl = (struct uvc_streaming_control *)&resp->data;
-    resp->length = sizeof *ctrl;
+    resp->length = control_size;
 
     switch (req) {
         case UVC_SET_CUR:
             dev->control = cs;
-            resp->length = 34;
+            resp->length = control_size;
             break;
 
         case UVC_GET_CUR:
@@ -1592,8 +1697,8 @@ static void uvc_events_process_streaming(UVC_DEVICE_CTX_S *dev, uint8_t req, uin
             break;
 
         case UVC_GET_LEN:
-            resp->data[0] = 0x00;
-            resp->data[1] = 0x22;
+            resp->data[0] = control_size & 0xff;
+            resp->data[1] = control_size >> 8;
             resp->length = 2;
             break;
 
@@ -1608,20 +1713,19 @@ static void uvc_events_process_streaming(UVC_DEVICE_CTX_S *dev, uint8_t req, uin
 
 static void uvc_events_process_class(UVC_DEVICE_CTX_S *dev, struct usb_ctrlrequest *ctrl,
                                      struct uvc_request_data *resp) {
+    uint8_t intf;
+
     if ((ctrl->bRequestType & USB_RECIP_MASK) != USB_RECIP_INTERFACE) return;
 
-    switch (ctrl->wIndex & 0xff) {
-        case UVC_INTF_CONTROL:
-            uvc_events_process_control(dev, ctrl->bRequest, ctrl->wValue >> 8, ctrl->wIndex >> 8,
-                                       ctrl->wLength, resp);
-            break;
-
-        case UVC_INTF_STREAMING:
-            uvc_events_process_streaming(dev, ctrl->bRequest, ctrl->wValue >> 8, resp);
-            break;
-
-        default:
-            break;
+    intf = ctrl->wIndex & 0xff;
+    if (intf == dev->control_intf) {
+        uvc_events_process_control(dev, ctrl->bRequest, ctrl->wValue >> 8, ctrl->wIndex >> 8,
+                                   ctrl->wLength, resp);
+    } else if (intf == dev->streaming_intf) {
+        uvc_events_process_streaming(dev, ctrl->bRequest, ctrl->wValue >> 8, resp);
+    } else {
+        printf("UVC: request for interface %u, expected control=%u streaming=%u\n",
+            intf, dev->control_intf, dev->streaming_intf);
     }
 }
 static void uvc_events_process_setup(UVC_DEVICE_CTX_S *dev, struct usb_ctrlrequest *ctrl,
@@ -1769,18 +1873,18 @@ static int uvc_events_process_data(UVC_DEVICE_CTX_S *dev, struct uvc_request_dat
             break;
         case V4L2_PIX_FMT_MJPEG:
             if (dev->imgsize == 0) printf("WARNING: MJPEG requested and no image loaded.\n");
-            dev->imgsize = MJPG_PAYLOAD_SIZE;
             target->dwMaxVideoFrameSize = MAX_BITSTREAM_BUFFER_SIZE;
+            dev->imgsize = target->dwMaxVideoFrameSize;
             break;
         case V4L2_PIX_FMT_H264:
             if (dev->imgsize == 0) printf("WARNING: H264 requested and no image loaded.\n");
-            dev->imgsize = H264_PAYLOAD_SIZE;
             target->dwMaxVideoFrameSize = MAX_BITSTREAM_BUFFER_SIZE;
+            dev->imgsize = target->dwMaxVideoFrameSize;
             break;
         case V4L2_PIX_FMT_HEVC:
             if (dev->imgsize == 0) printf("WARNING: H265 requested and no image loaded.\n");
-            dev->imgsize = H265_PAYLOAD_SIZE;
             target->dwMaxVideoFrameSize = MAX_BITSTREAM_BUFFER_SIZE;
+            dev->imgsize = target->dwMaxVideoFrameSize;
             break;
     }
     target->dwFrameInterval = *interval;
@@ -1817,10 +1921,12 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
 
     switch (v4l2_event.type) {
         case UVC_EVENT_CONNECT:
+            cvi_uvc_stream_set_enabled(false);
             printf("[%s]: UVC_EVENT_CONNECT\n", __func__);
             return;
 
         case UVC_EVENT_DISCONNECT:
+            cvi_uvc_stream_set_enabled(false);
             dev->uvc_shutdown_requested = 1;
             printf("[%s]: UVC_EVENT_DISCONNECT\n", __func__);
             printf(
@@ -1834,6 +1940,7 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
                 dev->is_streaming = 0;
                 dev->first_buffer_queued = 0;
             }
+            clear_waited_node();
             return;
 
         case UVC_EVENT_SETUP:
@@ -1847,18 +1954,16 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
 
         case UVC_EVENT_STREAMON:
             if (!dev->bulk) {
-                // clear_ok_queue();
-                // clear_waited_node();
                 uvc_handle_streamon_event(dev);
             }
             return;
 
         case UVC_EVENT_STREAMOFF:
+            cvi_uvc_stream_set_enabled(false);
             /* Stop V4L2 streaming... */
             if (!dev->run_standalone && dev->vdev->is_streaming) {
                 /* UVC - V4L2 integrated path. */
                 v4l2_stop_capturing(dev->vdev);
-                clear_waited_node();
                 dev->vdev->is_streaming = 0;
             }
 
@@ -1871,6 +1976,7 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
                 dev->first_buffer_queued = 0;
             }
 
+            clear_waited_node();
             return;
     }
 
@@ -1967,9 +2073,6 @@ int32_t UVC_GADGET_DeviceCheck(void) {
 int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32MaxFrameSize) {
     int bulk_mode = 0;
 
-    /* Frame format/resolution related params. */
-    int default_format = 0;     /* V4L2_PIX_FMT_YUYV */
-    int default_resolution = 0; /* VGA 360p */
     int nbufs = WAITED_NODE_SIZE;              /* Ping-Pong buffers */
     /* USB speed related params */
     int mult = 2;
@@ -1979,24 +2082,22 @@ int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32Max
     enum usb_device_speed speed = USB_SPEED_SUPER; /* High-Speed */
     enum io_method uvc_io_method = IO_METHOD_USERPTR;
 
-    /* Set parameters as passed by user. */
-    s_stUVCDevCtx.width = (default_resolution == 0) ? 2560 : 1280;
-    s_stUVCDevCtx.height = (default_resolution == 0) ? 1440 : 720;
+    (void)pstDevCaps;
+    (void)u32MaxFrameSize;
 
-    if (default_format == 0) {
-        s_stUVCDevCtx.imgsize = s_stUVCDevCtx.width * s_stUVCDevCtx.height * 2;
-        s_stUVCDevCtx.fcc = V4L2_PIX_FMT_YUYV;
-    } else if (default_format == 1) {
-        s_stUVCDevCtx.imgsize = s_stUVCDevCtx.width * s_stUVCDevCtx.height;
-        s_stUVCDevCtx.fcc = V4L2_PIX_FMT_MJPEG;
-    } else {
-        s_stUVCDevCtx.imgsize = s_stUVCDevCtx.width * s_stUVCDevCtx.height;
-        s_stUVCDevCtx.fcc = V4L2_PIX_FMT_H264;
-    }
+    /* Keep the initial V4L2 state aligned with format index 1 advertised
+     * through ConfigFS: MJPEG 1920x1080 at 30 fps. */
+    s_stUVCDevCtx.fcc = uvc_formats[0].fcc;
+    s_stUVCDevCtx.width = uvc_formats[0].frames[0].width;
+    s_stUVCDevCtx.height = uvc_formats[0].frames[0].height;
+    s_stUVCDevCtx.fps = 10000000 / uvc_formats[0].frames[0].intervals[0];
+    s_stUVCDevCtx.imgsize = MAX_BITSTREAM_BUFFER_SIZE;
 
     s_stUVCDevCtx.io = uvc_io_method;
     s_stUVCDevCtx.bulk = bulk_mode;
     s_stUVCDevCtx.nbufs = nbufs;
+    s_stUVCDevCtx.control_intf = UVC_INTF_CONTROL;
+    s_stUVCDevCtx.streaming_intf = UVC_INTF_STREAMING;
     s_stUVCDevCtx.mult = mult;
     s_stUVCDevCtx.burst = burst;
     s_stUVCDevCtx.speed = speed;
@@ -2037,6 +2138,11 @@ int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32Max
 }
 
 int32_t UVC_GADGET_DeviceOpen(const char *pDevPath) {
+    if (uvc_load_interface_numbers(pDevPath, &s_stUVCDevCtx) != 0) {
+        printf("UVC: use legacy interface numbers control=%u streaming=%u\n",
+            s_stUVCDevCtx.control_intf, s_stUVCDevCtx.streaming_intf);
+    }
+
     if (s_stUVCDevCtx.uvc_fd == -1) {
         if (UVC_DeviceOpen(pDevPath, &s_stUVCDevCtx)) {
             return -1;
@@ -2058,6 +2164,8 @@ int32_t UVC_GADGET_DeviceClose(void) {
         printf("[%s] uvc_video_reqbufs done\n", __FUNCTION__);
         s_stUVCDevCtx.is_streaming = 0;
     }
+
+    clear_waited_node();
 
     uvc_close(&s_stUVCDevCtx);
     printf("[%s] uvc_close done\n", __FUNCTION__);

@@ -420,6 +420,10 @@ void clear_ok_queue()
 {
     frame_node_t *node = 0;
     uvc_cache_t *uvc_cache = uvc_cache_get();
+    if (!uvc_cache || !uvc_cache->ok_queue || !uvc_cache->free_queue) {
+        return;
+    }
+
 
     while (0 == get_node_from_queue(uvc_cache->ok_queue, &node))
     {

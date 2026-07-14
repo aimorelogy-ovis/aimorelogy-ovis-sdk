@@ -8,7 +8,7 @@
 #include <pthread.h>
 
 // #define CACHE_MEM_SIZE (5529600) //2560*1440*1.5
-#define CACHE_MEM_SIZE (1 * 1024 * 1024)
+#define CACHE_MEM_SIZE (2 * 1024 * 1024)
 #define CACHE_NODE_SIZE (6)
 
 #define CACHE_MEM_SIZE2 (1024)

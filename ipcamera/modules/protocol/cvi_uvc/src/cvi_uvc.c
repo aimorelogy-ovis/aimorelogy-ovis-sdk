@@ -39,7 +39,18 @@ static UVC_STREAM_CONTEXT_S s_stUVCStreamCtx;
 
 /** UVC Context */
 static UVC_CONTEXT_S s_stUVCCtx = {.bRun = false, .bPCConnect = false, .TskId = (pthread_t)-1, .Tsk2Id = (pthread_t)-1};
-bool g_bPushVencData = false;
+static bool g_bPushVencData = false;
+static pthread_mutex_t g_stUVCStreamMutex = PTHREAD_MUTEX_INITIALIZER;
+
+void cvi_uvc_stream_set_enabled(bool enabled)
+{
+    pthread_mutex_lock(&g_stUVCStreamMutex);
+    g_bPushVencData = enabled;
+    if (!enabled) {
+        clear_ok_queue();
+    }
+    pthread_mutex_unlock(&g_stUVCStreamMutex);
+}
 
 int cvi_uvc_stream_send_data(void *data)
 {
@@ -47,11 +58,35 @@ int cvi_uvc_stream_send_data(void *data)
     VENC_PACK_S *pstData = CVI_NULL;
     unsigned char *s = CVI_NULL;
     unsigned int data_len = 0;
-    unsigned int copy_size = 0;
+    size_t frame_size = 0;
     VENC_STREAM_S * pstStream = (VENC_STREAM_S *) data;
 
-    if(false == s_stUVCCtx.bRun) {
-        return -1;
+    if ((pstStream == CVI_NULL) || (pstStream->pstPack == CVI_NULL) ||
+        (pstStream->u32PackCount == 0)) {
+        return CVI_SUCCESS;
+    }
+
+    pthread_mutex_lock(&g_stUVCStreamMutex);
+    if (false == g_bPushVencData) {
+        pthread_mutex_unlock(&g_stUVCStreamMutex);
+        return CVI_SUCCESS;
+    }
+    pthread_mutex_unlock(&g_stUVCStreamMutex);
+
+    for (i = 0; i < pstStream->u32PackCount; ++i) {
+        pstData = &pstStream->pstPack[i];
+        if (pstData->u32Offset > pstData->u32Len) {
+            printf("invalid UVC VENC pack, offset=%u len=%u\n",
+                pstData->u32Offset, pstData->u32Len);
+            return CVI_SUCCESS;
+        }
+        frame_size += pstData->u32Len - pstData->u32Offset;
+    }
+
+    if ((frame_size == 0) || (frame_size > CACHE_MEM_SIZE)) {
+        printf("drop UVC frame, size=%zu max=%u\n", frame_size,
+            (unsigned int)CACHE_MEM_SIZE);
+        return CVI_SUCCESS;
     }
 #ifdef VENC_SAVE_FILE
     static int first_time = 0;
@@ -135,23 +170,22 @@ int cvi_uvc_stream_send_data(void *data)
         pstData = &pstStream->pstPack[i];
         s = pstData->pu8Addr + pstData->u32Offset;
         data_len = pstData->u32Len - pstData->u32Offset;
-        if(data_len < (fnode->length - fnode->used)){
-            copy_size = data_len;
-        }else{
-            printf("data_len=%d, (fnode->length - fnode->used)=%d\n", data_len, (fnode->length - fnode->used));
-            copy_size = (fnode->length - fnode->used);
-        }
-        // copy_size = data_len < (fnode->length - fnode->used) ? data_len : (fnode->length - fnode->used);
-
-        if (copy_size > 0)
-        {
-            memcpy(fnode->mem + fnode->used, s, copy_size);
-            fnode->used += copy_size;
-        }
+        memcpy(fnode->mem + fnode->used, s, data_len);
+        fnode->used += data_len;
     }
     // printf("fnode->used = %d\n", fnode->used);
 
-    put_node_to_queue(uvc_cache->ok_queue, fnode);
+    pthread_mutex_lock(&g_stUVCStreamMutex);
+    if (g_bPushVencData) {
+        if (put_node_to_queue(uvc_cache->ok_queue, fnode) != 0) {
+            fnode->used = 0;
+            put_node_to_queue(uvc_cache->free_queue, fnode);
+        }
+    } else {
+        fnode->used = 0;
+        put_node_to_queue(uvc_cache->free_queue, fnode);
+    }
+    pthread_mutex_unlock(&g_stUVCStreamMutex);
 
     return CVI_SUCCESS;
 }
@@ -171,12 +205,10 @@ static void *UVC_CheckTask(void *pvArg) {
 
         if (ret < 0) {
             printf("UVC_GADGET_DeviceCheck %x\n", ret);
+            cvi_uvc_stream_set_enabled(false);
             break;
         } else if (ret == 0) {
             printf("Timeout Do Nothing\n");
-            if (false != g_bPushVencData) {
-                g_bPushVencData = false;
-            }
         }
         //usleep(50 * 1000);
     }
@@ -300,6 +332,7 @@ int32_t UVC_Stop(void) {
         return 0;
     }
 
+    cvi_uvc_stream_set_enabled(false);
     s_stUVCCtx.bRun = false;
     pthread_join(s_stUVCCtx.TskId, NULL);
 

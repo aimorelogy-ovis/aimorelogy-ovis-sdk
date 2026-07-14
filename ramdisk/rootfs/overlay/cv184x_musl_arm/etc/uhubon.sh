@@ -50,21 +50,16 @@ hub_off() {
 }
 
 inst_mod() {
-  insmod /mnt/system/ko/configfs.ko
-  insmod /mnt/system/ko/libcomposite.ko
-  insmod /mnt/system/ko/u_serial.ko
-  insmod /mnt/system/ko/usb_f_acm.ko
-  insmod /mnt/system/ko/cvi_usb_f_cvg.ko
-  insmod /mnt/system/ko/usb_f_uvc.ko
-  insmod /mnt/system/ko/usb_f_fs.ko
-  insmod /mnt/system/ko/u_audio.ko
-  insmod /mnt/system/ko/usb_f_uac1.ko
-  insmod /mnt/system/ko/usb_f_serial.ko
-  insmod /mnt/system/ko/usb_f_mass_storage.ko
-  insmod /mnt/system/ko/u_ether.ko
-  insmod /mnt/system/ko/usb_f_ecm.ko
-  insmod /mnt/system/ko/usb_f_eem.ko
-  insmod /mnt/system/ko/usb_f_rndis.ko
+  for module in \
+    configfs libcomposite u_serial usb_f_acm cvi_usb_f_cvg \
+    usb_f_uvc usb_f_fs u_audio usb_f_uac1 usb_f_serial \
+    usb_f_mass_storage u_ether usb_f_ecm usb_f_eem usb_f_rndis
+  do
+    module_path=/mnt/system/ko/$module.ko
+    if [ -f "$module_path" ]; then
+      insmod "$module_path"
+    fi
+  done
 }
 
 case "$1" in

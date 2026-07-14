@@ -1203,8 +1203,10 @@ static void *Thread_Streaming_Proc(void *pArgs)
             stFrameInfo.frameParam.frameTime = time(NULL);
             app_ipcam_Mbuf_Video_WriteFrame(VencChn, &stFrameInfo);
 #ifdef CVI_UVC_SUPPORT
-            if (VencChn == 1)
+            if ((VencChn == CVI_UVC_VENC_CHN) &&
+                (pastVencChnCfg->enType == PT_MJPEG)) {
                 cvi_uvc_stream_send_data(&stStream);
+            }
 #endif
         }
 

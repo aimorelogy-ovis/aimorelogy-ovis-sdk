@@ -13,6 +13,8 @@
 #include <stdbool.h>
 #include <pthread.h>
 
+#define CVI_UVC_VENC_CHN 3
+
 #ifdef __cplusplus
 #if __cplusplus
 extern "C" {
@@ -105,6 +107,7 @@ void app_uvc_exit(void);
 int app_uvc_init(void);
 
 int cvi_uvc_stream_send_data(void *data);
+void cvi_uvc_stream_set_enabled(bool enabled);
 
 #ifdef __cplusplus
 #if __cplusplus
