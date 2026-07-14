@@ -18,6 +18,7 @@ extern "C"
 
 typedef struct RTSP_SER_ATTR {
     CVI_S32 id;
+    VENC_CHN vencChn;
     CVI_CHAR rtsp_name[MAX_RTSP_NAME_LEN];
     CVI_S32 max_conn;
     CVI_S32 timeout;

@@ -679,17 +679,6 @@ int zfifo_readv_flag_plus(ZFIFO_DESC *zfifo_desc, ZFIFO_NODE *iov, int iovcnt, i
     struct timeval tv;
     struct timespec ts;
 
-    if (zfifo->flag_index > 0)
-    {
-        zfifo_desc->index = zfifo->flag_index;
-        zfifo_desc->offset = zfifo->flag_offset;
-    }
-    else
-    {
-        APP_PROF_LOG_PRINT(LEVEL_ERROR, "Invalid not key fps %d\n", zfifo->flag_index);
-        return -1;
-    }
-
     pthread_mutex_lock(&zfifo->mutex);
 
     gettimeofday(&now, NULL);
@@ -699,6 +688,26 @@ int zfifo_readv_flag_plus(ZFIFO_DESC *zfifo_desc, ZFIFO_NODE *iov, int iovcnt, i
     ts.tv_nsec = ((now.tv_usec + tv.tv_usec) % MICROSECONDS) * 1000;
 
     int ret = 0;
+
+    while (((zfifo->flag_index <= 0) ||
+            (zfifo->flag_index < zfifo->first_index)) &&
+           (ret != ETIMEDOUT))
+    {
+        if (timeout <= 0)
+        {
+            pthread_mutex_unlock(&zfifo->mutex);
+            return 0;
+        }
+        ret = pthread_cond_timedwait(&zfifo->cond, &zfifo->mutex, &ts);
+    }
+    if (ret == ETIMEDOUT)
+    {
+        pthread_mutex_unlock(&zfifo->mutex);
+        return 0;
+    }
+
+    zfifo_desc->index = zfifo->flag_index;
+    zfifo_desc->offset = zfifo->flag_offset;
 
     while (((zfifo_desc->index > zfifo->last_index) || (zfifo->flag_index < zfifo->first_index)) &&
            (ret != ETIMEDOUT))

@@ -3,6 +3,7 @@ SRCTREE := $(CURDIR)
 TARGET_OUT_DIR := $(CURDIR)/out
 TOPTARGETS := all clean install clean_all
 TOPSUBDIRS := ipcamera
+DEFAULT_DEFCONFIG := cv184x_ovis_app_defconfig
 
 export SOC_SEGMENT := $(shell echo $(CHIP_SEGMENT) | tr a-z A-Z)
 export SOC_SEGMENT_LOWER := $(shell echo $(SOC_SEGMENT) | tr A-Z a-z)
@@ -32,19 +33,18 @@ $(TOPSUBDIRS): $(PROJECT)
 
 $(TOPTARGETS): $(TOPSUBDIRS)
 
-# Use defconfig cv184x_ovis_app_defconfig
-.config :
-ifeq ($(SOC_SEGMENT), CV184X)
-	$(MAKE) -f $(SRCTREE)/Kbuild cv184x_ovis_app_defconfig
-endif
+# This application only consumes the selected defconfig as a Makefile include.
+# The imported Kbuild helper scripts are not part of this source tree.
+.config: $(SRCTREE)/configs/$(DEFAULT_DEFCONFIG)
+	$(Q)cp $< $@
 
 all : $(SRCTREE)/.config $(SUBDIRS) $(TARGET)
 
 
 menuconfig:
 	$(MAKE) -f $(SRCTREE)/Kbuild $@
-%_defconfig:
-	$(MAKE) -f $(SRCTREE)/Kbuild $@
+%_defconfig: $(SRCTREE)/configs/%_defconfig
+	$(Q)cp $< $(SRCTREE)/.config
 
 include $(SRCTREE)/build/build.mk
 .PHONY: $(SUBDIRS)

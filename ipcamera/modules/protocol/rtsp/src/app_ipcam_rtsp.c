@@ -52,6 +52,8 @@ static CVI_S32 app_ipcam_RtspAttr_Init(VENC_CHN vencChn, CVI_S32 session_id
         return CVI_FAILURE;
     }
 
+    pstAttr->vencChn = vencChn;
+
     switch (pstVencChnCfg->enType) {
         case PT_H264:
             pstAttr->video_codec = RTSP_VIDEO_H264;
@@ -127,8 +129,13 @@ static void rtsp_service_media_task(void *arg)
     prctl(PR_SET_NAME, TaskName, 0, 0, 0);
     APP_PROF_LOG_PRINT(LEVEL_INFO, "%s running\n", TaskName);
 
-    CVI_S32 mbufId = ctx->attr.id;
+    CVI_S32 mbufId = ctx->attr.vencChn;
     CVI_MBUF_HANDLE* readerId = app_ipcam_Mbuf_CreateReader(mbufId, 1);
+
+    if (readerId == NULL) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "Create reader for venc[%d] failed.\n", mbufId);
+        return;
+    }
 
     CVI_MEDIA_FRAME_INFO_T stReadFrameInfo;
     memset(&stReadFrameInfo.frameParam, 0, sizeof(stReadFrameInfo.frameParam));
@@ -158,7 +165,7 @@ static void rtsp_service_media_task(void *arg)
 
         if (stReadFrameInfo.frameParam.frameLen > 0) {
             frame.data[0] = stReadFrameInfo.frameBuf;
-            frame.iskey[0] = 1;
+            frame.iskey[0] = (stReadFrameInfo.frameParam.frameType == CVI_MEDIA_VFRAME_I);
             frame.len[0] = stReadFrameInfo.frameParam.frameLen;
             OSAL_TIME_GetBootTimeUs(&frame.vi_pts[0]);
             // send video data
@@ -211,6 +218,15 @@ static void rtsp_service_start_media_by_name(char *name)
             OSAL_MUTEX_Lock(c->mutex);
             if (strcmp(c->attr.rtsp_name, name) == 0) {
                 if (c->ref == 0) {
+                    if ((c->attr.video_codec == RTSP_VIDEO_H264) ||
+                        (c->attr.video_codec == RTSP_VIDEO_H265)) {
+                        CVI_S32 s32Ret = CVI_VENC_RequestIDR(c->attr.vencChn, CVI_TRUE);
+                        if (s32Ret != CVI_SUCCESS) {
+                            APP_PROF_LOG_PRINT(LEVEL_WARN,
+                                "Request IDR for venc[%d] failed: %d.\n",
+                                c->attr.vencChn, s32Ret);
+                        }
+                    }
                     c->RtspThread.bRun_flag = 1;
                     OSAL_TASK_ATTR_S video;
                     static char v_name[64] = {0};
