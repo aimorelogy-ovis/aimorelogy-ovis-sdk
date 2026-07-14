@@ -1,0 +1,3 @@
+ifeq ($(CONFIG_TARGET_PACKAGE_NCM_SCRIPT),y)
+TARGET_PACKAGES += ncm
+endif

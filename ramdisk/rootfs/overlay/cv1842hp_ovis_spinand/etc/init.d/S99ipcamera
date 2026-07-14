@@ -1,0 +1,50 @@
+#!/bin/sh
+
+APP_DIR=/usr/share/ipcamera
+DAEMON="$APP_DIR/ipcamera"
+PIDFILE=/var/run/ipcamera.pid
+
+start() {
+	[ -x "$DAEMON" ] || return 0
+
+	PARAM_CONFIG="$APP_DIR/param_config.ini"
+	if [ ! -f "$PARAM_CONFIG" ]; then
+		echo "ipcamera parameter config not found"
+		return 1
+	fi
+
+	cd "$APP_DIR" || return 1
+	printf 'Starting ipcamera: %s -i %s &\n' "$DAEMON" "$PARAM_CONFIG"
+	"$DAEMON" -i "$PARAM_CONFIG" &
+	status=$?
+	[ "$status" -eq 0 ] && echo $! > "$PIDFILE"
+	return "$status"
+}
+
+stop() {
+	printf "Stopping ipcamera: "
+	start-stop-daemon -K -q -p "$PIDFILE"
+	status=$?
+	if [ "$status" -eq 0 ]; then
+		rm -f "$PIDFILE"
+		echo "OK"
+	else
+		echo "FAIL"
+	fi
+	return "$status"
+}
+
+case "$1" in
+	start|stop)
+		"$1"
+		;;
+	restart|reload)
+		stop
+		sleep 1
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload}"
+		exit 1
+		;;
+esac

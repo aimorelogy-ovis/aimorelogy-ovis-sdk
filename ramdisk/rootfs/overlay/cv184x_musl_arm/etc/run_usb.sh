@@ -5,12 +5,14 @@ MSC_PID=0x1008
 RNDIS_PID=0x1009
 UVC_PID=0x100A
 UAC_PID=0x100B
+NCM_PID=0x100C
 ADB_VID=0x18D1
 ADB_PID=0x4EE0
 ADB_PID_M1=0x4EE2
 ADB_PID_M2=0x4EE4
 MANUFACTURER="Cvitek"
 PRODUCT="USB Com Port"
+PRODUCT_NCM="NCM"
 PRODUCT_RNDIS="RNDIS"
 PRODUCT_UVC="UVC"
 PRODUCT_UAC="UAC"
@@ -40,6 +42,11 @@ case "$2" in
   cvg)
 	CLASS=cvg
 	;;
+  ncm)
+	CLASS=ncm
+	PID=$NCM_PID
+	PRODUCT=$PRODUCT_NCM
+	;;
   rndis)
 	CLASS=rndis
 	PID=$RNDIS_PID
@@ -66,7 +73,7 @@ case "$2" in
 	;;
   *)
 	if [ "$1" = "probe" ] ; then
-	  echo "Usage: $0 probe {acm|msc|cvg|rndis|uvc|uac1|adb}"
+	  echo "Usage: $0 probe {acm|msc|cvg|ncm|rndis|uvc|uac1|adb}"
 	  exit 1
 	fi
 esac
@@ -89,6 +96,11 @@ res_check() {
   TMP_NUM=$(find $CVI_GADGET/functions/ -name "cvg*" | wc -l)
   EP_IN=$(($EP_IN+$TMP_NUM))
   EP_OUT=$(($EP_OUT+$TMP_NUM))
+  INTF_NUM=$(($INTF_NUM+$TMP_NUM))
+  TMP_NUM=$(find $CVI_GADGET/functions/ -name "ncm*" | wc -l)
+  EP_OUT=$(($EP_OUT+$TMP_NUM))
+  TMP_NUM=$(($TMP_NUM * 2))
+  EP_IN=$(($EP_IN+$TMP_NUM))
   INTF_NUM=$(($INTF_NUM+$TMP_NUM))
   TMP_NUM=$(find $CVI_GADGET/functions/ -name "rndis*" | wc -l)
   EP_OUT=$(($EP_OUT+$TMP_NUM))
@@ -125,6 +137,10 @@ res_check() {
   fi
   if [ "$CLASS" = "cvg" ] ; then
     EP_IN=$(($EP_IN+1))
+    EP_OUT=$(($EP_OUT+1))
+  fi
+  if [ "$CLASS" = "ncm" ] ; then
+    EP_IN=$(($EP_IN+2))
     EP_OUT=$(($EP_OUT+1))
   fi
   if [ "$CLASS" = "rndis" ] ; then
@@ -204,9 +220,9 @@ probe() {
           echo $ADB_PID_M2 >$CVI_GADGET/idProduct
         fi
     fi
-    mkdir $CVI_GADGET/functions/$CLASS
+    mkdir $CVI_GADGET/functions/$CLASS || return 1
   else
-    mkdir $CVI_GADGET/functions/$CLASS.usb$FUNC_NUM
+    mkdir $CVI_GADGET/functions/$CLASS.usb$FUNC_NUM || return 1
   fi
   if [ "$CLASS" = "mass_storage" ] ; then
     echo $MSC_FILE >$CVI_GADGET/functions/$CLASS.usb$FUNC_NUM/lun.0/file
@@ -287,6 +303,10 @@ start() {
 }
 
 stop() {
+  if [ ! -d "$CVI_GADGET" ]; then
+    return 0
+  fi
+
   if [ -d $CVI_GADGET/configs/c.1/ffs.mtp ]; then
     killall umtprd
      rm $CVI_GADGET/configs/c.1/ffs.mtp
@@ -298,16 +318,23 @@ stop() {
     rm $CVI_GADGET/configs/c.1/ffs.adb
     umount /dev/usb-ffs/adb
   else
-    echo "" >$CVI_GADGET/UDC
+    CURRENT_UDC=$(cat "$CVI_GADGET/UDC")
+    if [ -n "$CURRENT_UDC" ]; then
+      echo "" >$CVI_GADGET/UDC
+    fi
   fi
   find $CVI_GADGET/configs/ -name "*.usb*" | xargs rm -f
+  if [ -f /etc/ConfigUVC.sh ]; then
+    CVI_GADGET="$CVI_GADGET" sh /etc/ConfigUVC.sh cleanup || return 1
+  fi
+
   rmdir $CVI_GADGET/configs/c.*/strings/0x409/
-  tmp_dirs=$(find $CVI_GADGET/os_desc/c.* -type d)
-  if [ -n tmp_dirs ]; then
+  tmp_dirs=$(find $CVI_GADGET/os_desc/c.* -type d 2>/dev/null)
+  if [ -n "$tmp_dirs" ]; then
     echo "remove os_desc!"
     rm -rf $CVI_GADGET/os_desc/c.*/
-    find $CVI_GADGET/functions/ -name Icons | xargs rmdir
-    find $CVI_GADGET/functions/ -name Label | xargs rmdir
+    find $CVI_GADGET/functions/ -name Icons | xargs -r rmdir
+    find $CVI_GADGET/functions/ -name Label | xargs -r rmdir
   fi
   rmdir $CVI_GADGET/configs/c.*/
   rmdir $CVI_GADGET/functions/*
@@ -333,7 +360,7 @@ case "$1" in
   echo ${UDC} >$CVI_GADGET/UDC   
 	;;
   *)
-	echo "Usage: $0 probe {acm|msc|cvg|uvc|uac1} {file (msc)}"
+	echo "Usage: $0 probe {acm|msc|cvg|ncm|rndis|uvc|uac1|adb} {file (msc)}"
 	echo "Usage: $0 start"
 	echo "Usage: $0 stop"
 	exit 1

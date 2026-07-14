@@ -1,0 +1,130 @@
+menu "resource options"
+
+config RESOURCE_INSTALL_BITMAP
+	bool "install tiger.bmp"
+	default n
+	help
+		"support install tiger.bmp"
+
+config RESOURCE_INSTALL_VDEC_FILES
+	bool "install 640x360.jpg"
+	default n
+	help
+		"support install 640x360.jpg"
+
+menu "ai models resource"
+
+menu "CV184X"
+
+config RESOURCE_INSTALL_YOLOV8N_DET_PERSON_VEHICLE
+	bool "install yolov8n_det_person_vehicle"
+	default n
+	help
+		"support install yolov8n_det_person_vehicle"
+
+config RESOURCE_INSTALL_YOLO11_PERSON_VEHICLE
+	bool "install yolo11_person_vehicle"
+	default n
+	help
+		"support install yolo11_person_vehicle"
+
+config RESOURCE_INSTALL_TRACKING_FEARTACK
+	bool "install tracking_feartrack"
+	default n
+	help
+		"support install tracking_feartrack"
+
+config RESOURCE_INSTALL_FASTSAM_SEG
+	bool "install fastsam_seg"
+	default n
+	help
+		"support install fastsam_seg"
+
+config RESOURCE_INSTALL_CLIP_IMG
+	bool "install clip image"
+	default n
+	help
+		"support install clip image"
+
+config RESOURCE_INSTALL_CLIP_TXT
+	bool "install clip txt"
+	default n
+	help
+		"support install clip txt"
+
+endmenu
+
+endmenu
+
+menu "file recover"
+
+config RESOURCE_INSTALL_H264_PCM_TEMPLATE
+	bool "install h264 pcm template"
+	default n
+	help
+		"support install record h264 & pcm fix file"
+
+config RESOURCE_INSTALL_H265_PCM_TEMPLATE
+	bool "install h265 pcm template"
+	default n
+	help
+		"support install record h265 & pcm fix file"
+
+config RESOURCE_INSTALL_MP4_AAC_TEMPLATE
+	bool "install mp4 aac template"
+	default n
+	help
+		"support install record mp4 & aac fix file"
+
+endmenu
+
+config RESOURCE_INSTALL_NETWORK_WWW
+	bool "install www"
+	default n
+	help
+		"support install www for websock"
+
+menu "param resource"
+
+menu "fbm"
+
+config RESOURCE_INSTALL_FBM_CV1842HP_WEVB_CV2003
+	bool "install fbm cv1842hp_wevb_cv2003"
+	default n
+	help
+		"support install cv1842hp_wevb_cv2003.ini"
+
+config RESOURCE_INSTALL_FBM_CV1842HP_WEVB_CV2003_MIPI_SWITCH
+	bool "install fbm cv1842hp_wevb_cv2003_mipi_switch"
+	default n
+	help
+		"support install fbm cv1842hp_wevb_cv2003_mipi_switch.ini"
+
+config RESOURCE_INSTALL_FBM_CV1843HP_WEVB_OS04A10
+	bool "install fbm cv1843hp_wevb_os04a10"
+	default n
+	help
+		"support install fbm cv1843hp_wevb_os04a10.ini"
+
+
+endmenu
+
+menu "sbm"
+
+config RESOURCE_INSTALL_SBM_CV1842HP_CV2003
+	bool "install sbm cv1842hp_cv2003"
+	default n
+	help
+		"support install sbm cv1842hp_cv2003.ini"
+
+config RESOURCE_INSTALL_SBM_CV1842HP_OVIS_SC235HAI
+	bool "install sbm cv1842hp_ovis_sc235hai"
+	default n
+	help
+		"support install sbm cv1842hp_ovis_sc235hai.ini"
+
+endmenu
+
+endmenu
+
+endmenu

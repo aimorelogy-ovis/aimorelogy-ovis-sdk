@@ -681,6 +681,13 @@ endif
 ifneq ("$(wildcard $(CUST_FOLDER_PATH))", "")
 	${Q}cp -r $(CUST_FOLDER_PATH)/* $(OUTPUT_DIR)/rootfs
 endif
+ifeq ($(CONFIG_BUILD_TURNKEY_IPC),y)
+	${Q}test -x $(TOP_DIR)/ipcamera/install/ipcamera || \
+		{ echo "ipcamera is enabled but has not been built; run build_ipcamera first"; exit 1; }
+	${Q}mkdir -p $(OUTPUT_DIR)/rootfs/usr/share/ipcamera
+	${Q}cp -a $(TOP_DIR)/ipcamera/install/. $(OUTPUT_DIR)/rootfs/usr/share/ipcamera/
+	${Q}rm -rf $(OUTPUT_DIR)/rootfs/usr/share/ipcamera/rawimages
+endif
 	${Q}${BUILD_PATH}/boards/default/rootfs_script/prepare_rootfs.sh $(OUTPUT_DIR)/rootfs
 	# Generate S10_automount
 	${Q}python3 $(COMMON_TOOLS_PATH)/image_tool/create_automount.py $(FLASH_PARTITION_XML) $(OUTPUT_DIR)/rootfs/etc/init.d/

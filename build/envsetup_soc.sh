@@ -729,33 +729,54 @@ function clean_access_guard_turnkey_app()
   fi
 )}
 
+function build_ipcamera()
+{(
+  print_notice "Run ${FUNCNAME[0]}() function"
+
+  [[ "$BUILD_TURNKEY_IPC" = "y" ]] || return 0
+
+  local ipcamera_path="$TOP_DIR/ipcamera"
+  if [[ ! -d "$ipcamera_path" ]]; then
+    print_error "ipcamera source directory does not exist: $ipcamera_path"
+    return 1
+  fi
+
+  pushd "$ipcamera_path"
+    make cv184x_ovis_app_defconfig || return $?
+
+    rm -rf install
+    make ipcamera clean_all || return $?
+    make ipcamera || return $?
+    make ipcamera install || return $?
+
+    # Keep every board parameter available for inspection and manual testing.
+    # The OVIS runtime uses install/param_config.ini selected by the defconfig.
+    mkdir -p install/parameter
+    cp -a resource/parameter/. install/parameter/
+  popd
+)}
+
 function build_ipc_app()
 {
-  print_notice "Run ${FUNCNAME[0]}() function"
-  if [[ -d "$IPC_APP_PATH" ]] && [[ "$BUILD_TURNKEY_IPC" = "y" ]]; then
-    pushd "$IPC_APP_PATH"
-        make clean; make; make ipc_install || return $?
-        if [[ -f "$OUTPUT_DIR"/ipc_install.tar.gz ]] ; then
-            rm "$OUTPUT_DIR"/ipc_install.tar.gz
-        fi
-        pushd install
-        tar -czvf "$OUTPUT_DIR"/ipc_install.tar.gz "${IPC_APP_PATH}"/install/ipc_install || return $?
-        popd
-    popd
-  fi
+  build_ipcamera
 }
+
+function clean_ipcamera()
+{(
+  print_notice "Run ${FUNCNAME[0]}() function"
+
+  local ipcamera_path="$TOP_DIR/ipcamera"
+  [[ -d "$ipcamera_path" ]] || return 0
+
+  pushd "$ipcamera_path"
+    make ipcamera clean_all
+    rm -rf install
+  popd
+)}
 
 function clean_ipc_app()
 {
-  print_notice "Run ${FUNCNAME[0]}() function"
-  if [[ -d "$IPC_APP_PATH" ]] && [[ "$BUILD_TURNKEY_IPC" = "y" ]]; then
-    pushd "$IPC_APP_PATH"
-        make clean
-        if [[ -f "$OUTPUT_DIR"/ipc_install.tar.gz ]] ; then
-            rm "$OUTPUT_DIR"/ipc_install.tar.gz
-        fi
-    popd
-  fi
+  clean_ipcamera
 }
 
 function clean_libsophon()

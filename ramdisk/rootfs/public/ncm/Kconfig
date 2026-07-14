@@ -1,0 +1,5 @@
+config TARGET_PACKAGE_NCM_SCRIPT
+	bool "Target package NCM startup script"
+	default n
+	help
+	  Start a USB CDC NCM gadget and configure usb0 with a static address.
