@@ -1,16 +1,14 @@
 #include "ovis_manager.h"
+#include "cJSON.h"
 
 #include <arpa/inet.h>
-#include <ctype.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 static char *find_header(char *buffer, const char *name)
@@ -39,32 +37,65 @@ static int send_all(int fd, const void *data, size_t size)
 	return 0;
 }
 
-static void send_response(int fd, int status, const char *type, const char *body)
+static int origin_is_allowed(const char *origin)
 {
-	char header[512];
+	const char *allowed_origins[] = {
+		OVIS_ALLOWED_ORIGIN,
+		OVIS_DEV_ORIGIN,
+		OVIS_DEV_ORIGIN_ALT,
+	};
+	size_t index;
+
+	if (origin == NULL || origin[0] == '\0')
+		return 1;
+	for (index = 0; index < sizeof(allowed_origins) / sizeof(allowed_origins[0]); index++) {
+		if (allowed_origins[index][0] != '\0' && strcmp(origin, allowed_origins[index]) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static void send_response(int fd, int status, const char *type, const char *body,
+	const struct http_request *request)
+{
+	char header[1536];
+	char cors[768] = "Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers\r\n";
+	const char *origin = request == NULL ? NULL : request->origin;
 	const char *reason = status == 200 ? "OK" : status == 202 ? "Accepted" :
+		status == 204 ? "No Content" :
 		status == 400 ? "Bad Request" : status == 401 ? "Unauthorized" :
 		status == 403 ? "Forbidden" : status == 404 ? "Not Found" :
 		status == 409 ? "Conflict" : "Internal Server Error";
 	size_t length = strlen(body);
 
+	if (origin != NULL && origin[0] != '\0' && origin_is_allowed(origin)) {
+		snprintf(cors, sizeof(cors),
+			"Access-Control-Allow-Origin: %s\r\n"
+			"Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS\r\n"
+			"Access-Control-Allow-Headers: Authorization, Content-Type, X-OVIS-CSRF\r\n"
+			"Access-Control-Allow-Private-Network: true\r\n"
+			"Access-Control-Max-Age: 600\r\n"
+			"Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers\r\n",
+			origin);
+	}
+
 	snprintf(header, sizeof(header),
 		"HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
 		"Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
-		"Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'\r\n"
-		"Connection: close\r\n%s\r\n", status, reason, type, length,
+		"Connection: close\r\n%s%s\r\n", status, reason, type, length, cors,
 		status == 401 ? "WWW-Authenticate: Basic realm=\"OVIS Manager\"\r\n" : "");
 	send_all(fd, header, strlen(header));
 	send_all(fd, body, length);
 }
 
-static void send_json_error(int fd, int status, const char *message)
+static void send_json_error(int fd, int status, const char *message,
+	const struct http_request *request)
 {
 	char escaped[512];
 	char body[640];
 	json_escape(message, escaped, sizeof(escaped));
 	snprintf(body, sizeof(body), "{\"error\":\"%s\"}", escaped);
-	send_response(fd, status, "application/json; charset=utf-8", body);
+	send_response(fd, status, "application/json; charset=utf-8", body, request);
 }
 
 static int parse_request(char *buffer, size_t length, struct http_request *request)
@@ -97,6 +128,8 @@ static int parse_request(char *buffer, size_t length, struct http_request *reque
 			snprintf(request->authorization, sizeof(request->authorization), "%s", value);
 		else if (strcasecmp(line, "X-OVIS-CSRF") == 0)
 			snprintf(request->csrf, sizeof(request->csrf), "%s", value);
+		else if (strcasecmp(line, "Origin") == 0)
+			snprintf(request->origin, sizeof(request->origin), "%s", value);
 	}
 	if (content_length > OVIS_MAX_BODY_SIZE || header_length + content_length > length)
 		return -1;
@@ -109,79 +142,136 @@ static int parse_request(char *buffer, size_t length, struct http_request *reque
 static int require_write_access(int fd, const struct http_request *request)
 {
 	if (!auth_check(request->authorization)) {
-		send_json_error(fd, 401, "需要管理员身份验证");
+		send_json_error(fd, 401, "需要管理员身份验证", request);
 		return -1;
 	}
 	if (strcmp(request->csrf, "1") != 0) {
-		send_json_error(fd, 403, "缺少 CSRF 请求头");
+		send_json_error(fd, 403, "缺少 CSRF 请求头", request);
 		return -1;
 	}
 	return 0;
 }
 
-static void serve_static(int fd, const char *path)
+static int parse_revision_body(const char *body, char *revision, size_t size)
 {
-	const char *name;
-	const char *type;
-	char full_path[512];
-	char *data;
-	struct stat statbuf;
-	int file;
+	cJSON *root = cJSON_Parse(body);
+	cJSON *item;
+	int result = -1;
 
-	if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
-		name = "index.html"; type = "text/html; charset=utf-8";
-	} else if (strcmp(path, "/app.js") == 0) {
-		name = "app.js"; type = "application/javascript; charset=utf-8";
-	} else if (strcmp(path, "/style.css") == 0) {
-		name = "style.css"; type = "text/css; charset=utf-8";
-	} else {
-		send_json_error(fd, 404, "资源不存在"); return;
-	}
-	snprintf(full_path, sizeof(full_path), "%s/%s", OVIS_WWW_ROOT, name);
-	file = open(full_path, O_RDONLY);
-	if (file < 0 || fstat(file, &statbuf) != 0 || statbuf.st_size > 1024 * 1024) {
-		if (file >= 0) close(file);
-		send_json_error(fd, 404, "资源不存在"); return;
-	}
-	data = malloc((size_t)statbuf.st_size + 1);
-	if (!data) { close(file); send_json_error(fd, 500, "内存不足"); return; }
-	{
-		size_t used = 0;
-		while (used < (size_t)statbuf.st_size) {
-			ssize_t count = read(file, data + used, (size_t)statbuf.st_size - used);
-			if (count <= 0) { free(data); close(file); send_json_error(fd, 500, "读取资源失败"); return; }
-			used += (size_t)count;
-		}
-	}
-	close(file); data[statbuf.st_size] = '\0';
-	send_response(fd, 200, type, data);
-	free(data);
+	if (!cJSON_IsObject(root))
+		goto done;
+	item = cJSON_GetObjectItemCaseSensitive(root, "revision");
+	if (!cJSON_IsString(item) || item->valuestring == NULL ||
+	    item->valuestring[0] == '\0' || strlen(item->valuestring) >= size)
+		goto done;
+	snprintf(revision, size, "%s", item->valuestring);
+	result = 0;
+done:
+	cJSON_Delete(root);
+	return result;
 }
 
 static void route_request(int fd, const struct http_request *request)
 {
 	char json[4096];
 	char error[256];
+	char revision[33];
 	unsigned long id;
 	enum service_action action;
+	int rc;
+
+	if (request->origin[0] != '\0' && !origin_is_allowed(request->origin)) {
+		send_json_error(fd, 403, "不允许的请求来源", request);
+		return;
+	}
+	if (strcmp(request->method, "OPTIONS") == 0) {
+		send_response(fd, 204, "text/plain", "", request);
+		return;
+	}
+	if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/api/v1/device/info") == 0) {
+		if (device_info_json(json, sizeof(json)) != 0)
+			send_json_error(fd, 500, "无法生成设备信息", request);
+		else
+			send_response(fd, 200, "application/json; charset=utf-8", json, request);
+		return;
+	}
+	if (strcmp(request->method, "GET") == 0 &&
+	    strcmp(request->path, "/api/v1/config/capabilities") == 0) {
+		if (config_capabilities_json(json, sizeof(json)) != 0)
+			send_json_error(fd, 500, "无法生成配置能力信息", request);
+		else
+			send_response(fd, 200, "application/json; charset=utf-8", json, request);
+		return;
+	}
+	if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/api/v1/config") == 0) {
+		if (config_read_json(json, sizeof(json)) != 0)
+			send_json_error(fd, 409, "运行配置不可用", request);
+		else
+			send_response(fd, 200, "application/json; charset=utf-8", json, request);
+		return;
+	}
+	if (strcmp(request->method, "POST") == 0 &&
+	    strcmp(request->path, "/api/v1/config/validate") == 0) {
+		rc = config_validate_json(request->body, json, sizeof(json), error, sizeof(error));
+		if (rc == 0 || rc == 1)
+			send_response(fd, 200, "application/json; charset=utf-8", json, request);
+		else
+			send_json_error(fd, rc == -2 ? 409 : rc == -3 ? 500 : 400, error, request);
+		return;
+	}
+	if (strcmp(request->method, "PUT") == 0 && strcmp(request->path, "/api/v1/config") == 0) {
+		rc = config_stage_json(request->body, json, sizeof(json), error, sizeof(error));
+		if (rc == 0)
+			send_response(fd, 200, "application/json; charset=utf-8", json, request);
+		else
+			send_json_error(fd, rc == -2 ? 409 : rc == -3 ? 500 : 400, error, request);
+		return;
+	}
+	if (strcmp(request->method, "POST") == 0 &&
+	    strcmp(request->path, "/api/v1/config/apply") == 0) {
+		if (parse_revision_body(request->body, revision, sizeof(revision)) != 0) {
+			send_json_error(fd, 400, "配置版本无效", request);
+			return;
+		}
+		id = config_task_submit_apply(revision);
+		if (id == 0)
+			send_json_error(fd, 409, "已有配置任务正在执行", request);
+		else {
+			snprintf(json, sizeof(json), "{\"task_id\":%lu}", id);
+			send_response(fd, 202, "application/json; charset=utf-8", json, request);
+		}
+		return;
+	}
+	if (strcmp(request->method, "POST") == 0 &&
+	    strcmp(request->path, "/api/v1/config/reset") == 0) {
+		id = config_task_submit_reset();
+		if (id == 0)
+			send_json_error(fd, 409, "已有配置任务正在执行", request);
+		else {
+			snprintf(json, sizeof(json), "{\"task_id\":%lu}", id);
+			send_response(fd, 202, "application/json; charset=utf-8", json, request);
+		}
+		return;
+	}
 
 	if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/api/v1/ipcamera/status") == 0) {
-		service_get_status(json, sizeof(json)); send_response(fd, 200, "application/json", json); return;
+		service_get_status(json, sizeof(json)); send_response(fd, 200, "application/json", json, request); return;
 	}
 	if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/api/v1/system/version") == 0) {
-		snprintf(json, sizeof(json), "{\"manager\":\"%s\",\"firmware\":\"%s\"}", OVIS_VERSION, "CV1842HP OVIS");
-		send_response(fd, 200, "application/json", json); return;
+		snprintf(json, sizeof(json), "{\"manager\":\"%s\",\"firmware\":\"%s\"}",
+			OVIS_VERSION, OVIS_FIRMWARE_VERSION);
+		send_response(fd, 200, "application/json", json, request); return;
 	}
 	if (strcmp(request->method, "GET") == 0 && strncmp(request->path, "/api/v1/tasks/", 14) == 0) {
 		id = strtoul(request->path + 14, NULL, 10);
-		if (task_get(id, json, sizeof(json)) != 0) send_json_error(fd, 404, "任务不存在");
-		else send_response(fd, 200, "application/json", json);
+		if (task_get(id, json, sizeof(json)) != 0) send_json_error(fd, 404, "任务不存在", request);
+		else send_response(fd, 200, "application/json", json, request);
 		return;
 	}
 	if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/api/v1/ipcamera/config") == 0) {
-		if (!auth_check(request->authorization)) { send_json_error(fd, 401, "需要管理员身份验证"); return; }
-		if (config_read_json(json, sizeof(json)) != 0) send_json_error(fd, 409, "运行配置不可用");
-		else send_response(fd, 200, "application/json", json);
+		if (!auth_check(request->authorization)) { send_json_error(fd, 401, "需要管理员身份验证", request); return; }
+		if (config_read_json(json, sizeof(json)) != 0) send_json_error(fd, 409, "运行配置不可用", request);
+		else send_response(fd, 200, "application/json", json, request);
 		return;
 	}
 	if (strcmp(request->method, "POST") == 0 &&
@@ -191,25 +281,19 @@ static void route_request(int fd, const struct http_request *request)
 		if (require_write_access(fd, request) != 0) return;
 		action = strstr(request->path, "/start") ? SERVICE_START : strstr(request->path, "/stop") ? SERVICE_STOP : SERVICE_RESTART;
 		id = task_submit(action);
-		if (!id) send_json_error(fd, 500, "无法创建服务任务");
-		else { snprintf(json, sizeof(json), "{\"task_id\":%lu}", id); send_response(fd, 202, "application/json", json); }
+		if (!id) send_json_error(fd, 500, "无法创建服务任务", request);
+		else { snprintf(json, sizeof(json), "{\"task_id\":%lu}", id); send_response(fd, 202, "application/json", json, request); }
 		return;
 	}
 	if (strcmp(request->method, "PUT") == 0 && strcmp(request->path, "/api/v1/ipcamera/config") == 0) {
-		if (require_write_access(fd, request) != 0) return;
-		if (config_update_json(request->body, error, sizeof(error)) != 0) send_json_error(fd, 400, error);
-		else send_response(fd, 200, "application/json", "{\"saved\":true,\"restart_required\":true}");
+		send_json_error(fd, 404, "旧配置写接口已停用", request);
 		return;
 	}
 	if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/api/v1/ipcamera/config/reset") == 0) {
-		if (require_write_access(fd, request) != 0) return;
-		if (config_reset(error, sizeof(error)) != 0) send_json_error(fd, 409, error);
-		else send_response(fd, 200, "application/json", "{\"reset\":true,\"restart_required\":true}");
+		send_json_error(fd, 404, "旧配置重置接口已停用", request);
 		return;
 	}
-	if (strncmp(request->path, "/api/", 5) == 0) { send_json_error(fd, 404, "接口不存在"); return; }
-	if (strcmp(request->method, "GET") != 0) { send_json_error(fd, 400, "不支持的请求方法"); return; }
-	serve_static(fd, request->path);
+	send_json_error(fd, 404, "接口不存在", request);
 }
 
 static void handle_client(int fd)
@@ -235,7 +319,7 @@ static void handle_client(int fd)
 		}
 	}
 	if (used == OVIS_MAX_REQUEST_SIZE || parse_request(buffer, used, &request) != 0)
-		send_json_error(fd, 400, "HTTP 请求无效或过大");
+		send_json_error(fd, 400, "HTTP 请求无效或过大", NULL);
 	else
 		route_request(fd, &request);
 }
