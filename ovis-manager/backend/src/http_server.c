@@ -59,7 +59,10 @@ static void send_response(int fd, int status, const char *type, const char *body
 	const struct http_request *request)
 {
 	char header[1536];
-	char cors[768] = "Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers\r\n";
+	char cors[768] =
+		"Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers, "
+		"Access-Control-Request-Private-Network\r\n";
+	char private_network_id[18];
 	const char *origin = request == NULL ? NULL : request->origin;
 	const char *reason = status == 200 ? "OK" : status == 202 ? "Accepted" :
 		status == 204 ? "No Content" :
@@ -69,14 +72,21 @@ static void send_response(int fd, int status, const char *type, const char *body
 	size_t length = strlen(body);
 
 	if (origin != NULL && origin[0] != '\0' && origin_is_allowed(origin)) {
+		if (device_private_network_id(private_network_id,
+		    sizeof(private_network_id)) != 0)
+			snprintf(private_network_id, sizeof(private_network_id),
+				"02:18:42:00:00:01");
 		snprintf(cors, sizeof(cors),
 			"Access-Control-Allow-Origin: %s\r\n"
 			"Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS\r\n"
 			"Access-Control-Allow-Headers: Authorization, Content-Type, X-OVIS-CSRF\r\n"
 			"Access-Control-Allow-Private-Network: true\r\n"
+			"Private-Network-Access-Name: %s\r\n"
+			"Private-Network-Access-ID: %s\r\n"
 			"Access-Control-Max-Age: 600\r\n"
-			"Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers\r\n",
-			origin);
+			"Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers, "
+			"Access-Control-Request-Private-Network\r\n",
+			origin, OVIS_PRIVATE_NETWORK_NAME, private_network_id);
 	}
 
 	snprintf(header, sizeof(header),

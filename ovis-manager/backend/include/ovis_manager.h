@@ -24,6 +24,9 @@
 #ifndef OVIS_FIRMWARE_VERSION
 #define OVIS_FIRMWARE_VERSION "1.0.0"
 #endif
+#ifndef OVIS_PRIVATE_NETWORK_NAME
+#define OVIS_PRIVATE_NETWORK_NAME "ovis-camera"
+#endif
 #define OVIS_MAX_REQUEST_SIZE (16 * 1024)
 #define OVIS_MAX_BODY_SIZE (8 * 1024)
 #ifndef OVIS_SERVICE_SCRIPT
@@ -87,6 +90,7 @@ int config_apply_staged(const char *revision, char *message, size_t message_size
 int config_apply_defaults(char *message, size_t message_size, int *rolled_back);
 int config_validate_file(const char *path, char *error, size_t error_size);
 int device_info_json(char *json, size_t size);
+int device_private_network_id(char *identity, size_t size);
 int auth_check(const char *authorization);
 void audit_log(const char *operation, const char *result);
 void json_escape(const char *src, char *dst, size_t size);

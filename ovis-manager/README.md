@@ -71,6 +71,11 @@ GET /api/v1/device/info
 
 响应包含协议名、API 版本、设备 ID、名称、型号、序列号、固件版本和 Manager 版本。接口支持 GitHub Pages 跨域请求及浏览器本地网络访问预检。
 
+对于允许的网页来源，Manager 同时返回
+`Access-Control-Allow-Private-Network`、`Private-Network-Access-Name` 和
+`Private-Network-Access-ID`。其中 48 位网络身份由持久化 `device_id` 派生，
+用于兼容不同版本 Chromium 的本地网络权限流程，不改变设备 API 身份。
+
 ## 配置接口
 
 当前配置页面不做登录，以下接口允许受支持的网页来源直接访问：
