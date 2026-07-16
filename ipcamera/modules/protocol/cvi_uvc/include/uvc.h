@@ -40,6 +40,7 @@ struct uvc_event {
 };
 
 #define UVCIOC_SEND_RESPONSE _IOW('U', 1, struct uvc_request_data)
+#define UVCIOC_CONNECT _IO('U', 2)
 
 #define UVC_INTF_CONTROL 0
 #define UVC_INTF_STREAMING 1
@@ -179,8 +180,8 @@ struct uvc_file_handle {
 extern void uvc_function_setup_continue(struct uvc_device *uvc);
 extern void uvc_endpoint_stream(struct uvc_device *dev);
 
-extern void uvc_function_connect(struct uvc_device *uvc);
-extern void uvc_function_disconnect(struct uvc_device *uvc);
+extern int uvc_function_connect(struct uvc_device *uvc);
+extern int uvc_function_disconnect(struct uvc_device *uvc);
 
 #endif /* __KERNEL__ */
 

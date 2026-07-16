@@ -81,6 +81,9 @@
 #define PU_BRIGHTNESS_STEP_SIZE 1
 #define PU_BRIGHTNESS_DEFAULT_VAL 127
 
+/* The ConfigFS descriptors advertise UVC 1.0. Probe/Commit is 26 bytes. */
+#define UVC_STREAMING_CONTROL_SIZE 26
+
 #define MAX_BITSTREAM_BUFFER_SIZE CACHE_MEM_SIZE
 #define UVC_CONFIGFS_GADGET_PATH "/tmp/usb/usb_gadget/cvitek"
 #define UVC_VIDEO_CLASS_PATH "/sys/class/video4linux"
@@ -147,71 +150,9 @@ static const struct uvc_frame_info uvc_frames_mjpeg[] = {
     },
 };
 
-static const struct uvc_frame_info uvc_frames_h264[] = {
-    // {
-    //     2560,
-    //     1440,
-    //     {400000, 0},
-    // },
-    {
-        1920,
-        1080,
-        {333333, 0},
-    },
-    // {
-    //     1280,
-    //     720,
-    //     {400000, 0},
-    // },
-    // {
-    //     640,
-    //     360,
-    //     {400000, 0},
-    // },
-    {
-        0,
-        0,
-        {
-            0,
-        },
-    },
-};
-
-static const struct uvc_frame_info uvc_frames_h265[] = {
-    // {
-    //     2560,
-    //     1440,
-    //     {400000, 0},
-    // },
-    {
-        1920,
-        1080,
-        {333333, 0},
-    },
-    // {
-    //     1280,
-    //     720,
-    //     {400000, 0},
-    // },
-    // {
-    //     640,
-    //     360,
-    //     {400000, 0},
-    // },
-    {
-        0,
-        0,
-        {
-            0,
-        },
-    },
-};
-
-// TODO, move into parameters
+/* Keep this table aligned with the formats linked by ConfigUVC.sh. */
 static const struct uvc_format_info uvc_formats[] = {
     {V4L2_PIX_FMT_MJPEG, uvc_frames_mjpeg},
-    {V4L2_PIX_FMT_H264, uvc_frames_h264},
-    {V4L2_PIX_FMT_HEVC, uvc_frames_h265},
 };
 
 /* ---------------------------------------------------------------------------
@@ -860,7 +801,6 @@ static void UVC_VideoEnable(UVC_DEVICE_CTX_S *dev) {
 
 static void uvc_video_fill_buffer(UVC_DEVICE_CTX_S *dev, struct v4l2_buffer* buf)
 {
-    int retry_count = 0;
     buf->bytesused = 0;
 
     // printf("buf->index = %d\n", buf->index);
@@ -881,23 +821,29 @@ static void uvc_video_fill_buffer(UVC_DEVICE_CTX_S *dev, struct v4l2_buffer* buf
     {
         uvc_cache_t *uvc_cache = uvc_cache_get();
         frame_node_t *node = 0;
+        frame_node_t *newer_node = 0;
         frame_queue_t *q = 0, *fq = 0;
 
-retry:
         if (uvc_cache)
         {
-            // printf("ok_queue:\n");
-            // debug_dump_queue(uvc_cache->ok_queue);
             q  = uvc_cache->ok_queue;
             fq = uvc_cache->free_queue;
-            get_node_from_queue(q, &node);
-        }
 
-        if ((__waited_node[buf->index] != 0) && uvc_cache)
-        {
-            // memset(__waited_node[buf->index]->mem, 0, __waited_node[buf->index]->length);
-            put_node_to_queue(fq, __waited_node[buf->index]);
-            __waited_node[buf->index] = 0;
+            if (__waited_node[buf->index] != 0) {
+                put_node_to_queue(fq, __waited_node[buf->index]);
+                __waited_node[buf->index] = 0;
+            }
+
+            wait_node_from_queue(q, &node, 100);
+
+            /* UVC is a live view. If transport briefly falls behind, discard
+             * queued history and submit the newest complete JPEG frame. */
+            while (node && get_node_from_queue(q, &newer_node) == 0) {
+                node->used = 0;
+                put_node_to_queue(fq, node);
+                node = newer_node;
+                newer_node = 0;
+            }
         }
 
         if (node != 0)
@@ -907,24 +853,6 @@ retry:
             buf->length = node->length;
             __waited_node[buf->index] = node;
         }
-        else if (retry_count++ < 1000)
-        {
-            // the perfect solution is using locker and waiting queue's notify.
-            // but here just only simply used usleep method and try again.
-            // it works fine now.
-
-            // printf("dump ok\n");
-            // debug_dump_queue(uvc_cache->ok_queue);
-            // printf("dump free\n");
-            // debug_dump_queue(uvc_cache->free_queue);
-            // printf("retry===== (%d)\n", retry_count);
-            usleep(10*1000);
-            goto retry;
-        }
-        else{
-            printf("retry failed\n");
-        }
-        // printf("retry_count = %d, node %d\n", retry_count, node != 0);
     }
         break;
     default:
@@ -1664,7 +1592,7 @@ static void uvc_events_process_control(UVC_DEVICE_CTX_S *dev, uint8_t req, uint8
 static void uvc_events_process_streaming(UVC_DEVICE_CTX_S *dev, uint8_t req, uint8_t cs,
                                          struct uvc_request_data *resp) {
     struct uvc_streaming_control *ctrl;
-    const uint16_t control_size = sizeof(*ctrl);
+    const uint16_t control_size = UVC_STREAMING_CONTROL_SIZE;
 
     printf("streaming request (req %02x cs %02x)\n", req, cs);
 
@@ -1987,8 +1915,16 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
     }
 }
 
-static void uvc_events_init(UVC_DEVICE_CTX_S *dev) {
+static int uvc_events_init(UVC_DEVICE_CTX_S *dev) {
     struct v4l2_event_subscription sub;
+    const unsigned int event_types[] = {
+        UVC_EVENT_SETUP,
+        UVC_EVENT_DATA,
+        UVC_EVENT_STREAMON,
+        UVC_EVENT_STREAMOFF,
+        UVC_EVENT_CONNECT,
+        UVC_EVENT_DISCONNECT,
+    };
     uint32_t payload_size = 0;
 
     switch (dev->fcc) {
@@ -2011,24 +1947,23 @@ static void uvc_events_init(UVC_DEVICE_CTX_S *dev) {
     }
 
     memset(&sub, 0, sizeof sub);
-    sub.type = UVC_EVENT_SETUP;
-    ioctl(dev->uvc_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
-    sub.type = UVC_EVENT_DATA;
-    ioctl(dev->uvc_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
-    sub.type = UVC_EVENT_STREAMON;
-    ioctl(dev->uvc_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
-    sub.type = UVC_EVENT_STREAMOFF;
-    ioctl(dev->uvc_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
-    sub.type = UVC_EVENT_CONNECT;
-    ioctl(dev->uvc_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
-    sub.type = UVC_EVENT_DISCONNECT;
-    ioctl(dev->uvc_fd, VIDIOC_SUBSCRIBE_EVENT, &sub);
+    for (size_t i = 0; i < sizeof(event_types) / sizeof(event_types[0]); i++) {
+        sub.type = event_types[i];
+        if (ioctl(dev->uvc_fd, VIDIOC_SUBSCRIBE_EVENT, &sub) < 0) {
+            printf("UVC: subscribe event %u failed: %s (%d)\n",
+                sub.type, strerror(errno), errno);
+            return -1;
+        }
+    }
+
+    return 0;
 }
 
 static void uvc_close(UVC_DEVICE_CTX_S *dev) { close(dev->uvc_fd); }
 
 int32_t UVC_GADGET_DeviceCheck(void) {
     fd_set fdsu;
+    int video_ret;
 
     FD_ZERO(&fdsu);
 
@@ -2061,7 +1996,20 @@ int32_t UVC_GADGET_DeviceCheck(void) {
         //     tTM->tm_min, tTM->tm_sec,
         //     tTimeVal.tv_usec / 1000, tTimeVal.tv_usec % 1000);
 
-        uvc_video_process(&s_stUVCDevCtx);
+        video_ret = uvc_video_process(&s_stUVCDevCtx);
+        if (video_ret < 0) {
+            int video_errno = errno;
+
+            if (video_errno == EAGAIN || video_errno == EWOULDBLOCK) {
+                /* The fd is nonblocking. Some UDC states can briefly report
+                 * writable before a completed buffer is ready to dequeue. */
+                usleep(1000);
+            } else {
+                printf("UVC: video process failed: %s (%d).\n",
+                    strerror(video_errno), video_errno);
+                return video_ret;
+            }
+        }
         // printf("%02d:%02d.%03ld.%03ld *** end\n",
         //     tTM->tm_min, tTM->tm_sec,
         //     tTimeVal.tv_usec / 1000, tTimeVal.tv_usec % 1000);
@@ -2149,7 +2097,24 @@ int32_t UVC_GADGET_DeviceOpen(const char *pDevPath) {
         }
     }
 
-    uvc_events_init(&s_stUVCDevCtx);
+    if (uvc_events_init(&s_stUVCDevCtx) != 0) {
+        uvc_close(&s_stUVCDevCtx);
+        s_stUVCDevCtx.uvc_fd = -1;
+        return -1;
+    }
+
+    return 0;
+}
+
+int32_t UVC_GADGET_DeviceConnect(void) {
+    if (s_stUVCDevCtx.uvc_fd < 0) {
+        return -1;
+    }
+
+    if (ioctl(s_stUVCDevCtx.uvc_fd, UVCIOC_CONNECT) < 0) {
+        printf("UVC: connect failed: %s (%d)\n", strerror(errno), errno);
+        return -1;
+    }
 
     return 0;
 }

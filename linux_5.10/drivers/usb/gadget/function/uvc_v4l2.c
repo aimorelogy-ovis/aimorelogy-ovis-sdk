@@ -250,10 +250,20 @@ uvc_v4l2_ioctl_default(struct file *file, void *fh, bool valid_prio,
 {
 	struct video_device *vdev = video_devdata(file);
 	struct uvc_device *uvc = video_get_drvdata(vdev);
+	struct uvc_file_handle *handle = to_uvc_file_handle(file->private_data);
+	int ret;
 
 	switch (cmd) {
 	case UVCIOC_SEND_RESPONSE:
 		return uvc_send_response(uvc, arg);
+	case UVCIOC_CONNECT:
+		if (handle->connected)
+			return 0;
+
+		ret = uvc_function_connect(uvc);
+		if (!ret)
+			handle->connected = true;
+		return ret;
 
 	default:
 		return -ENOIOCTLCMD;
@@ -285,6 +295,7 @@ uvc_v4l2_open(struct file *file)
 	struct video_device *vdev = video_devdata(file);
 	struct uvc_device *uvc = video_get_drvdata(vdev);
 	struct uvc_file_handle *handle;
+	int ret;
 
 	handle = kzalloc(sizeof(*handle), GFP_KERNEL);
 	if (handle == NULL)
@@ -296,7 +307,18 @@ uvc_v4l2_open(struct file *file)
 	handle->device = &uvc->video;
 	file->private_data = &handle->vfh;
 
-	uvc_function_connect(uvc);
+	if (!uvc->defer_connect) {
+		ret = uvc_function_connect(uvc);
+		if (ret) {
+			file->private_data = NULL;
+			v4l2_fh_del(&handle->vfh);
+			v4l2_fh_exit(&handle->vfh);
+			kfree(handle);
+			return ret;
+		}
+		handle->connected = true;
+	}
+
 	return 0;
 }
 
@@ -308,7 +330,8 @@ uvc_v4l2_release(struct file *file)
 	struct uvc_file_handle *handle = to_uvc_file_handle(file->private_data);
 	struct uvc_video *video = handle->device;
 
-	uvc_function_disconnect(uvc);
+	if (handle->connected)
+		uvc_function_disconnect(uvc);
 
 	mutex_lock(&video->mutex);
 	uvcg_video_enable(video, 0);
@@ -364,4 +387,3 @@ const struct v4l2_file_operations uvc_v4l2_fops = {
 	.get_unmapped_area = uvcg_v4l2_get_unmapped_area,
 #endif
 };
-

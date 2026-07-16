@@ -54,7 +54,9 @@ setup_uvc() {
 	header=$streaming/header/h
 
 	mkdir -p "$control/header/h"
-	echo 0x0110 > "$control/header/h/bcdUVC"
+	# This 5.10 UVC gadget emits the UVC 1.0 Processing Unit layout.
+	# Advertising 1.1 makes Windows expect an extra bmVideoStandards byte.
+	echo 0x0100 > "$control/header/h/bcdUVC"
 	echo 48000000 > "$control/header/h/dwClockFrequency"
 	mkdir -p "$frame"
 
@@ -75,9 +77,12 @@ setup_uvc() {
 	add_link "$header" "$streaming/class/hs/h"
 	add_link "$header" "$streaming/class/ss/h"
 
+	# 125 us at high speed provides the full isochronous bandwidth needed by
+	# 1080p30 MJPEG when moving scenes temporarily produce larger frames.
 	echo 1 > "$UVC_FUNCTION/streaming_interval"
 	echo 3072 > "$UVC_FUNCTION/streaming_maxpacket"
 	echo 0 > "$UVC_FUNCTION/streaming_maxburst"
+	echo 1 > "$UVC_FUNCTION/defer_connect"
 }
 
 cleanup_function() {

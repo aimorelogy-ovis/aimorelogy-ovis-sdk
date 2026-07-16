@@ -5,8 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
 #include <malloc.h>
 #include <pthread.h>
+#include <time.h>
 
 #include "frame_cache.h"
 
@@ -82,6 +84,7 @@ static int free_queue(frame_queue_t *queue)
         queue->cache = NULL;
     }
 
+    pthread_cond_destroy(&(queue->ready));
     pthread_mutex_destroy(&(queue->locker));
 
     return 0;
@@ -130,8 +133,8 @@ static int init_queue(frame_queue_t **queue)
 
     cache_init(q->cache);
 
-    /*FIXME: recursive locker....*/
     pthread_mutex_init(&(q->locker), NULL);
+    pthread_cond_init(&(q->ready), NULL);
 
     return 0;
 
@@ -346,6 +349,7 @@ int put_node_to_queue(frame_queue_t *q, frame_node_t* node)
         goto ERR;
     }
 
+    pthread_cond_signal(&(q->ready));
     pthread_mutex_unlock(&(q->locker));
 
     return 0;
@@ -381,15 +385,44 @@ ERR:
     return -1;
 }
 
-int wait_queue(frame_queue_t *q)
+int wait_node_from_queue(frame_queue_t *q, frame_node_t **node, unsigned int timeout_ms)
 {
-    if (q == 0)
-    {
-        goto ERR;
+    struct timespec deadline;
+    int ret = 0;
+
+    if ((q == NULL) || (node == NULL)) {
+        return -1;
     }
 
-ERR:
-    return -1;
+    if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+        return -1;
+    }
+    deadline.tv_sec += timeout_ms / 1000;
+    deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec++;
+        deadline.tv_nsec -= 1000000000L;
+    }
+
+    if (pthread_mutex_lock(&(q->locker)) != 0) {
+        return -1;
+    }
+
+    while (q->cache->tail == NULL) {
+        ret = pthread_cond_timedwait(&(q->ready), &(q->locker), &deadline);
+        if (ret == ETIMEDOUT) {
+            pthread_mutex_unlock(&(q->locker));
+            return -1;
+        }
+        if (ret != 0) {
+            pthread_mutex_unlock(&(q->locker));
+            return -1;
+        }
+    }
+
+    ret = get_frame_from_cache(q->cache, node);
+    pthread_mutex_unlock(&(q->locker));
+    return ret;
 }
 
 void debug_dump_node(frame_node_t *node)

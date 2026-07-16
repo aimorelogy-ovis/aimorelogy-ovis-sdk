@@ -378,22 +378,26 @@ uvc_function_disable(struct usb_function *f)
  * Connection / disconnection
  */
 
-void
+int
 uvc_function_connect(struct uvc_device *uvc)
 {
 	int ret;
 
 	if ((ret = usb_function_activate(&uvc->func)) < 0)
 		uvcg_info(&uvc->func, "UVC connect failed with %d\n", ret);
+
+	return ret;
 }
 
-void
+int
 uvc_function_disconnect(struct uvc_device *uvc)
 {
 	int ret;
 
 	if ((ret = usb_function_deactivate(&uvc->func)) < 0)
 		uvcg_info(&uvc->func, "UVC disconnect failed with %d\n", ret);
+
+	return ret;
 }
 
 /* --------------------------------------------------------------------------
@@ -802,7 +806,7 @@ static struct usb_function_instance *uvc_alloc_inst(void)
 	cd->wObjectiveFocalLengthMax	= cpu_to_le16(0);
 	cd->wOcularFocalLength		= cpu_to_le16(0);
 	cd->bControlSize		= 3;
-	cd->bmControls[0]		= 2;
+	cd->bmControls[0]		= 0;
 	cd->bmControls[1]		= 0;
 	cd->bmControls[2]		= 0;
 
@@ -930,6 +934,7 @@ static struct usb_function *uvc_alloc(struct usb_function_instance *fi)
 	uvc->desc.fs_streaming = opts->fs_streaming;
 	uvc->desc.hs_streaming = opts->hs_streaming;
 	uvc->desc.ss_streaming = opts->ss_streaming;
+	uvc->defer_connect = opts->defer_connect;
 	++opts->refcnt;
 	mutex_unlock(&opts->lock);
 

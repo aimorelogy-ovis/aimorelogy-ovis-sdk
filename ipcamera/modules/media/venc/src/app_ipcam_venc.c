@@ -1147,17 +1147,19 @@ static void *Thread_Streaming_Proc(void *pArgs)
     VENC_CHN VencChn = pastVencChnCfg->VencChn;
     CVI_S32 vpssGrp = pastVencChnCfg->VpssGrp;
     CVI_S32 vpssChn = pastVencChnCfg->VpssChn;
+    CVI_BOOL bNeedMbuf = (pastVencChnCfg->StreamTo != 0);
 
     CVI_CHAR TaskName[64] = {'\0'};
     sprintf(TaskName, "Thread_Venc%d_Proc", VencChn);
     prctl(PR_SET_NAME, TaskName, 0, 0, 0);
     APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Venc channel_%d start running\n", VencChn);
 
-    CVI_MEDIA_FRAME_INFO_T stFrameInfo;
-    memset(&stFrameInfo.frameParam, 0, sizeof(stFrameInfo.frameParam));
+    CVI_MEDIA_FRAME_INFO_T stFrameInfo = {0};
 
-    stFrameInfo.frameBuf = malloc(CVI_MBUF_STREAM_MAX_SIZE);
-    if (NULL == stFrameInfo.frameBuf)
+    if (bNeedMbuf) {
+        stFrameInfo.frameBuf = malloc(CVI_MBUF_STREAM_MAX_SIZE);
+    }
+    if (bNeedMbuf && (NULL == stFrameInfo.frameBuf))
     {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "frameBuf malloc fail\n");
         return NULL;
@@ -1213,62 +1215,60 @@ static void *Thread_Streaming_Proc(void *pArgs)
             printf("[auto_test] VencChn(%d) CVI_VENC_GetStream success.\n", VencChn);
         }
 
-        stFrameInfo.frameParam.frameLen = 0;
-        int iLen = 0;
-        for (CVI_U32 i= 0; i < stStream.u32PackCount; i++)
-        {
-            iLen += stStream.pstPack[i].u32Len - stStream.pstPack[i].u32Offset;
-        }
-        if (iLen > CVI_MBUF_STREAM_MAX_SIZE)
-        {
-            stFrameInfo.frameBuf = realloc(stFrameInfo.frameBuf, iLen);
-            if (NULL == stFrameInfo.frameBuf)
-            {
-                APP_PROF_LOG_PRINT(LEVEL_ERROR, "realloc malloc fail\n");
-                return NULL;
-            }
-            memset(stFrameInfo.frameBuf, 0, iLen);
-        }
-        else
-        {
-            memset(stFrameInfo.frameBuf, 0, CVI_MBUF_STREAM_MAX_SIZE);
-        }
-
-        for (CVI_U32 i= 0; i < stStream.u32PackCount; i++)
-        {
-            memcpy(stFrameInfo.frameBuf+stFrameInfo.frameParam.frameLen, stStream.pstPack[i].pu8Addr + stStream.pstPack[i].u32Offset, stStream.pstPack[i].u32Len - stStream.pstPack[i].u32Offset);
-            stFrameInfo.frameParam.frameLen += stStream.pstPack[i].u32Len - stStream.pstPack[i].u32Offset;
-        }
-        stFrameInfo.frameParam.frameIndex = stStream.u32Seq;
-
-        CVI_BOOL iskey = app_ipcam_Venc_StreamIsKeyFrame(
-            pastVencChnCfg->enType, &stStream);
-        if(iskey)
-        {
-            if (!bKeyFrameSeen) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO,
-                    "VencChn(%d) first key frame: seq=%u packs=%u bytes=%u\n",
-                    VencChn, stStream.u32Seq, stStream.u32PackCount,
-                    stFrameInfo.frameParam.frameLen);
-                bKeyFrameSeen = CVI_TRUE;
-            }
-            stFrameInfo.frameParam.frameKeyIndex = stFrameInfo.frameParam.frameIndex;
-            stFrameInfo.frameParam.frameType = CVI_MEDIA_VFRAME_I;
-        }
-        else
-        {
-            stFrameInfo.frameParam.frameType = CVI_MEDIA_VFRAME_P;
-        }
-        stFrameInfo.frameParam.frameCodec = pastVencChnCfg->enType;
-        stFrameInfo.frameParam.framePts = stStream.pstPack[0].u64PTS;
-        stFrameInfo.frameParam.frameTime = time(NULL);
-        app_ipcam_Mbuf_Video_WriteFrame(VencChn, &stFrameInfo);
 #ifdef CVI_UVC_SUPPORT
         if ((VencChn == CVI_UVC_VENC_CHN) &&
             (pastVencChnCfg->enType == PT_MJPEG)) {
             cvi_uvc_stream_send_data(&stStream);
         }
 #endif
+
+        if (bNeedMbuf) {
+            stFrameInfo.frameParam.frameLen = 0;
+            int iLen = 0;
+            for (CVI_U32 i = 0; i < stStream.u32PackCount; i++) {
+                iLen += stStream.pstPack[i].u32Len - stStream.pstPack[i].u32Offset;
+            }
+            if (iLen > CVI_MBUF_STREAM_MAX_SIZE)
+            {
+                CVI_U8 *pu8NewBuf = realloc(stFrameInfo.frameBuf, iLen);
+                if (NULL == pu8NewBuf) {
+                    APP_PROF_LOG_PRINT(LEVEL_ERROR, "realloc malloc fail\n");
+                    CVI_VENC_ReleaseStream(VencChn, &stStream);
+                    free(stStream.pstPack);
+                    break;
+                }
+                stFrameInfo.frameBuf = pu8NewBuf;
+            }
+
+            for (CVI_U32 i = 0; i < stStream.u32PackCount; i++) {
+                memcpy(stFrameInfo.frameBuf + stFrameInfo.frameParam.frameLen,
+                    stStream.pstPack[i].pu8Addr + stStream.pstPack[i].u32Offset,
+                    stStream.pstPack[i].u32Len - stStream.pstPack[i].u32Offset);
+                stFrameInfo.frameParam.frameLen +=
+                    stStream.pstPack[i].u32Len - stStream.pstPack[i].u32Offset;
+            }
+            stFrameInfo.frameParam.frameIndex = stStream.u32Seq;
+
+            CVI_BOOL iskey = app_ipcam_Venc_StreamIsKeyFrame(
+                pastVencChnCfg->enType, &stStream);
+            if (iskey) {
+                if (!bKeyFrameSeen) {
+                    APP_PROF_LOG_PRINT(LEVEL_INFO,
+                        "VencChn(%d) first key frame: seq=%u packs=%u bytes=%u\n",
+                        VencChn, stStream.u32Seq, stStream.u32PackCount,
+                        stFrameInfo.frameParam.frameLen);
+                    bKeyFrameSeen = CVI_TRUE;
+                }
+                stFrameInfo.frameParam.frameKeyIndex = stFrameInfo.frameParam.frameIndex;
+                stFrameInfo.frameParam.frameType = CVI_MEDIA_VFRAME_I;
+            } else {
+                stFrameInfo.frameParam.frameType = CVI_MEDIA_VFRAME_P;
+            }
+            stFrameInfo.frameParam.frameCodec = pastVencChnCfg->enType;
+            stFrameInfo.frameParam.framePts = stStream.pstPack[0].u64PTS;
+            stFrameInfo.frameParam.frameTime = time(NULL);
+            app_ipcam_Mbuf_Video_WriteFrame(VencChn, &stFrameInfo);
+        }
 
         s32Ret = CVI_VENC_ReleaseStream(VencChn, &stStream);
         if (s32Ret != CVI_SUCCESS) {
@@ -1637,26 +1637,21 @@ int app_ipcam_Venc_Start(APP_VENC_CHN_E VencIdx)
         APP_PARAM_MODULE_CFG_S * pModuleCfg = app_ipcam_Module_Param_Get();
         if(!pModuleCfg->alios_venc_mode){
         }
-        pthread_attr_t pthread_attr;
-        pthread_attr_init(&pthread_attr);
-
         // pthread_mutex_init(&pastVencChnCfg->SwitchMutex, NULL);
         pfp_task_entry fun_entry = NULL;
         if (pstVencChnCfg->enType == PT_JPEG) {
             fun_entry = Thread_Jpg_Proc;
         } else {
-            struct sched_param param;
-            param.sched_priority = 80;
-            pthread_attr_setschedpolicy(&pthread_attr, SCHED_RR);
-            pthread_attr_setschedparam(&pthread_attr, &param);
-            pthread_attr_setinheritsched(&pthread_attr, PTHREAD_EXPLICIT_SCHED);
+            /* CVI_VENC_GetStream blocks until a frame is ready. Running every
+             * VENC consumer at SCHED_RR/80 lets a busy channel starve UVC,
+             * RTSP control, SSH and serial tasks on this single-core target. */
             fun_entry = Thread_Streaming_Proc;
         }
 
         g_Venc_pthread[VencChn] = 0;
         s32Ret = pthread_create(
                         &g_Venc_pthread[VencChn],
-                        &pthread_attr,
+                        NULL,
                         fun_entry,
                         (CVI_VOID *)pstVencChnCfg);
         if (s32Ret) {

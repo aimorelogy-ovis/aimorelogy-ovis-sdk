@@ -37,6 +37,7 @@ typedef struct frame_queue_t
 {
     struct frame_cache_t *cache;
     pthread_mutex_t locker;
+    pthread_cond_t ready;
 } frame_queue_t;
 
 typedef struct uvc_cache_t
@@ -61,6 +62,7 @@ uvc_cache_t *uvc_cache_get(void);
 
 int put_node_to_queue(frame_queue_t *q, frame_node_t *node);
 int get_node_from_queue(frame_queue_t *q, frame_node_t **node);
+int wait_node_from_queue(frame_queue_t *q, frame_node_t **node, unsigned int timeout_ms);
 void clear_uvc_cache(void);
 void debug_dump_node(frame_node_t *node);
 void debug_dump_queue(frame_queue_t *queue);

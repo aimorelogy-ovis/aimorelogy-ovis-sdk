@@ -147,19 +147,15 @@ int cvi_uvc_stream_send_data(void *data)
         get_node_from_queue(uvc_cache->free_queue, &fnode);
     }
 
+    if (!uvc_cache) {
+        return CVI_SUCCESS;
+    }
+
     if (!fnode)
     {
-        //printf("free queue null\n");
-
-        // printf("free_queue:\n");
-        // debug_dump_queue(uvc_cache->free_queue);
-        // printf("ok_queue:\n");
-        // debug_dump_queue(uvc_cache->ok_queue);
-        // printf("free_queue:\n");
-        // debug_dump_queue(uvc_cache->free_queue);
-
-        // get_node_from_queue(uvc_cache->ok_queue, &fnode);
-
+        /* Do not copy frames faster than USB can consume them. The pending
+         * queue is already bounded and drained to the newest frame by the
+         * consumer, so copying another full MJPEG frame here only burns CPU. */
         return CVI_SUCCESS;
     }
 
@@ -295,6 +291,15 @@ int32_t UVC_Start(const char *pDevPath) {
         if (pthread_create(&s_stUVCCtx.TskId, NULL, UVC_CheckTask, NULL)) {
             printf("UVC_CheckTask create thread failed!\n");
             s_stUVCCtx.bRun = false;
+            return -1;
+        }
+
+        if (UVC_GADGET_DeviceConnect() != 0) {
+            printf("UVC_GADGET_DeviceConnect Failed!\n");
+            s_stUVCCtx.bRun = false;
+            pthread_cancel(s_stUVCCtx.TskId);
+            pthread_join(s_stUVCCtx.TskId, NULL);
+            UVC_GADGET_DeviceClose();
             return -1;
         }
 
