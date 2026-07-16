@@ -48,7 +48,7 @@ build/config_transaction_test: tests/config_transaction_test.c backend/src/confi
 		-DOVIS_CONFIG_FILE=\"/tmp/ovis-manager-config-test/active.ini\" \
 		-DOVIS_CONFIG_PENDING=\"/tmp/ovis-manager-config-test/pending.ini\" \
 		-DOVIS_CONFIG_BACKUP=\"/tmp/ovis-manager-config-test/backup.ini\" \
-		-DOVIS_DEFAULT_CONFIG=\"$(CURDIR)/../ipcamera/install/param_config.ini\" \
+		-DOVIS_DEFAULT_CONFIG=\"$(CURDIR)/../ipcamera/resource/parameter/sbm/cv1842hp_ovis_sc235hai.ini\" \
 		$^ -pthread -lm -o $@
 
 clean:

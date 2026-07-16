@@ -37,6 +37,12 @@ static const struct config_field required_fields[] = {
 	{ "face_threshold", "ai_fd_config", "threshold_fd", VALUE_DECIMAL, 0, 1 },
 	{ "motion_enabled", "ai_md_config", "md_enable", VALUE_INTEGER, 0, 1 },
 	{ "motion_threshold", "ai_md_config", "threshold", VALUE_INTEGER, 0, 255 },
+	{ "human_pose_enabled", "ai_human_keypoint_config", "human_keypoint_enable", VALUE_INTEGER, 0, 1 },
+	{ "human_pose_threshold", "ai_human_keypoint_config", "threshold", VALUE_DECIMAL, 0, 1 },
+	{ "object_tracking_enabled", "ai_object_track_config", "object_track_enable", VALUE_INTEGER, 0, 1 },
+	{ "object_tracking_search_type", "ai_object_track_config", "search_type", VALUE_INTEGER, 2, 3 },
+	{ "object_tracking_use_kalman", "ai_object_track_config", "use_kalman", VALUE_INTEGER, 0, 1 },
+	{ "object_tracking_score_threshold", "ai_object_track_config", "tracking_score_threshold", VALUE_DECIMAL, 0, 1 },
 };
 
 static char *trim(char *text)
@@ -85,6 +91,7 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	char section[64] = "";
 	FILE *file;
 	size_t i;
+	int active_tpu_features = 0;
 
 	file = fopen(path, "r");
 	if (file == NULL) {
@@ -120,6 +127,12 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					return -1;
 				}
 				found[i] = 1;
+				if ((strcmp(required_fields[i].id, "person_enabled") == 0 ||
+				     strcmp(required_fields[i].id, "face_enabled") == 0 ||
+				     strcmp(required_fields[i].id, "human_pose_enabled") == 0 ||
+				     strcmp(required_fields[i].id, "object_tracking_enabled") == 0) &&
+				    strtol(value, NULL, 10) == 1)
+					active_tpu_features++;
 			}
 		}
 	}
@@ -129,6 +142,10 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 			snprintf(error, error_size, "缺少配置项 %s", required_fields[i].id);
 			return -1;
 		}
+	}
+	if (active_tpu_features > 1) {
+		snprintf(error, error_size, "TPU AI 功能最多只能启用一项");
+		return -1;
 	}
 	return 0;
 }

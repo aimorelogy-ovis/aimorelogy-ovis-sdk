@@ -26,12 +26,18 @@ struct config_values {
 	double face_threshold;
 	int motion_enabled;
 	int motion_sensitivity;
+	int human_pose_enabled;
+	double human_pose_threshold;
+	int object_tracking_enabled;
+	int object_tracking_search_type;
+	int object_tracking_use_kalman;
+	double object_tracking_score_threshold;
 };
 
 struct ini_update {
 	const char *section;
 	const char *key;
-	char value[32];
+	char value[160];
 	int written;
 };
 
@@ -196,7 +202,19 @@ static int load_values(const char *path, struct config_values *values)
 	    read_int(path, "ai_fd_config", "fd_enable", &values->face_enabled) != 0 ||
 	    read_double(path, "ai_fd_config", "threshold_fd", &values->face_threshold) != 0 ||
 	    read_int(path, "ai_md_config", "md_enable", &values->motion_enabled) != 0 ||
-	    read_int(path, "ai_md_config", "threshold", &motion_threshold) != 0)
+	    read_int(path, "ai_md_config", "threshold", &motion_threshold) != 0 ||
+	    read_int(path, "ai_human_keypoint_config", "human_keypoint_enable",
+		&values->human_pose_enabled) != 0 ||
+	    read_double(path, "ai_human_keypoint_config", "threshold",
+		&values->human_pose_threshold) != 0 ||
+	    read_int(path, "ai_object_track_config", "object_track_enable",
+		&values->object_tracking_enabled) != 0 ||
+	    read_int(path, "ai_object_track_config", "search_type",
+		&values->object_tracking_search_type) != 0 ||
+	    read_int(path, "ai_object_track_config", "use_kalman",
+		&values->object_tracking_use_kalman) != 0 ||
+	    read_double(path, "ai_object_track_config", "tracking_score_threshold",
+		&values->object_tracking_score_threshold) != 0)
 		return -1;
 	values->motion_sensitivity = threshold_to_sensitivity(motion_threshold);
 	return 0;
@@ -245,6 +263,8 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON *person;
 	cJSON *face;
 	cJSON *motion;
+	cJSON *human_pose;
+	cJSON *object_tracking;
 
 	if (root == NULL)
 		return NULL;
@@ -256,7 +276,9 @@ static cJSON *values_to_json(const struct config_values *values)
 	person = cJSON_AddObjectToObject(detection, "person");
 	face = cJSON_AddObjectToObject(detection, "face");
 	motion = cJSON_AddObjectToObject(detection, "motion");
-	if (motion == NULL) {
+	human_pose = cJSON_AddObjectToObject(detection, "human_pose");
+	object_tracking = cJSON_AddObjectToObject(detection, "object_tracking");
+	if (object_tracking == NULL) {
 		cJSON_Delete(root);
 		return NULL;
 	}
@@ -274,19 +296,36 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON_AddNumberToObject(face, "threshold", values->face_threshold);
 	cJSON_AddBoolToObject(motion, "enabled", values->motion_enabled);
 	cJSON_AddNumberToObject(motion, "sensitivity", values->motion_sensitivity);
+	cJSON_AddBoolToObject(human_pose, "enabled", values->human_pose_enabled);
+	cJSON_AddNumberToObject(human_pose, "threshold", values->human_pose_threshold);
+	cJSON_AddBoolToObject(object_tracking, "enabled", values->object_tracking_enabled);
+	cJSON_AddStringToObject(object_tracking, "search_method",
+		values->object_tracking_search_type == 3 ? "fastsam" : "color");
+	cJSON_AddBoolToObject(object_tracking, "use_kalman",
+		values->object_tracking_use_kalman);
+	cJSON_AddNumberToObject(object_tracking, "score_threshold",
+		values->object_tracking_score_threshold);
 	return root;
 }
 
 int config_capabilities_json(char *json, size_t size)
 {
 	static const char capabilities[] =
-		"{\"schema_version\":1,\"video\":{"
+		"{\"schema_version\":2,\"video\":{"
 		"\"main\":{\"profiles\":[{\"id\":\"1080p\",\"width\":1920,\"height\":1080,"
 		"\"fps_options\":[15,25,30],\"bitrate_min\":512,\"bitrate_max\":15000}]},"
 		"\"sub\":{\"profiles\":[{\"id\":\"768x572\",\"width\":768,\"height\":572,"
 		"\"fps_options\":[15,25,30],\"bitrate_min\":128,\"bitrate_max\":4000}]}},"
 		"\"features\":{\"osd\":true,\"person_detection\":true,"
-		"\"face_detection\":true,\"motion_detection\":true}}";
+		"\"face_detection\":true,\"motion_detection\":true,"
+		"\"human_pose\":true,\"object_tracking\":true},"
+		"\"ai\":{\"max_active_tpu_features\":1,\"features\":["
+		"{\"id\":\"person\",\"name\":\"人员检测\",\"model\":\"YOLOv8n Monitor Person\"},"
+		"{\"id\":\"face\",\"name\":\"人脸检测\",\"model\":\"SCRFD\"},"
+		"{\"id\":\"human_pose\",\"name\":\"人体姿态\",\"model\":\"YOLOv8 Pose\"},"
+		"{\"id\":\"object_tracking\",\"name\":\"目标检测与跟踪\","
+		"\"model\":\"YOLOv8n + FearTrack\",\"search_methods\":[\"color\",\"fastsam\"]}],"
+		"\"motion_detection\":true}}";
 
 	if (strlen(capabilities) + 1 > size)
 		return -1;
@@ -373,9 +412,12 @@ static int parse_payload(const char *body, struct config_values *values,
 	cJSON *person;
 	cJSON *face;
 	cJSON *motion;
+	cJSON *human_pose;
+	cJSON *object_tracking;
 	const char *revision_text;
 	const char *main_profile;
 	const char *sub_profile;
+	const char *search_method;
 	int result = -1;
 
 	memset(values, 0, sizeof(*values));
@@ -390,6 +432,8 @@ static int parse_payload(const char *body, struct config_values *values,
 	person = object_item(detection, "person");
 	face = object_item(detection, "face");
 	motion = object_item(detection, "motion");
+	human_pose = object_item(detection, "human_pose");
+	object_tracking = object_item(detection, "object_tracking");
 	if (string_item(root, "revision", &revision_text) != 0 || strlen(revision_text) > 32 ||
 	    string_item(main_stream, "profile", &main_profile) != 0 ||
 	    int_item(main_stream, "fps", &values->main_fps) != 0 ||
@@ -404,10 +448,25 @@ static int parse_payload(const char *body, struct config_values *values,
 	    bool_item(face, "enabled", &values->face_enabled) != 0 ||
 	    double_item(face, "threshold", &values->face_threshold) != 0 ||
 	    bool_item(motion, "enabled", &values->motion_enabled) != 0 ||
-	    int_item(motion, "sensitivity", &values->motion_sensitivity) != 0)
+	    int_item(motion, "sensitivity", &values->motion_sensitivity) != 0 ||
+	    bool_item(human_pose, "enabled", &values->human_pose_enabled) != 0 ||
+	    double_item(human_pose, "threshold", &values->human_pose_threshold) != 0 ||
+	    bool_item(object_tracking, "enabled", &values->object_tracking_enabled) != 0 ||
+	    string_item(object_tracking, "search_method", &search_method) != 0 ||
+	    bool_item(object_tracking, "use_kalman", &values->object_tracking_use_kalman) != 0 ||
+	    double_item(object_tracking, "score_threshold",
+		&values->object_tracking_score_threshold) != 0)
 		goto done;
 	if (strcmp(main_profile, "1080p") != 0 || strcmp(sub_profile, "768x572") != 0) {
 		snprintf(error, error_size, "配置包含设备不支持的分辨率预设");
+		goto done;
+	}
+	if (strcmp(search_method, "color") == 0)
+		values->object_tracking_search_type = 2;
+	else if (strcmp(search_method, "fastsam") == 0)
+		values->object_tracking_search_type = 3;
+	else {
+		snprintf(error, error_size, "目标跟踪搜索方式不受支持");
 		goto done;
 	}
 	snprintf(revision, 33, "%s", revision_text);
@@ -437,6 +496,8 @@ static int fps_supported(int fps)
 static cJSON *validate_values(const struct config_values *values)
 {
 	cJSON *errors = cJSON_CreateArray();
+	int active_tpu_features = values->person_enabled + values->face_enabled +
+		values->human_pose_enabled + values->object_tracking_enabled;
 
 	if (!fps_supported(values->main_fps))
 		add_issue(errors, "video.main.fps", "UNSUPPORTED_FPS", "主码流不支持此帧率");
@@ -452,6 +513,13 @@ static cJSON *validate_values(const struct config_values *values)
 		add_issue(errors, "detection.face.threshold", "OUT_OF_RANGE", "人脸检测阈值必须在 0 到 1 之间");
 	if (values->motion_sensitivity < 0 || values->motion_sensitivity > 100)
 		add_issue(errors, "detection.motion.sensitivity", "OUT_OF_RANGE", "移动检测灵敏度必须在 0 到 100 之间");
+	if (values->human_pose_threshold < 0 || values->human_pose_threshold > 1)
+		add_issue(errors, "detection.human_pose.threshold", "OUT_OF_RANGE", "人体姿态阈值必须在 0 到 1 之间");
+	if (values->object_tracking_score_threshold < 0 ||
+	    values->object_tracking_score_threshold > 1)
+		add_issue(errors, "detection.object_tracking.score_threshold", "OUT_OF_RANGE", "目标跟踪分数阈值必须在 0 到 1 之间");
+	if (active_tpu_features > 1)
+		add_issue(errors, "detection", "AI_FEATURE_CONFLICT", "人员、人脸、人体姿态和目标跟踪最多只能启用一项");
 	return errors;
 }
 
@@ -573,6 +641,146 @@ done:
 	return result;
 }
 
+static int has_section(const char *path, const char *wanted_section)
+{
+	char line[1024];
+	FILE *file = fopen(path, "r");
+	int found = 0;
+
+	if (file == NULL)
+		return 0;
+	while (fgets(line, sizeof(line), file) != NULL) {
+		char *text = trim(line);
+		if (*text == '[') {
+			char *close = strchr(text, ']');
+			if (close != NULL) {
+				*close = '\0';
+				if (strcmp(text + 1, wanted_section) == 0) {
+					found = 1;
+					break;
+				}
+			}
+		}
+	}
+	fclose(file);
+	return found;
+}
+
+static int append_missing_ai_sections(const char *path)
+{
+	int need_human_pose = !has_section(path, "ai_human_keypoint_config");
+	int need_object_tracking = !has_section(path, "ai_object_track_config");
+	FILE *file;
+
+	if (!need_human_pose && !need_object_tracking)
+		return 0;
+	file = fopen(path, "a");
+	if (file == NULL)
+		return -1;
+	if (need_human_pose) {
+		fputs("\n[ai_human_keypoint_config]\n"
+			"human_keypoint_enable = 0\n"
+			"vpss_grp          = 0\n"
+			"vpss_chn          = 2\n"
+			"model_width       = 640\n"
+			"model_height      = 384\n"
+			"model_id          = TDL_MODEL_KEYPOINT_YOLOV8POSE_PERSON17\n"
+			"model_path        = \"/usr/share/ipcamera/cv184x/keypoint_yolov8pose_person17_384_640_INT8_cv184x.bmodel\"\n"
+			"vpssPreProcSkip   = 0\n"
+			"threshold         = 0.5\n", file);
+	}
+	if (need_object_tracking) {
+		fputs("\n[ai_object_track_config]\n"
+			"object_track_enable = 0\n"
+			"vpss_grp          = 0\n"
+			"vpss_chn          = 2\n"
+			"grp_width         = 960\n"
+			"grp_height        = 540\n"
+			"model_id_det      = TDL_MODEL_YOLOV8N_DET_PERSON_VEHICLE\n"
+			"model_id_sot      = TDL_MODEL_TRACKING_FEARTRACK\n"
+			"model_path_det    = \"/usr/share/ipcamera/cv184x/yolov8n_det_person_vehicle_384_640_INT8_cv184x.bmodel\"\n"
+			"model_path_sot    = \"/usr/share/ipcamera/cv184x/tracking_feartrack_128_128_256_256_INT8_cv184x.bmodel\"\n"
+			"model_path_sam    = \"/usr/share/ipcamera/cv184x/fastsam_seg_320_320_INT8_cv184x.bmodel\"\n"
+			"model_path_cfg    = \"/usr/share/ipcamera/model_factory.json\"\n"
+			"threshold_occluded = 0.1\n"
+			"threshold_reappear = 2.0\n"
+			"search_type       = 2\n"
+			"use_kalman        = 1\n"
+			"tracking_score_threshold = 0.5\n"
+			"debug_log_enable  = 0\n", file);
+	}
+	if (fflush(file) != 0 || fsync(fileno(file)) != 0) {
+		fclose(file);
+		return -1;
+	}
+	return fclose(file);
+}
+
+static int migrate_runtime_config(const char *path)
+{
+	struct ini_update updates[] = {
+		{ "ai_pd_config", "pd_enable", "", 0 },
+		{ "ai_pd_config", "model_path", "\"/usr/share/ipcamera/cv184x/yolov8n_det_monitor_person_256_448_INT8_cv184x.bmodel\"", 0 },
+		{ "ai_fd_config", "fd_enable", "", 0 },
+		{ "ai_fd_config", "model_path_fd", "\"/usr/share/ipcamera/cv184x/scrfd_det_face_432_768_INT8_cv184x.bmodel\"", 0 },
+		{ "ai_human_keypoint_config", "human_keypoint_enable", "", 0 },
+		{ "ai_human_keypoint_config", "model_path", "\"/usr/share/ipcamera/cv184x/keypoint_yolov8pose_person17_384_640_INT8_cv184x.bmodel\"", 0 },
+		{ "ai_object_track_config", "object_track_enable", "", 0 },
+		{ "ai_object_track_config", "model_path_det", "\"/usr/share/ipcamera/cv184x/yolov8n_det_person_vehicle_384_640_INT8_cv184x.bmodel\"", 0 },
+		{ "ai_object_track_config", "model_path_sot", "\"/usr/share/ipcamera/cv184x/tracking_feartrack_128_128_256_256_INT8_cv184x.bmodel\"", 0 },
+		{ "ai_object_track_config", "model_path_sam", "\"/usr/share/ipcamera/cv184x/fastsam_seg_320_320_INT8_cv184x.bmodel\"", 0 },
+		{ "ai_object_track_config", "model_path_cfg", "\"/usr/share/ipcamera/model_factory.json\"", 0 },
+	};
+	char migrated[512];
+	char value[160];
+	int enabled[4] = {0};
+	int keep = -1;
+	int index;
+	int needs_update;
+	static const int path_update_indexes[] = {1, 3, 5, 7, 8, 9, 10};
+
+	if (access(path, F_OK) != 0)
+		return -1;
+	needs_update = !has_section(path, "ai_human_keypoint_config") ||
+		!has_section(path, "ai_object_track_config");
+	if (append_missing_ai_sections(path) != 0)
+		return -1;
+	if (read_int(path, "ai_pd_config", "pd_enable", &enabled[0]) != 0 ||
+	    read_int(path, "ai_fd_config", "fd_enable", &enabled[1]) != 0 ||
+	    read_int(path, "ai_human_keypoint_config", "human_keypoint_enable", &enabled[2]) != 0 ||
+	    read_int(path, "ai_object_track_config", "object_track_enable", &enabled[3]) != 0)
+		return -1;
+	if (enabled[0] + enabled[1] + enabled[2] + enabled[3] > 1)
+		needs_update = 1;
+	for (index = 0; index < (int)(sizeof(path_update_indexes) / sizeof(path_update_indexes[0])); index++) {
+		const struct ini_update *update = &updates[path_update_indexes[index]];
+		if (read_ini_value(path, update->section, update->key,
+				value, sizeof(value)) != 0 || strcmp(value, update->value) != 0) {
+			needs_update = 1;
+			break;
+		}
+	}
+	if (!needs_update)
+		return 0;
+	for (index = 0; index < 4; index++) {
+		if (enabled[index] && keep < 0)
+			keep = index;
+		enabled[index] = enabled[index] && keep == index;
+	}
+	snprintf(updates[0].value, sizeof(updates[0].value), "%d", enabled[0]);
+	snprintf(updates[2].value, sizeof(updates[2].value), "%d", enabled[1]);
+	snprintf(updates[4].value, sizeof(updates[4].value), "%d", enabled[2]);
+	snprintf(updates[6].value, sizeof(updates[6].value), "%d", enabled[3]);
+	snprintf(migrated, sizeof(migrated), "%s.migrated", path);
+	if (write_updates(path, migrated, updates, sizeof(updates) / sizeof(updates[0])) != 0)
+		return -1;
+	if (rename(migrated, path) != 0) {
+		unlink(migrated);
+		return -1;
+	}
+	return 0;
+}
+
 static int stage_values(const struct config_values *values, char revision[17],
 	char *error, size_t error_size)
 {
@@ -591,6 +799,12 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "ai_fd_config", "threshold_fd", "", 0 },
 		{ "ai_md_config", "md_enable", "", 0 },
 		{ "ai_md_config", "threshold", "", 0 },
+		{ "ai_human_keypoint_config", "human_keypoint_enable", "", 0 },
+		{ "ai_human_keypoint_config", "threshold", "", 0 },
+		{ "ai_object_track_config", "object_track_enable", "", 0 },
+		{ "ai_object_track_config", "search_type", "", 0 },
+		{ "ai_object_track_config", "use_kalman", "", 0 },
+		{ "ai_object_track_config", "tracking_score_threshold", "", 0 },
 	};
 	char validation_error[256];
 
@@ -609,6 +823,13 @@ static int stage_values(const struct config_values *values, char revision[17],
 	snprintf(updates[12].value, sizeof(updates[12].value), "%d", values->motion_enabled);
 	snprintf(updates[13].value, sizeof(updates[13].value), "%d",
 		sensitivity_to_threshold(values->motion_sensitivity));
+	snprintf(updates[14].value, sizeof(updates[14].value), "%d", values->human_pose_enabled);
+	snprintf(updates[15].value, sizeof(updates[15].value), "%.6g", values->human_pose_threshold);
+	snprintf(updates[16].value, sizeof(updates[16].value), "%d", values->object_tracking_enabled);
+	snprintf(updates[17].value, sizeof(updates[17].value), "%d", values->object_tracking_search_type);
+	snprintf(updates[18].value, sizeof(updates[18].value), "%d", values->object_tracking_use_kalman);
+	snprintf(updates[19].value, sizeof(updates[19].value), "%.6g",
+		values->object_tracking_score_threshold);
 	if (write_updates(OVIS_CONFIG_FILE, OVIS_CONFIG_PENDING, updates,
 			sizeof(updates) / sizeof(updates[0])) != 0) {
 		snprintf(error, error_size, "无法创建待应用配置");
@@ -768,17 +989,27 @@ int config_apply_defaults(char *message, size_t message_size, int *rolled_back)
 
 int config_ensure_runtime(char *error, size_t error_size)
 {
+	int migration_result = 0;
+
 	ensure_dir("/mnt/cfg");
 	if (ensure_dir(OVIS_CONFIG_DIR) != 0) {
 		snprintf(error, error_size, "无法创建运行配置目录");
 		return -1;
 	}
 	unlink(OVIS_CONFIG_PENDING);
-	if (config_validate_file(OVIS_CONFIG_FILE, error, error_size) == 0)
+	if (access(OVIS_CONFIG_FILE, F_OK) == 0)
+		migration_result = migrate_runtime_config(OVIS_CONFIG_FILE);
+	if (migration_result == 0 &&
+	    config_validate_file(OVIS_CONFIG_FILE, error, error_size) == 0)
 		return 0;
 	if (access(OVIS_CONFIG_FILE, F_OK) == 0)
 		rename(OVIS_CONFIG_FILE, OVIS_CONFIG_FILE ".corrupt");
-	if (config_validate_file(OVIS_CONFIG_BACKUP, error, error_size) == 0 &&
+	if (access(OVIS_CONFIG_BACKUP, F_OK) == 0)
+		migration_result = migrate_runtime_config(OVIS_CONFIG_BACKUP);
+	else
+		migration_result = -1;
+	if (migration_result == 0 &&
+	    config_validate_file(OVIS_CONFIG_BACKUP, error, error_size) == 0 &&
 	    atomic_copy(OVIS_CONFIG_BACKUP, OVIS_CONFIG_FILE) == 0)
 		return 0;
 	if (config_validate_file(OVIS_DEFAULT_CONFIG, error, error_size) == 0 &&

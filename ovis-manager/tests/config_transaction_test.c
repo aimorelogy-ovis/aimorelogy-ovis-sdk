@@ -38,6 +38,8 @@ static void clean_test_directory(void)
 	unlink("/tmp/ovis-manager-config-test/active.ini");
 	unlink("/tmp/ovis-manager-config-test/active.ini.corrupt");
 	unlink("/tmp/ovis-manager-config-test/active.ini.tmp");
+	unlink("/tmp/ovis-manager-config-test/active.ini.migrated");
+	unlink("/tmp/ovis-manager-config-test/active.ini.migrated.tmp");
 	unlink("/tmp/ovis-manager-config-test/pending.ini");
 	unlink("/tmp/ovis-manager-config-test/pending.ini.tmp");
 	unlink("/tmp/ovis-manager-config-test/backup.ini");
@@ -77,6 +79,26 @@ static char *make_payload(cJSON *document, int bitrate, int sensitivity)
 		bitrate);
 	cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(motion, "sensitivity"),
 		sensitivity);
+	cJSON_AddItemToObject(payload, "revision", cJSON_Duplicate(revision, 1));
+	cJSON_AddItemToObject(payload, "values", values);
+	json = cJSON_PrintUnformatted(payload);
+	cJSON_Delete(payload);
+	return json;
+}
+
+static char *make_ai_conflict_payload(cJSON *document)
+{
+	cJSON *payload = cJSON_CreateObject();
+	cJSON *revision = cJSON_GetObjectItemCaseSensitive(document, "revision");
+	cJSON *values = cJSON_Duplicate(
+		cJSON_GetObjectItemCaseSensitive(document, "values"), 1);
+	cJSON *detection = cJSON_GetObjectItemCaseSensitive(values, "detection");
+	cJSON *person = cJSON_GetObjectItemCaseSensitive(detection, "person");
+	cJSON *face = cJSON_GetObjectItemCaseSensitive(detection, "face");
+	char *json;
+
+	cJSON_ReplaceItemInObjectCaseSensitive(person, "enabled", cJSON_CreateBool(1));
+	cJSON_ReplaceItemInObjectCaseSensitive(face, "enabled", cJSON_CreateBool(1));
 	cJSON_AddItemToObject(payload, "revision", cJSON_Duplicate(revision, 1));
 	cJSON_AddItemToObject(payload, "values", values);
 	json = cJSON_PrintUnformatted(payload);
@@ -157,6 +179,11 @@ int main(void)
 	if (config_validate_json(payload, validation, sizeof(validation), error,
 			sizeof(error)) != 1 || strstr(validation, "OUT_OF_RANGE") == NULL)
 		fail("out-of-range bitrate was not rejected");
+	free(payload);
+	payload = make_ai_conflict_payload(document);
+	if (config_validate_json(payload, validation, sizeof(validation), error,
+			sizeof(error)) != 1 || strstr(validation, "AI_FEATURE_CONFLICT") == NULL)
+		fail("conflicting TPU features were not rejected");
 	free(payload);
 	cJSON_Delete(document);
 
