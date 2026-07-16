@@ -47,7 +47,7 @@ int Load_Param_Ai_HumanKeypoint(const char * file)
         Ai->model_size_w, Ai->model_size_h,  Ai->bVpssPreProcSkip, Ai->threshold);
 
     ini_gets(tmp_section, "model_path", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path, sizeof(Ai->model_path), tmp_buff);
     APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id=%d model_path=%s\n",
         Ai->model_id, Ai->model_path);
 

@@ -43,6 +43,23 @@ int app_ipcam_Param_Convert_StrName_to_EnumNum(const char *str_name, const char 
     return CVI_SUCCESS;
 }
 
+void app_ipcam_Param_CopyString(char *dst, size_t dst_size, const char *src)
+{
+    size_t copy_len;
+
+    if ((dst == NULL) || (dst_size == 0)) {
+        return;
+    }
+    if (src == NULL) {
+        dst[0] = '\0';
+        return;
+    }
+
+    copy_len = strnlen(src, dst_size - 1);
+    memcpy(dst, src, copy_len);
+    dst[copy_len] = '\0';
+}
+
 //weak hook function
 __attribute__((weak)) int Load_Param_Module(const char *file)
 {
@@ -480,7 +497,13 @@ int app_ipcam_Opts_Parse(int argc, char *argv[])
         case 'i':
             input_file = optarg;
             APP_CHK_RET(access(input_file, F_OK), "param config ini file access");
-            strncpy(ParamCfgFile, input_file, 64);
+            if (snprintf(ParamCfgFile, sizeof(ParamCfgFile), "%s", input_file) >=
+                (int)sizeof(ParamCfgFile)) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "param config ini path is too long (max %zu): %s\n",
+                    sizeof(ParamCfgFile) - 1, input_file);
+                return CVI_FAILURE;
+            }
             break;
         default:
             print_usage(argv[0]);

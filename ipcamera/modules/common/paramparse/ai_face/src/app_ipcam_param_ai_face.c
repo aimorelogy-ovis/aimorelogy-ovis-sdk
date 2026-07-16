@@ -33,7 +33,7 @@ int Load_Param_Ai_FD(const char * file)
     Ai->threshold_fd     = ini_getf(tmp_section, "threshold_fd", 0, file);
 
     ini_gets(tmp_section, "model_path_fd", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_fd, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_fd, sizeof(Ai->model_path_fd), tmp_buff);
     APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id=%d model_path=%s\n",
         Ai->model_id_fd, Ai->model_path_fd);
 

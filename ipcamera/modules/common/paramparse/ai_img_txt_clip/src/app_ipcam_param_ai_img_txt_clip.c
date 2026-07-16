@@ -31,16 +31,16 @@ int Load_Param_Ai_Img_Txt_Clip(const char * file)
     Ai->u32GrpHeight     = ini_getl(tmp_section, "grp_height", 0, file);
 
     ini_gets(tmp_section, "model_path_img", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_img, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_img, sizeof(Ai->model_path_img), tmp_buff);
 
     ini_gets(tmp_section, "model_path_txt", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_txt, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_txt, sizeof(Ai->model_path_txt), tmp_buff);
 
     ini_gets(tmp_section, "model_path_cfg", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_cfg, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_cfg, sizeof(Ai->model_path_cfg), tmp_buff);
 
     ini_gets(tmp_section, "txt_dir", " ", tmp_buff, 128, file);
-    strncpy(Ai->txt_dir, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->txt_dir, sizeof(Ai->txt_dir), tmp_buff);
 
     ini_gets(tmp_section, "model_id_img", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);

@@ -19,11 +19,11 @@ int Load_Param_Ai_IRFD(const char * file)
     Ai->attachPoolId     = ini_getl("ai_irfd_config", "attach_pool", -1, file);
 
     ini_gets("ai_irfd_config", "fd_model_path", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_fd, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_fd, sizeof(Ai->model_path_fd), tmp_buff);
     ini_gets("ai_irfd_config", "ln_model_path", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_ln, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_ln, sizeof(Ai->model_path_ln), tmp_buff);
     ini_gets("ai_irfd_config", "fr_model_path", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_fr, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_fr, sizeof(Ai->model_path_fr), tmp_buff);
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading AI IR FD config ------------------> done \n\n");
     return CVI_SUCCESS;

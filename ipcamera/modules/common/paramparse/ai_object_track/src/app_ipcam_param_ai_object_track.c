@@ -52,16 +52,16 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
     }
 
     ini_gets(tmp_section, "model_path_det", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_det, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_det, sizeof(Ai->model_path_det), tmp_buff);
 
     ini_gets(tmp_section, "model_path_sot", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_sot, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_sot, sizeof(Ai->model_path_sot), tmp_buff);
 
     ini_gets(tmp_section, "model_path_sam", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_sam, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_sam, sizeof(Ai->model_path_sam), tmp_buff);
 
     ini_gets(tmp_section, "model_path_cfg", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_cfg, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_cfg, sizeof(Ai->model_path_cfg), tmp_buff);
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading AI object track config ------------------> done \n\n");
 

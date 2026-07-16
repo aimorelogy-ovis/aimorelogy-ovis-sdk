@@ -28,7 +28,7 @@ int Load_Param_Ai_KeypointHandGesture(const char * file)
     Ai->VpssChn             = ini_getl(tmp_section, "vpss_chn", 0, file);
     Ai->threshold           = ini_getf(tmp_section, "threshold", 0, file);
     ini_gets(tmp_section, "model_path_cfg", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_cfg, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_cfg, sizeof(Ai->model_path_cfg), tmp_buff);
     APP_PROF_LOG_PRINT(LEVEL_INFO, "model_path_cfg=%s\n", Ai->model_path_cfg);
 
     // 解析检测模型配置
@@ -67,17 +67,17 @@ int Load_Param_Ai_KeypointHandGesture(const char * file)
 
     // 解析检测模型路径
     ini_gets(tmp_section, "detect_model_path", " ", tmp_buff, 128, file);
-    strncpy(Ai->detect_model_path, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->detect_model_path, sizeof(Ai->detect_model_path), tmp_buff);
 
     // 解析关键点模型路径
     memset(tmp_buff, 0, sizeof(tmp_buff));
     ini_gets(tmp_section, "keypoint_model_path", " ", tmp_buff, 128, file);
-    strncpy(Ai->keypoint_model_path, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->keypoint_model_path, sizeof(Ai->keypoint_model_path), tmp_buff);
 
     // 解析分类模型路径
     memset(tmp_buff, 0, sizeof(tmp_buff));
     ini_gets(tmp_section, "classify_model_path", " ", tmp_buff, 128, file);
-    strncpy(Ai->classify_model_path, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->classify_model_path, sizeof(Ai->classify_model_path), tmp_buff);
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "keypoint_hand_gesture_enable=%d vpss_grp=%d vpss_chn=%d threshold=%f\n", \
         Ai->bEnable, Ai->VpssGrp, Ai->VpssChn,  Ai->threshold);

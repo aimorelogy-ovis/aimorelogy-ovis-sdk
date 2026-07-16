@@ -194,6 +194,7 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
     roi.info = (TDLObjectInfo *)malloc(sizeof(TDLObjectInfo));
     if (roi.info == NULL) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "Failed to allocate memory for roi.info\n");
+        return NULL;
     }
     roi.info[0].box.x1 = 0;
     roi.info[0].box.y1 = 0;
@@ -202,6 +203,10 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
 
     CVI_U32 count = 0;
     CVI_U32 u32BgUpPeriod = g_pstMdCfg->u32BgUpPeriod;
+    if (u32BgUpPeriod == 0) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN, "Invalid background update period 0, use 1\n");
+        u32BgUpPeriod = 1;
+    }
 
     CVI_U32 miniArea = g_pstMdCfg->miniArea;
     app_ipcam_Ai_MD_Thresold_Set(g_pstMdCfg->threshold);
@@ -213,7 +218,8 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
     VIDEO_FRAME_INFO_S stVencFrame_det;
     memset(&stVencFrame_det, 0, sizeof(VIDEO_FRAME_INFO_S));
 
-    TDLImage image_back, image_det;
+    TDLImage image_back = NULL;
+    TDLImage image_det = NULL;
 
     VPSS_GRP VpssGrp = g_pstMdCfg->VpssGrp;
     VPSS_CHN VpssChn = g_pstMdCfg->VpssChn;
@@ -228,19 +234,26 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
             continue;
         }
         
-        if ((count % u32BgUpPeriod) == 0)   // 更新背景图
+        if ((image_back == NULL) && ((count % u32BgUpPeriod) == 0))   // 更新背景图
         {
             APP_PROF_LOG_PRINT(LEVEL_TRACE, "update BG interval=%d, threshold=%d, miniArea=%d\n",
             u32BgUpPeriod, g_MDThreshold, miniArea);
             s32Ret = CVI_VPSS_GetChnFrame(VpssGrp, VpssChn, &stVencFrame_back, 3000);
             if (s32Ret != CVI_SUCCESS)
             {
-                APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) release frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
+                APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) get frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
                 pthread_mutex_unlock(&g_MdStatusMutex);
                 usleep(100*1000);
                 continue;
             }
             image_back = TDL_WrapFrame((void*)&stVencFrame_back, false, false);
+            if (image_back == NULL) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR, "Wrap background frame failed\n");
+                CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stVencFrame_back);
+                pthread_mutex_unlock(&g_MdStatusMutex);
+                usleep(100*1000);
+                continue;
+            }
         }
         pthread_mutex_unlock(&g_MdStatusMutex);
         iTime_proc = GetCurTimeInMsec();
@@ -249,8 +262,16 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
         if (s32Ret != CVI_SUCCESS)
         {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) get frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
+            usleep(100*1000);
+            continue;
         }
         image_det = TDL_WrapFrame((void*)&stVencFrame_det, false, false);
+        if (image_det == NULL) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR, "Wrap detection frame failed\n");
+            CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stVencFrame_det);
+            usleep(100*1000);
+            continue;
+        }
 
         TDL_MotionDetection(g_MDHandle, image_back, image_det, &roi, g_MDThreshold, miniArea, &obj_meta, 0);
         // for(uint32_t i = 0; i < obj_meta.size; i++)
@@ -280,6 +301,7 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
                 APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) release frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
             }
             TDL_DestroyImage(image_det);
+            image_det = NULL;
 
             if ((count % u32BgUpPeriod) == (u32BgUpPeriod - 1) )
             {
@@ -289,6 +311,7 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
                     APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) release frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
                 }
                 TDL_DestroyImage(image_back);
+                image_back = NULL;
             }
 
             count = (count == u32BgUpPeriod) ? (1) : (count+1); // 计数+1
@@ -310,6 +333,7 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
                 APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) release frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
             }
             TDL_DestroyImage(image_back);
+            image_back = NULL;
         }
         s32Ret = CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stVencFrame_det);
         if (s32Ret != CVI_SUCCESS)
@@ -317,8 +341,20 @@ static CVI_VOID *Thread_MD_Proc(CVI_VOID *pArgs)
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) release frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
         }
         TDL_DestroyImage(image_det);
+        image_det = NULL;
         count = (count == u32BgUpPeriod) ? (1) : (count+1);     // 计数+1
     }
+
+    if (image_back != NULL) {
+        CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stVencFrame_back);
+        TDL_DestroyImage(image_back);
+    }
+    if (image_det != NULL) {
+        CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stVencFrame_det);
+        TDL_DestroyImage(image_det);
+    }
+    TDL_ReleaseObjectMeta(&obj_meta);
+    free(roi.info);
 
     pthread_exit(NULL);
 

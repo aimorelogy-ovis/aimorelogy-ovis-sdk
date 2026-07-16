@@ -1,6 +1,7 @@
 #ifndef __APP_IPCAM_PARAM_PARSE_H__
 #define __APP_IPCAM_PARAM_PARSE_H__
 
+#include <stddef.h>
 #include "cvi_common.h"
 #include "cvi_comm_video.h"
 #include "app_ipcam_comm.h"
@@ -68,6 +69,7 @@ extern "C"
 #define VI_FRAMERATE			15
 
 int app_ipcam_Param_Convert_StrName_to_EnumNum(const char *str_name, const char *str_enum[], const int enum_upper_bound, int * const enum_num);
+void app_ipcam_Param_CopyString(char *dst, size_t dst_size, const char *src);
 //common attribute
 const char ** app_ipcam_Param_get_pixel_format();
 const char ** app_ipcam_Param_get_data_bitwidth();

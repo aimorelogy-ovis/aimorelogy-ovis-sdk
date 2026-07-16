@@ -106,10 +106,12 @@ int Load_Param_Osdc(const char *file)
 
                     if (TYPE_STRING == Osdc->osdcObj[j][i].enType) {
                         ini_gets(tmp_section, "str", " ", tmp_buff, APP_OSD_STR_LEN_MAX, file);
-                        strncpy(Osdc->osdcObj[j][i].str, tmp_buff, APP_OSD_STR_LEN_MAX);
+                        app_ipcam_Param_CopyString(Osdc->osdcObj[j][i].str,
+                            sizeof(Osdc->osdcObj[j][i].str), tmp_buff);
                     } else if (TYPE_PICTURE == Osdc->osdcObj[j][i].enType) {
                         ini_gets(tmp_section, "file_name", " ", tmp_buff, APP_OSD_STR_LEN_MAX, file);
-                        strncpy(Osdc->osdcObj[j][i].filename, tmp_buff, APP_OSD_STR_LEN_MAX);
+                        app_ipcam_Param_CopyString(Osdc->osdcObj[j][i].filename,
+                            sizeof(Osdc->osdcObj[j][i].filename), tmp_buff);
                     }
                 } else {
                     if (RGN_CMPR_LINE == Osdc->osdcObj[j][i].type) {
