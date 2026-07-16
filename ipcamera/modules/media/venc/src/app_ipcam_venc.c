@@ -1599,10 +1599,13 @@ int app_ipcam_Venc_Stop(APP_VENC_CHN_E VencIdx)
     if(!pModuleCfg->alios_venc_mode){
         for (VENC_CHN s32ChnIdx = 0; s32ChnIdx < g_pstVencCtx->s32VencChnCnt; s32ChnIdx++) {
             APP_VENC_CHN_CFG_S *pstVencChnCfg = &g_pstVencCtx->astVencChnCfg[s32ChnIdx];
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "app_ipcam_Venc_Stop VENC = %d %d\n", s32ChnIdx, pstVencChnCfg->VencChn);
             if (!((VencIdx >> s32ChnIdx) & 0x01))
                 continue;
 
+            if (!pstVencChnCfg->bEnable)
+                continue;
+
+            APP_PROF_LOG_PRINT(LEVEL_INFO, "app_ipcam_Venc_Stop VENC = %d %d\n", s32ChnIdx, pstVencChnCfg->VencChn);
             if (!pstVencChnCfg->bStart)
                 continue;
 
@@ -1616,6 +1619,10 @@ int app_ipcam_Venc_Stop(APP_VENC_CHN_E VencIdx)
         VENC_CHN VencChn = pstVencChnCfg->VencChn;
         if(!pModuleCfg->alios_venc_mode){
             if (!((VencIdx >> s32ChnIdx) & 0x01))
+                continue;
+
+            /* Disabled channels are not bound or created by Venc_Init. */
+            if (!pstVencChnCfg->bEnable)
                 continue;
 
             /* for jpg capture */

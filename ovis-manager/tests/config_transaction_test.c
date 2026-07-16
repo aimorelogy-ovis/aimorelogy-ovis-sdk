@@ -63,7 +63,8 @@ static cJSON *read_document(char *revision, size_t revision_size)
 	return root;
 }
 
-static char *make_payload(cJSON *document, int bitrate, int sensitivity)
+static char *make_payload(cJSON *document, int bitrate, int sensitivity,
+	int sub_enabled)
 {
 	cJSON *payload = cJSON_CreateObject();
 	cJSON *revision = cJSON_GetObjectItemCaseSensitive(document, "revision");
@@ -71,12 +72,15 @@ static char *make_payload(cJSON *document, int bitrate, int sensitivity)
 		cJSON_GetObjectItemCaseSensitive(document, "values"), 1);
 	cJSON *video = cJSON_GetObjectItemCaseSensitive(values, "video");
 	cJSON *main_stream = cJSON_GetObjectItemCaseSensitive(video, "main");
+	cJSON *sub_stream = cJSON_GetObjectItemCaseSensitive(video, "sub");
 	cJSON *detection = cJSON_GetObjectItemCaseSensitive(values, "detection");
 	cJSON *motion = cJSON_GetObjectItemCaseSensitive(detection, "motion");
 	char *json;
 
 	cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(main_stream, "bitrate_kbps"),
 		bitrate);
+	cJSON_ReplaceItemInObjectCaseSensitive(sub_stream, "enabled",
+		cJSON_CreateBool(sub_enabled));
 	cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(motion, "sensitivity"),
 		sensitivity);
 	cJSON_AddItemToObject(payload, "revision", cJSON_Duplicate(revision, 1));
@@ -106,8 +110,8 @@ static char *make_ai_conflict_payload(cJSON *document)
 	return json;
 }
 
-static void stage_and_apply(int bitrate, int sensitivity, int fail_first_restart,
-	int expect_success, int expect_rollback)
+static void stage_and_apply(int bitrate, int sensitivity, int sub_enabled,
+	int fail_first_restart, int expect_success, int expect_rollback)
 {
 	char current_revision[33];
 	char staged_revision[33];
@@ -118,7 +122,7 @@ static void stage_and_apply(int bitrate, int sensitivity, int fail_first_restart
 	cJSON *document = read_document(current_revision, sizeof(current_revision));
 	cJSON *saved;
 	cJSON *item;
-	char *payload = make_payload(document, bitrate, sensitivity);
+	char *payload = make_payload(document, bitrate, sensitivity, sub_enabled);
 	int rolled_back = 0;
 	int result;
 
@@ -160,14 +164,17 @@ int main(void)
 	if (config_ensure_runtime(error, sizeof(error)) != 0)
 		fail(error);
 
-	stage_and_apply(9000, 80, 0, 1, 0);
+	stage_and_apply(9000, 80, 0, 0, 1, 0);
 	document = read_document(revision_before, sizeof(revision_before));
 	{
 		cJSON *values = cJSON_GetObjectItemCaseSensitive(document, "values");
 		cJSON *video = cJSON_GetObjectItemCaseSensitive(values, "video");
 		cJSON *main_stream = cJSON_GetObjectItemCaseSensitive(video, "main");
+		cJSON *sub_stream = cJSON_GetObjectItemCaseSensitive(video, "sub");
 		if (cJSON_GetObjectItemCaseSensitive(main_stream, "bitrate_kbps")->valueint != 9000)
 			fail("main bitrate did not round-trip");
+		if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sub_stream, "enabled")))
+			fail("sub stream disable did not round-trip");
 	}
 	motion = cJSON_GetObjectItemCaseSensitive(
 		cJSON_GetObjectItemCaseSensitive(
@@ -175,7 +182,7 @@ int main(void)
 		"motion");
 	if (cJSON_GetObjectItemCaseSensitive(motion, "sensitivity")->valueint != 80)
 		fail("motion sensitivity did not round-trip");
-	payload = make_payload(document, 20000, 80);
+	payload = make_payload(document, 20000, 80, 0);
 	if (config_validate_json(payload, validation, sizeof(validation), error,
 			sizeof(error)) != 1 || strstr(validation, "OUT_OF_RANGE") == NULL)
 		fail("out-of-range bitrate was not rejected");
@@ -187,10 +194,21 @@ int main(void)
 	free(payload);
 	cJSON_Delete(document);
 
-	stage_and_apply(8500, 60, 1, 0, 1);
+	stage_and_apply(8500, 60, 1, 1, 0, 1);
 	document = read_document(revision_after, sizeof(revision_after));
 	if (strcmp(revision_before, revision_after) != 0)
 		fail("rollback did not restore the previous file");
+	cJSON_Delete(document);
+
+	stage_and_apply(8800, 60, 1, 0, 1, 0);
+	document = read_document(revision_after, sizeof(revision_after));
+	{
+		cJSON *values = cJSON_GetObjectItemCaseSensitive(document, "values");
+		cJSON *video = cJSON_GetObjectItemCaseSensitive(values, "video");
+		cJSON *sub_stream = cJSON_GetObjectItemCaseSensitive(video, "sub");
+		if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(sub_stream, "enabled")))
+			fail("sub stream enable did not round-trip");
+	}
 	cJSON_Delete(document);
 
 	fail_service_calls = 0;

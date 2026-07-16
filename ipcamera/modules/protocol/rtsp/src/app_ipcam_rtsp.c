@@ -407,6 +407,15 @@ CVI_S32 app_ipcam_Rtsp_Server_Create(CVI_VOID)
     APP_PROF_LOG_PRINT(LEVEL_INFO, "app_ipcam_Rtsp_Server_Create start.\n");
 
     for (CVI_S32 i = 0; i < pstRtspCtx->session_cnt; i++) {
+        APP_VENC_CHN_CFG_S *pstVencChnCfg =
+            app_ipcam_VencChnCfg_Get(pstRtspCtx->VencChn[i]);
+        if (pstVencChnCfg == NULL || !pstVencChnCfg->bEnable) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "Skip RTSP live%d because VencChn(%d) is disabled.\n",
+                i, pstRtspCtx->VencChn[i]);
+            continue;
+        }
+
         s32Ret = app_ipcam_RtspAttr_Init(pstRtspCtx->VencChn[i], i, &stAttr[i]);
         if (s32Ret != CVI_SUCCESS) {
             return CVI_FAILURE;
