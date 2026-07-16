@@ -1,5 +1,7 @@
 #include "app_ipcam_vpss.h"
+#include "app_ipcam_sys.h"
 #include "app_ipcam_paramparse.h"
+#include "cvi_sys.h"
 #include <pthread.h>
 #include <sys/prctl.h>
 
@@ -295,6 +297,19 @@ int app_ipcam_Vpss_Init(void)
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_SetMode failed with %#x!\n", s32Ret);
             return s32Ret;
         }
+
+        /* CVI_SYS_SetVIVPSSMode dispatches callbacks into both VI and VPSS.
+         * Calling it during SYS init is too early when those modules are
+         * loaded on first use, and the base ioctl can hide callback failures. */
+        s32Ret = CVI_SYS_SetVIVPSSMode(
+            &app_ipcam_Sys_Param_Get()->stVIVPSSMode);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "CVI_SYS_SetVIVPSSMode failed with %#x!\n", s32Ret);
+            return s32Ret;
+        }
+        APP_PROF_LOG_PRINT(LEVEL_INFO,
+            "VI-VPSS mode configured after VI/VPSS driver initialization\n");
 
         for (CVI_U32 VpssGrp = 0; VpssGrp < g_pstVpssCfg->u32GrpCnt; VpssGrp++) {
             s32Ret = app_ipcam_Vpss_Create(VpssGrp);

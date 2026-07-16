@@ -27,7 +27,7 @@
 #define OVIS_MAX_REQUEST_SIZE (16 * 1024)
 #define OVIS_MAX_BODY_SIZE (8 * 1024)
 #ifndef OVIS_SERVICE_SCRIPT
-#define OVIS_SERVICE_SCRIPT "/etc/init.d/S99ipcamera"
+#define OVIS_SERVICE_SCRIPT "/etc/init.d/S99z_ipcamera"
 #endif
 #ifndef OVIS_PID_FILE
 #define OVIS_PID_FILE "/var/run/ipcamera.pid"

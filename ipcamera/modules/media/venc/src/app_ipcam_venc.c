@@ -1,6 +1,7 @@
 
 #include <pthread.h>
 #include <sys/prctl.h>
+#include <sys/select.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -27,6 +28,7 @@
 /**************************************************************************
  *                              M A C R O S                               *
  **************************************************************************/
+#define CVI_VENC_STREAM_MAX_PACKS 8
 
 /**************************************************************************
  *                           C O N S T A N T S                            *
@@ -1141,12 +1143,12 @@ static void *Thread_Streaming_Proc(void *pArgs)
 {
     CVI_BOOL bVencSuccessFlag = CVI_FALSE;
     CVI_BOOL bKeyFrameSeen = CVI_FALSE;
+    CVI_BOOL bFirstStreamSeen = CVI_FALSE;
+    CVI_BOOL bGetStreamFailureLogged = CVI_FALSE;
     CVI_S32 s32VencCount = 0;
     CVI_S32 s32Ret = CVI_SUCCESS;
     APP_VENC_CHN_CFG_S *pastVencChnCfg = (APP_VENC_CHN_CFG_S *)pArgs;
     VENC_CHN VencChn = pastVencChnCfg->VencChn;
-    CVI_S32 vpssGrp = pastVencChnCfg->VpssGrp;
-    CVI_S32 vpssChn = pastVencChnCfg->VpssChn;
     CVI_BOOL bNeedMbuf = (pastVencChnCfg->StreamTo != 0);
 
     CVI_CHAR TaskName[64] = {'\0'};
@@ -1162,45 +1164,99 @@ static void *Thread_Streaming_Proc(void *pArgs)
     if (bNeedMbuf && (NULL == stFrameInfo.frameBuf))
     {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "frameBuf malloc fail\n");
+        pastVencChnCfg->bStart = CVI_FALSE;
         return NULL;
     }
 
-    usleep(1000);
-
-    pastVencChnCfg->bStart = CVI_TRUE;
+    CVI_S32 s32VencFd = CVI_VENC_GetFd(VencChn);
+    if (s32VencFd < 0) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "CVI_VENC_GetFd, VencChn(%d) failed with %#x\n",
+            VencChn, s32VencFd);
+        pastVencChnCfg->bStart = CVI_FALSE;
+        free(stFrameInfo.frameBuf);
+        return NULL;
+    }
 
     while (pastVencChnCfg->bStart) {
-        VIDEO_FRAME_INFO_S stVencFrame = {0};
-        VENC_CHN_STATUS_S stStatus = {0};
+        fd_set readFds;
+        struct timeval timeout = {
+            .tv_sec = 1,
+            .tv_usec = 0,
+        };
 
-        s32Ret = CVI_VENC_QueryStatus(VencChn, &stStatus);
-        if (s32Ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VENC_QueryStatus, VencChn(%d) fail\n", VencChn);
-        } else {
-            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "u32LeftStreamFrames = %d, u32CurPacks = %d\n", stStatus.u32LeftStreamFrames, stStatus.u32CurPacks);
+        FD_ZERO(&readFds);
+        FD_SET(s32VencFd, &readFds);
+        s32Ret = select(s32VencFd + 1, &readFds, NULL, NULL, &timeout);
+        if (s32Ret < 0) {
+            if (errno == EINTR)
+                continue;
+            if (!bGetStreamFailureLogged) {
+                APP_PROF_LOG_PRINT(LEVEL_WARN,
+                    "select VENC stream failed, VencChn(%d), errno=%d\n",
+                    VencChn, errno);
+                bGetStreamFailureLogged = CVI_TRUE;
+            }
+            usleep(1000);
+            continue;
         }
-
-        VENC_STREAM_S stStream = {0};
-        stStream.pstPack = (VENC_PACK_S *)malloc(sizeof(VENC_PACK_S) * stStatus.u32CurPacks);
-        if (stStream.pstPack == NULL) {
-            APP_PROF_LOG_PRINT(LEVEL_ERROR, "streaming malloc memory failed!\n");
-            break;
-        }
-
-        CVI_S32 timeout = 3000; //u32Fps = fps * 100
-        s32Ret = CVI_VENC_GetStream(VencChn, &stStream, timeout);
-        if (s32Ret != CVI_SUCCESS || (0 == stStream.u32PackCount)) {
-            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "CVI_VENC_GetStream, VencChn(%d) cnt(%d), s32Ret = 0x%X timeout:%d \n", VencChn, stStream.u32PackCount, s32Ret, timeout);
-            free(stStream.pstPack);
-            stStream.pstPack = NULL;
-            if (pastVencChnCfg->enBindMode == VENC_BIND_DISABLE) {
-                CVI_VPSS_ReleaseChnFrame(vpssGrp, vpssChn, &stVencFrame);
+        if (s32Ret == 0 || !FD_ISSET(s32VencFd, &readFds)) {
+            if (!bGetStreamFailureLogged) {
+                APP_PROF_LOG_PRINT(LEVEL_WARN,
+                    "wait VENC stream timeout, VencChn(%d)\n", VencChn);
+                bGetStreamFailureLogged = CVI_TRUE;
             }
             continue;
-        } else {
-            if (pastVencChnCfg->enBindMode == VENC_BIND_DISABLE) {
-                CVI_VPSS_ReleaseChnFrame(vpssGrp, vpssChn, &stVencFrame);
+        }
+
+        VENC_CHN_STATUS_S stStatus = {0};
+        s32Ret = CVI_VENC_QueryStatus(VencChn, &stStatus);
+        if (s32Ret != CVI_SUCCESS || stStatus.u32CurPacks == 0) {
+            if (!bGetStreamFailureLogged) {
+                APP_PROF_LOG_PRINT(LEVEL_WARN,
+                    "CVI_VENC_QueryStatus failed/empty, VencChn(%d), packs=%u, ret=0x%X\n",
+                    VencChn, stStatus.u32CurPacks, s32Ret);
+                bGetStreamFailureLogged = CVI_TRUE;
             }
+            usleep(1000);
+            continue;
+        }
+        if (stStatus.u32CurPacks > CVI_VENC_STREAM_MAX_PACKS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "VencChn(%d) pack count %u exceeds capacity %u\n",
+                VencChn, stStatus.u32CurPacks,
+                (CVI_U32)CVI_VENC_STREAM_MAX_PACKS);
+            usleep(1000);
+            continue;
+        }
+
+        VENC_PACK_S astPacks[CVI_VENC_STREAM_MAX_PACKS] = {0};
+        VENC_STREAM_S stStream = {0};
+        stStream.pstPack = astPacks;
+
+        s32Ret = CVI_VENC_GetStream(VencChn, &stStream, 0);
+        if (s32Ret != CVI_SUCCESS || (0 == stStream.u32PackCount)) {
+            if (!bGetStreamFailureLogged) {
+                APP_PROF_LOG_PRINT(LEVEL_WARN,
+                    "CVI_VENC_GetStream failed after select, VencChn(%d), cnt=%u, ret=0x%X\n",
+                    VencChn, stStream.u32PackCount, s32Ret);
+                bGetStreamFailureLogged = CVI_TRUE;
+            }
+            usleep(1000);
+            continue;
+        }
+        if (bGetStreamFailureLogged) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "CVI_VENC_GetStream recovered, VencChn(%d), seq=%u, packs=%u\n",
+                VencChn, stStream.u32Seq, stStream.u32PackCount);
+            bGetStreamFailureLogged = CVI_FALSE;
+        }
+
+        if (!bFirstStreamSeen) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "VencChn(%d) first stream: seq=%u, packs=%u\n",
+                VencChn, stStream.u32Seq, stStream.u32PackCount);
+            bFirstStreamSeen = CVI_TRUE;
         }
 
         // auto test venc success flag
@@ -1234,7 +1290,6 @@ static void *Thread_Streaming_Proc(void *pArgs)
                 if (NULL == pu8NewBuf) {
                     APP_PROF_LOG_PRINT(LEVEL_ERROR, "realloc malloc fail\n");
                     CVI_VENC_ReleaseStream(VencChn, &stStream);
-                    free(stStream.pstPack);
                     break;
                 }
                 stFrameInfo.frameBuf = pu8NewBuf;
@@ -1273,12 +1328,8 @@ static void *Thread_Streaming_Proc(void *pArgs)
         s32Ret = CVI_VENC_ReleaseStream(VencChn, &stStream);
         if (s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VENC_ReleaseStream, s32Ret = %d\n", s32Ret);
-            free(stStream.pstPack);
-            stStream.pstPack = NULL;
             continue;
         }
-        free(stStream.pstPack);
-        stStream.pstPack = NULL;
     }
 
     if (stFrameInfo.frameBuf)
@@ -1304,8 +1355,6 @@ static void *Thread_Jpg_Proc(void *pArgs)
     CVI_S32 vpssGrp = pstVencChnCfg->VpssGrp;
     CVI_S32 vpssChn = pstVencChnCfg->VpssChn;
     VIDEO_FRAME_INFO_S stVencFrame = {0};
-
-    pstVencChnCfg->bStart = CVI_TRUE;
 
     while (pstVencChnCfg->bStart) {
         if (!pstVencChnCfg->bStart) {
@@ -1432,12 +1481,26 @@ int app_ipcam_Venc_Init(APP_VENC_CHN_E VencIdx)
             app_ipcam_Venc_Attr_Check(pstVencChnAttr);
 
             APP_PROF_LOG_PRINT(LEVEL_DEBUG,"u32Profile [%d]\n", pstVencChnAttr->stVencAttr.u32Profile);
+            /* The CV184X online VPSS path resolves the VENC source topology
+             * while the channel is created, so establish the bind first. */
             if (pstVencChnCfg->enBindMode != VENC_BIND_DISABLE) {
-                s32Ret = CVI_SYS_Bind(&pstVencChnCfg->astChn[0], &pstVencChnCfg->astChn[1]);
+                s32Ret = CVI_SYS_Bind(
+                    &pstVencChnCfg->astChn[0], &pstVencChnCfg->astChn[1]);
                 if (s32Ret != CVI_SUCCESS) {
-                    APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_SYS_Bind failed with %#x\n", s32Ret);
+                    APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                        "CVI_SYS_Bind before VencChn(%d) create failed with %#x\n",
+                        VencChn, s32Ret);
                     goto VENC_EXIT1;
                 }
+                APP_PROF_LOG_PRINT(LEVEL_INFO,
+                    "VencChn(%d) pre-bound src(%d,%d,%d) -> dst(%d,%d,%d)\n",
+                    VencChn,
+                    pstVencChnCfg->astChn[0].enModId,
+                    pstVencChnCfg->astChn[0].s32DevId,
+                    pstVencChnCfg->astChn[0].s32ChnId,
+                    pstVencChnCfg->astChn[1].enModId,
+                    pstVencChnCfg->astChn[1].s32DevId,
+                    pstVencChnCfg->astChn[1].s32ChnId);
             }
             s32Ret = CVI_VENC_CreateChn(VencChn, pstVencChnAttr);
             if (s32Ret != CVI_SUCCESS) {
@@ -1623,15 +1686,12 @@ int app_ipcam_Venc_Start(APP_VENC_CHN_E VencIdx)
         VENC_RECV_PIC_PARAM_S stRecvParam = {0};
         stRecvParam.s32RecvPicNum = -1;
 
-        APP_CHK_RET(CVI_VENC_StartRecvFrame(VencChn, &stRecvParam), "Start recv frame");
-
-        if ((pstVencChnCfg->enType == PT_H264) ||
-            (pstVencChnCfg->enType == PT_H265)) {
-            s32Ret = CVI_VENC_RequestIDR(VencChn, CVI_TRUE);
-            if (s32Ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_WARN,
-                    "Request startup IDR for venc[%d] failed: %d.\n", VencChn, s32Ret);
-            }
+        s32Ret = CVI_VENC_StartRecvFrame(VencChn, &stRecvParam);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "CVI_VENC_StartRecvFrame, VencChn(%d) failed with %#x\n",
+                VencChn, s32Ret);
+            return s32Ret;
         }
 
         APP_PARAM_MODULE_CFG_S * pModuleCfg = app_ipcam_Module_Param_Get();
@@ -1642,13 +1702,13 @@ int app_ipcam_Venc_Start(APP_VENC_CHN_E VencIdx)
         if (pstVencChnCfg->enType == PT_JPEG) {
             fun_entry = Thread_Jpg_Proc;
         } else {
-            /* CVI_VENC_GetStream blocks until a frame is ready. Running every
-             * VENC consumer at SCHED_RR/80 lets a busy channel starve UVC,
-             * RTSP control, SSH and serial tasks on this single-core target. */
+            /* The stream thread waits on the VENC fd before GetStream so an
+             * empty channel does not monopolize this single-core target. */
             fun_entry = Thread_Streaming_Proc;
         }
 
         g_Venc_pthread[VencChn] = 0;
+        pstVencChnCfg->bStart = CVI_TRUE;
         s32Ret = pthread_create(
                         &g_Venc_pthread[VencChn],
                         NULL,
@@ -1656,8 +1716,20 @@ int app_ipcam_Venc_Start(APP_VENC_CHN_E VencIdx)
                         (CVI_VOID *)pstVencChnCfg);
         if (s32Ret) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "[Chn %d]pthread_create failed:0x%x\n", VencChn, s32Ret);
+            pstVencChnCfg->bStart = CVI_FALSE;
+            CVI_VENC_StopRecvFrame(VencChn);
             return CVI_FAILURE;
         }
+
+        if ((pstVencChnCfg->enType == PT_H264) ||
+            (pstVencChnCfg->enType == PT_H265)) {
+            s32Ret = CVI_VENC_RequestIDR(VencChn, CVI_TRUE);
+            if (s32Ret != CVI_SUCCESS) {
+                APP_PROF_LOG_PRINT(LEVEL_WARN,
+                    "Request startup IDR for venc[%d] failed: %d.\n", VencChn, s32Ret);
+            }
+        }
+
     }
 
     mStreamTaskThd.bRun_flag = 1;

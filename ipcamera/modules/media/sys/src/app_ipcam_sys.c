@@ -177,12 +177,6 @@ int app_ipcam_Sys_Init(void)
             goto error;
         }
 
-        rc = CVI_SYS_SetVIVPSSMode(&pattr->stVIVPSSMode);
-        if (rc != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "CVI_SYS_SetVIVPSSMode failed with %#x\n", rc);
-            ret = APP_IPCAM_ERR_FAILURE;
-            goto error;
-        }
     }
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "system init ------------------> done \n");

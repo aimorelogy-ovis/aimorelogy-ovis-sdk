@@ -232,6 +232,8 @@ struct v4l2_device {
 
 
 #define WAITED_NODE_SIZE (3)
+#define UVC_FRAME_WAIT_TIMEOUT_MS (100)
+#define UVC_FIRST_FRAME_WAIT_TIMEOUT_MS (3000)
 static frame_node_t *__waited_node[WAITED_NODE_SIZE];
 static void clear_waited_node()
 {
@@ -799,9 +801,19 @@ static void UVC_VideoEnable(UVC_DEVICE_CTX_S *dev) {
  * UVC streaming related
  */
 
-static void uvc_video_fill_buffer(UVC_DEVICE_CTX_S *dev, struct v4l2_buffer* buf)
+static int uvc_video_fill_buffer(UVC_DEVICE_CTX_S *dev, struct v4l2_buffer *buf,
+                                 unsigned int timeout_ms)
 {
-    buf->bytesused = 0;
+    uvc_cache_t *uvc_cache;
+    frame_node_t *node = NULL;
+    frame_node_t *newer_node = NULL;
+    frame_node_t *old_node;
+    frame_queue_t *q;
+    frame_queue_t *fq;
+
+    if ((dev == NULL) || (buf == NULL) || (buf->index >= WAITED_NODE_SIZE)) {
+        return -EINVAL;
+    }
 
     // printf("buf->index = %d\n", buf->index);
     // struct timeval tTimeVal;
@@ -819,48 +831,68 @@ static void uvc_video_fill_buffer(UVC_DEVICE_CTX_S *dev, struct v4l2_buffer* buf
     case V4L2_PIX_FMT_YUYV:
     case V4L2_PIX_FMT_YUV420:
     {
-        uvc_cache_t *uvc_cache = uvc_cache_get();
-        frame_node_t *node = 0;
-        frame_node_t *newer_node = 0;
-        frame_queue_t *q = 0, *fq = 0;
+        uvc_cache = uvc_cache_get();
+        if ((uvc_cache == NULL) || (uvc_cache->ok_queue == NULL) ||
+            (uvc_cache->free_queue == NULL)) {
+            return -ENODEV;
+        }
+        q = uvc_cache->ok_queue;
+        fq = uvc_cache->free_queue;
 
-        if (uvc_cache)
-        {
-            q  = uvc_cache->ok_queue;
-            fq = uvc_cache->free_queue;
-
-            if (__waited_node[buf->index] != 0) {
-                put_node_to_queue(fq, __waited_node[buf->index]);
-                __waited_node[buf->index] = 0;
-            }
-
-            wait_node_from_queue(q, &node, 100);
-
-            /* UVC is a live view. If transport briefly falls behind, discard
-             * queued history and submit the newest complete JPEG frame. */
-            while (node && get_node_from_queue(q, &newer_node) == 0) {
-                node->used = 0;
-                put_node_to_queue(fq, node);
-                node = newer_node;
-                newer_node = 0;
-            }
+        if ((wait_node_from_queue(q, &node, timeout_ms) != 0) || (node == NULL)) {
+            return -ETIMEDOUT;
         }
 
-        if (node != 0)
-        {
+        /* UVC is a live view. If transport briefly falls behind, discard
+         * queued history and submit the newest complete JPEG frame. */
+        while (get_node_from_queue(q, &newer_node) == 0) {
+            node->used = 0;
+            put_node_to_queue(fq, node);
+            node = newer_node;
+            newer_node = NULL;
+        }
+
+        if ((node->mem == NULL) || (node->used == 0) ||
+            (node->used > node->length)) {
+            node->used = 0;
+            put_node_to_queue(fq, node);
+            return -EINVAL;
+        }
+
+        if (dev->io == IO_METHOD_USERPTR) {
+            if (node->length < dev->imgsize) {
+                node->used = 0;
+                put_node_to_queue(fq, node);
+                return -EINVAL;
+            }
+
+            old_node = __waited_node[buf->index];
             buf->bytesused = node->used;
             buf->m.userptr = (unsigned long)node->mem;
             buf->length = node->length;
             __waited_node[buf->index] = node;
+            if (old_node != NULL) {
+                old_node->used = 0;
+                put_node_to_queue(fq, old_node);
+            }
+        } else {
+            if ((dev->mem == NULL) || (dev->mem[buf->index].start == NULL) ||
+                (node->used > dev->mem[buf->index].length)) {
+                node->used = 0;
+                put_node_to_queue(fq, node);
+                return -EINVAL;
+            }
+            memcpy(dev->mem[buf->index].start, node->mem, node->used);
+            buf->bytesused = node->used;
+            node->used = 0;
+            put_node_to_queue(fq, node);
         }
     }
-        break;
+        return 0;
     default:
         printf("dev->fcc = %d\n", dev->fcc);
-        break;
+        return -EINVAL;
     }
-
-
 }
 
 static int uvc_video_process(UVC_DEVICE_CTX_S *dev) {
@@ -908,7 +940,10 @@ static int uvc_video_process(UVC_DEVICE_CTX_S *dev) {
 #endif
         // gettimeofday(&perf_t0, NULL);
         // usleep(200 * 1000);
-        uvc_video_fill_buffer(dev, &ubuf);
+        ret = uvc_video_fill_buffer(dev, &ubuf, UVC_FRAME_WAIT_TIMEOUT_MS);
+        if ((ret < 0) && (ret != -ETIMEDOUT)) {
+            return ret;
+        }
         // gettimeofday(&perf_t1, NULL);
         // use_time = (perf_t1.tv_sec - perf_t0.tv_sec) * 1000 + (perf_t1.tv_usec - perf_t0.tv_usec) / 1000;
         // printf("======= %s use_time: %lu ms =======\n", "uvc_video_fill_buffer", use_time);
@@ -1007,7 +1042,15 @@ static int uvc_video_qbuf_mmap(UVC_DEVICE_CTX_S *dev) {
         dev->mem[i].buf.index = i;
 
         /* UVC standalone setup. */
-        if (dev->run_standalone) uvc_video_fill_buffer(dev, &(dev->mem[i].buf));
+        if (dev->run_standalone) {
+            ret = uvc_video_fill_buffer(dev, &(dev->mem[i].buf),
+                UVC_FIRST_FRAME_WAIT_TIMEOUT_MS);
+            if (ret < 0) {
+                printf("UVC: no valid frame for initial buffer %u: %s (%d).\n",
+                    i, strerror(-ret), -ret);
+                return ret;
+            }
+        }
 
         ret = ioctl(dev->uvc_fd, VIDIOC_QBUF, &(dev->mem[i].buf));
         if (ret < 0) {
@@ -1038,7 +1081,13 @@ static int uvc_video_qbuf_userptr(UVC_DEVICE_CTX_S *dev) {
             buf.index = i;
             // buf.bytesused = dev->dummy_buf[i].length;
 
-            uvc_video_fill_buffer(dev, &buf);
+            ret = uvc_video_fill_buffer(dev, &buf,
+                UVC_FIRST_FRAME_WAIT_TIMEOUT_MS);
+            if (ret < 0) {
+                printf("UVC: no valid frame for initial buffer %u: %s (%d).\n",
+                    i, strerror(-ret), -ret);
+                return ret;
+            }
 
             ret = ioctl(dev->uvc_fd, VIDIOC_QBUF, &buf);
             if (ret < 0) {
@@ -1173,7 +1222,8 @@ static int uvc_video_reqbufs_userptr(UVC_DEVICE_CTX_S *dev, int nbufs) {
     if (!rb.count) return 0;
 
     dev->nbufs = rb.count;
-    printf("UVC: %u buffers allocated, per size:%d.\n", rb.count, sizeof dev->dummy_buf[0]);
+    printf("UVC: %u USERPTR buffers allocated, frame capacity:%u.\n",
+        rb.count, (unsigned int)CACHE_MEM_SIZE);
     return 0;
 
 err:

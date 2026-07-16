@@ -65,8 +65,7 @@ extern unsigned int uvc_gadget_trace_param;
  * Driver specific constants
  */
 
-/* Keep several milliseconds of HS isochronous transfers queued. */
-#define UVC_NUM_REQUESTS			32
+#define UVC_NUM_REQUESTS			4
 #define UVC_MAX_REQUEST_SIZE			64
 #define UVC_MAX_EVENTS				4
 

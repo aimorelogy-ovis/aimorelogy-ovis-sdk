@@ -183,9 +183,9 @@ static int app_ipcam_Exit(void)
     APP_CHK_RET(app_ipcam_Display_Exit(), "Display Exit");
     #endif
 
-    APP_CHK_RET(app_ipcam_Vpss_DeInit(), "Vpss DeInit");
-
     APP_CHK_RET(app_ipcam_Venc_Stop(APP_VENC_ALL), "Venc Stop");
+
+    APP_CHK_RET(app_ipcam_Vpss_DeInit(), "Vpss DeInit");
 
     APP_CHK_RET(app_ipcam_Vi_DeInit(), "Vi DeInit");
 
@@ -275,7 +275,8 @@ int main(int argc, char *argv[])
     /* init modules include <Peripheral; Sys; VI; VB; OSD; Venc; AI; Audio; etc.> */
     APP_CHK_RET(app_ipcam_Init(), "app_ipcam_Init");
 
-    /* Start VENC immediately so bound VPSS frames do not fill its input queue. */
+    /* Start VENC before RTSP setup so bound VPSS output cannot accumulate
+     * while the RTSP sessions are being created. */
     APP_CHK_RET(app_ipcam_Venc_Start(APP_VENC_ALL), "start video processing");
 
     #ifdef RTSP_SUPPORT

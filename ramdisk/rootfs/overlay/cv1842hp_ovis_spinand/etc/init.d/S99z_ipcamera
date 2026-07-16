@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Keep this service after S99user: the MPP kernel modules must finish probing
+# before ipcamera creates VI, VPSS, and VENC channels.
+
 APP_DIR=/usr/share/ipcamera
 DAEMON="$APP_DIR/ipcamera"
 MANAGER=/usr/sbin/ovis-managerd
