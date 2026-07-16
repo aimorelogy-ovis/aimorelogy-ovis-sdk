@@ -275,13 +275,13 @@ int main(int argc, char *argv[])
     /* init modules include <Peripheral; Sys; VI; VB; OSD; Venc; AI; Audio; etc.> */
     APP_CHK_RET(app_ipcam_Init(), "app_ipcam_Init");
 
+    /* Start VENC immediately so bound VPSS frames do not fill its input queue. */
+    APP_CHK_RET(app_ipcam_Venc_Start(APP_VENC_ALL), "start video processing");
+
     #ifdef RTSP_SUPPORT
     /* create rtsp server */
     APP_CHK_RET(app_ipcam_Rtsp_Server_Create(), "create rtsp server");
     #endif
-
-    /* start video encode */
-    APP_CHK_RET(app_ipcam_Venc_Start(APP_VENC_ALL), "start video processing");
 
     #ifdef VDEC_SUPPORT
     APP_CHK_RET(app_ipcam_Vdec_Start(), "Start VDEC");
