@@ -80,3 +80,9 @@ endif()
 
 add_library(${PROJECT_NAME} OBJECT ${PROJ_SRCS} ${NET_SRCS})
 
+if("${CVI_PLATFORM}" STREQUAL "CV184X")
+  target_compile_options(${PROJECT_NAME} PRIVATE
+    -O3
+    -mtune=cortex-a53
+  )
+endif()

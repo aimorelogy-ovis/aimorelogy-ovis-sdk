@@ -32,5 +32,11 @@ endif()
 
 add_library(${PROJECT_NAME} OBJECT ${SRC_FRAMWORK_FILES_CUR})
 
-# message(STATUS "SRC_FRAMWORK_FILES_CUR: ${SRC_FRAMWORK_FILES_CUR}")
+if("${CVI_PLATFORM}" STREQUAL "CV184X")
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        -O3
+        -mtune=cortex-a53
+    )
+endif()
 
+# message(STATUS "SRC_FRAMWORK_FILES_CUR: ${SRC_FRAMWORK_FILES_CUR}")
