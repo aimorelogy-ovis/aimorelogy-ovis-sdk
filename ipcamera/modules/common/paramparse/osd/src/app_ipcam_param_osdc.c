@@ -71,8 +71,8 @@ int Load_Param_Osdc(const char *file)
             Osdc->bShowPdRect[j]     = ini_getl(tmp_section, "show_pd_rect", 0, file);
             Osdc->bShowMdRect[j]     = ini_getl(tmp_section, "show_md_rect", 0, file);
             Osdc->bShowFdRect[j]     = ini_getl(tmp_section, "show_fd_rect", 0, file);
-            Osdc->bShowHumanKeypointRect[j] = ini_getl(tmp_section, "show_human_keypoint_rect", 0, file);
-            Osdc->bShowTrackRect[j] = ini_getl(tmp_section, "show_track_rect", 0, file);
+            Osdc->bShowHumanKeypointRect[j] = ini_getl(tmp_section, "show_human_keypoint_rect", j == 0 ? 1 : 0, file);
+            Osdc->bShowTrackRect[j] = ini_getl(tmp_section, "show_track_rect", j == 0 ? 1 : 0, file);
             Osdc->osdcObjNum[j]      = ini_getl(tmp_section, "cnt", 0, file);
             APP_PROF_LOG_PRINT(LEVEL_INFO, "handle=%d bShow=%d Format=0x%x cpsSize=%d ModeId=%d DevId=%d ChnId=%d PdRect=%d MdRect=%d FdRect=%d osdcObjNum=%d\n",
                 Osdc->handle[j], Osdc->bShow[j], Osdc->format[j], Osdc->CompressedSize[j], Osdc->mmfChn[j].enModId,
@@ -106,10 +106,12 @@ int Load_Param_Osdc(const char *file)
 
                     if (TYPE_STRING == Osdc->osdcObj[j][i].enType) {
                         ini_gets(tmp_section, "str", " ", tmp_buff, APP_OSD_STR_LEN_MAX, file);
-                        strncpy(Osdc->osdcObj[j][i].str, tmp_buff, APP_OSD_STR_LEN_MAX);
+                        app_ipcam_Param_CopyString(Osdc->osdcObj[j][i].str,
+                            sizeof(Osdc->osdcObj[j][i].str), tmp_buff);
                     } else if (TYPE_PICTURE == Osdc->osdcObj[j][i].enType) {
                         ini_gets(tmp_section, "file_name", " ", tmp_buff, APP_OSD_STR_LEN_MAX, file);
-                        strncpy(Osdc->osdcObj[j][i].filename, tmp_buff, APP_OSD_STR_LEN_MAX);
+                        app_ipcam_Param_CopyString(Osdc->osdcObj[j][i].filename,
+                            sizeof(Osdc->osdcObj[j][i].filename), tmp_buff);
                     }
                 } else {
                     if (RGN_CMPR_LINE == Osdc->osdcObj[j][i].type) {

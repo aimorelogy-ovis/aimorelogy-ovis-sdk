@@ -44,8 +44,8 @@ void *app_ipcam_OTA_UploadFW(void *param)
         else
         {
             /* Truncate safely in the event of what is almost certainly
-				a hack attempt */
-            strncpy(cgiContentType, e, sizeof(cgiContentTypeData));
+					a hack attempt */
+            memcpy(cgiContentType, e, sizeof(cgiContentTypeData) - 1);
             cgiContentType[sizeof(cgiContentTypeData) - 1] = '\0';
         }
     }

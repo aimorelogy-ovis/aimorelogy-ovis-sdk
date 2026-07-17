@@ -157,7 +157,13 @@ else ifeq ($(TARGET_MACHINE), riscv64-unknown-linux-gnu)
 else ifeq ($(TARGET_MACHINE), arm-linux-gnueabihf)
 else ifeq ($(TARGET_MACHINE), aarch64-none-linux-gnu)
 else ifeq ($(TARGET_MACHINE), arm-none-linux-musleabihf)
+  # CV184X A53 application code. -O3 enables NEON auto-vectorization; keep
+  # the toolchain's hard-float ABI explicit so every ipcamera module agrees.
+  CFLAGS   += -O3 -mcpu=cortex-a53 -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
+  CXXFLAGS += -O3 -mcpu=cortex-a53 -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
 else ifeq ($(TARGET_MACHINE), arm-none-linux-gnueabihf)
+  CFLAGS   += -O3 -mcpu=cortex-a53 -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
+  CXXFLAGS += -O3 -mcpu=cortex-a53 -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
 else
   $(error "TARGET_MACHINE = $(TARGET_MACHINE) not match??")
 endif

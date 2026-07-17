@@ -1622,15 +1622,11 @@ static int app_ipcam_Audio_IntercomStart(char *pstTargetIp, int iTargetPort)
         return s32Ret;
     }
 
-    char local_ip[16];
-    memset(local_ip, 0, sizeof(local_ip));
-    strncpy(local_ip, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr), sizeof(local_ip));
-
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family      = AF_INET;
     server_addr.sin_port        = htons(iTargetPort);
-    server_addr.sin_addr.s_addr = inet_addr(local_ip);
+    server_addr.sin_addr        = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr;
 
     s32Ret = bind(gst_SocketFd, (struct sockaddr *)&server_addr,sizeof(server_addr));
     if (s32Ret < 0)
@@ -2265,4 +2261,3 @@ int app_ipcam_Audio_SetPlayStatus(APP_AUDIO_RECORD_T *pstAudioPlay)
     pthread_mutex_unlock(&RsAudioMutex);
     return 0;
 }
-

@@ -324,6 +324,8 @@ int cvi_mkdir(const char *pszPath, mode_t mode)
     int s32Len = 0;
     int s32Idx = 0;
     int s32Ret = 0;
+    size_t uPathLen;
+    size_t uRequiredLen;
 
     /* Check Dir Path */
     if(!pszPath) {
@@ -331,19 +333,26 @@ int cvi_mkdir(const char *pszPath, mode_t mode)
         return -1;
     }
 
-    if ((s32Len = strlen(pszPath)) == 0) {
+    uPathLen = strlen(pszPath);
+    if (uPathLen == 0) {
         printf("Empty Dir path\n");
         return -1;
     }
 
     /* Add tail '/' if not exist */
-    if (pszPath[s32Len - 1] != '/') {
-        snprintf(DirName, sizeof(DirName), "%s/", pszPath);
-    } else {
-        snprintf(DirName, sizeof(DirName), "%s", pszPath);
+    uRequiredLen = uPathLen + ((pszPath[uPathLen - 1] != '/') ? 1 : 0);
+    if (uRequiredLen >= sizeof(DirName)) {
+        printf("Dir path is too long (max %zu): %s\n",
+            sizeof(DirName) - 1, pszPath);
+        return -1;
     }
+    memcpy(DirName, pszPath, uPathLen);
+    if (uRequiredLen != uPathLen) {
+        DirName[uPathLen] = '/';
+    }
+    DirName[uRequiredLen] = '\0';
 
-    s32Len = strlen(DirName);
+    s32Len = (int)uRequiredLen;
 
     /* Create Directory */
     for (s32Idx = 1; s32Idx < s32Len; s32Idx++) {
@@ -365,7 +374,13 @@ int cvi_mkdir(const char *pszPath, mode_t mode)
 
                 if ((0 == s32Ret) && (!S_ISDIR(stStat.st_mode))) {
                     /* it is not a dir,Rename it */
-                    snprintf(DirNameBak, sizeof(DirNameBak), "%s.BAK", DirName);
+                    size_t uDirLen = strlen(DirName);
+                    if (uDirLen + sizeof(".BAK") > sizeof(DirNameBak)) {
+                        printf("Backup path is too long: %s\n", DirName);
+                        return -1;
+                    }
+                    memcpy(DirNameBak, DirName, uDirLen);
+                    memcpy(DirNameBak + uDirLen, ".BAK", sizeof(".BAK"));
                     s32Ret = rename(DirName, DirNameBak);
 
                     if (0 != s32Ret) {

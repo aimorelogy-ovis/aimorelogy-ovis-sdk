@@ -1,0 +1,112 @@
+#!/bin/sh
+
+# Keep this service after S99user: the MPP kernel modules must finish probing
+# before ipcamera creates VI, VPSS, and VENC channels.
+
+APP_DIR=/usr/share/ipcamera
+DAEMON="$APP_DIR/ipcamera"
+MANAGER=/usr/sbin/ovis-managerd
+PARAM_CONFIG=/mnt/cfg/ipcamera/param_config.ini
+PIDFILE=/var/run/ipcamera.pid
+START_TIMEOUT=3
+STOP_TIMEOUT=15
+
+read_pid() {
+	[ -r "$PIDFILE" ] || return 1
+	pid=$(cat "$PIDFILE")
+	case "$pid" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+}
+
+is_running() {
+	read_pid || return 1
+	kill -0 "$pid" 2>/dev/null || return 1
+	[ -r "/proc/$pid/cmdline" ] || return 1
+	tr '\000' ' ' < "/proc/$pid/cmdline" | grep -F "$DAEMON" >/dev/null 2>&1
+}
+
+prepare_config() {
+	if [ -x "$MANAGER" ]; then
+		"$MANAGER" --prepare-config
+		return $?
+	fi
+	mkdir -p /mnt/cfg/ipcamera || return 1
+	[ -s "$PARAM_CONFIG" ] && return 0
+	cp "$APP_DIR/param_config.ini" "$PARAM_CONFIG"
+}
+
+start() {
+	[ -x "$DAEMON" ] || return 0
+	if is_running; then
+		echo "ipcamera is already running (PID $pid)"
+		return 0
+	fi
+	rm -f "$PIDFILE"
+	prepare_config || {
+		echo "ipcamera parameter config is unavailable"
+		return 1
+	}
+	cd "$APP_DIR" || return 1
+	printf 'Starting ipcamera: %s -i %s\n' "$DAEMON" "$PARAM_CONFIG"
+	# Keep the daemon off ovis-managerd's finite command-output pipe. Logs still
+	# go to the serial console on both boot and manager-triggered restarts.
+	"$DAEMON" -i "$PARAM_CONFIG" </dev/null >/dev/console 2>&1 &
+	pid=$!
+	echo "$pid" > "$PIDFILE"
+	sleep "$START_TIMEOUT"
+	if is_running; then
+		echo "ipcamera started (PID $pid)"
+		return 0
+	fi
+	rm -f "$PIDFILE"
+	echo "ipcamera exited during startup"
+	return 1
+}
+
+stop() {
+	printf "Stopping ipcamera: "
+	if ! is_running; then
+		rm -f "$PIDFILE"
+		echo "not running"
+		return 0
+	fi
+	kill -TERM "$pid" 2>/dev/null || {
+		echo "FAIL"
+		return 1
+	}
+	count=0
+	while kill -0 "$pid" 2>/dev/null && [ "$count" -lt "$STOP_TIMEOUT" ]; do
+		sleep 1
+		count=$((count + 1))
+	done
+	if kill -0 "$pid" 2>/dev/null; then
+		echo "FAIL (timeout waiting for PID $pid)"
+		return 1
+	fi
+	rm -f "$PIDFILE"
+	echo "OK"
+}
+
+status() {
+	if is_running; then
+		echo "ipcamera is running (PID $pid)"
+		return 0
+	fi
+	read_pid && rm -f "$PIDFILE"
+	echo "ipcamera is not running"
+	return 1
+}
+
+case "$1" in
+	start|stop|status)
+		"$1"
+		;;
+	restart|reload)
+		stop && start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload|status}"
+		exit 1
+		;;
+esac

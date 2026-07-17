@@ -1,5 +1,7 @@
 #include "app_ipcam_vpss.h"
+#include "app_ipcam_sys.h"
 #include "app_ipcam_paramparse.h"
+#include "cvi_sys.h"
 #include <pthread.h>
 #include <sys/prctl.h>
 
@@ -74,6 +76,32 @@ static void *app_ipcam_Vpss_Stitch_Proc(void *arg)
 APP_PARAM_VPSS_CFG_T *app_ipcam_Vpss_Param_Get(void)
 {
     return g_pstVpssCfg;
+}
+
+int app_ipcam_Vpss_Mode_Set(void)
+{
+    CVI_S32 s32Ret;
+    APP_PARAM_MODULE_CFG_S *pModuleCfg = app_ipcam_Module_Param_Get();
+
+    if (pModuleCfg->alios_vpss_mode)
+        return CVI_SUCCESS;
+
+    s32Ret = CVI_SYS_SetVIVPSSMode(&app_ipcam_Sys_Param_Get()->stVIVPSSMode);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "CVI_SYS_SetVIVPSSMode failed with %#x!\n", s32Ret);
+        return s32Ret;
+    }
+
+    s32Ret = CVI_VPSS_SetMode(&g_pstVpssCfg->stVPSSMode);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_SetMode failed with %#x!\n", s32Ret);
+        return s32Ret;
+    }
+
+    APP_PROF_LOG_PRINT(LEVEL_INFO,
+        "VI-VPSS modes configured before VI initialization\n");
+    return CVI_SUCCESS;
 }
 
 int app_ipcam_Vpss_Destroy(VPSS_GRP VpssGrp)
@@ -289,13 +317,6 @@ int app_ipcam_Vpss_Init(void)
     APP_PROF_LOG_PRINT(LEVEL_DEBUG, "vpss init ------------------> start \n");
 
     if(!pModuleCfg->alios_vpss_mode){
-
-        s32Ret = CVI_VPSS_SetMode(&g_pstVpssCfg->stVPSSMode);
-        if (s32Ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_SetMode failed with %#x!\n", s32Ret);
-            return s32Ret;
-        }
-
         for (CVI_U32 VpssGrp = 0; VpssGrp < g_pstVpssCfg->u32GrpCnt; VpssGrp++) {
             s32Ret = app_ipcam_Vpss_Create(VpssGrp);
             if (s32Ret != CVI_SUCCESS) {

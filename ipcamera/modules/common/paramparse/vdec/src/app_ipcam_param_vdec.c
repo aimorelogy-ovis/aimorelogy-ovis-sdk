@@ -48,7 +48,8 @@ int Load_Param_Vdec(const char *file)
         Vdec->astVdecChnCfg.u32Height = ini_getl(tmp_section, "height", 360, file);
 
         ini_gets(tmp_section, "decode_filename", " ", tmp_buff, PARAM_STRING_LEN, file);
-        strncpy(Vdec->astVdecChnCfg.decode_file_name, tmp_buff, PARAM_STRING_LEN);
+        app_ipcam_Param_CopyString(Vdec->astVdecChnCfg.decode_file_name,
+            sizeof(Vdec->astVdecChnCfg.decode_file_name), tmp_buff);
 
         ini_gets(tmp_section, "de_type", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, payload_type, PT_BUTT, &enum_num);

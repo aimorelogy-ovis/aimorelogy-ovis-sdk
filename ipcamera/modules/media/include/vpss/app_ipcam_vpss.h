@@ -50,6 +50,7 @@ typedef struct APP_PARAM_VPSS_CFG_S {
 } APP_PARAM_VPSS_CFG_T;
 
 APP_PARAM_VPSS_CFG_T *app_ipcam_Vpss_Param_Get(void);
+int app_ipcam_Vpss_Mode_Set(void);
 int app_ipcam_Vpss_Init(void);
 int app_ipcam_Vpss_DeInit(void);
 int app_ipcam_Vpss_Create(VPSS_GRP VpssGrp);

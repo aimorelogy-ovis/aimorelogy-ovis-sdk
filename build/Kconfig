@@ -800,6 +800,14 @@ config BUILD_TURNKEY_IPC
 	  Build the ipcamera application from the SDK top-level ipcamera
 	  directory and install it into the target rootfs image.
 
+config BUILD_OVIS_MANAGER
+	bool "Build and install OVIS manager"
+	depends on CHIP_ARCH_cv184x
+	default n
+	help
+	  Build the standalone OVIS Web management application and install
+	  its daemon, static resources and init script into the rootfs image.
+
 endmenu
 
 menu "RTOS options"

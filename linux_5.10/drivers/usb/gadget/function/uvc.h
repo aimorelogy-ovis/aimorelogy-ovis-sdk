@@ -115,6 +115,7 @@ struct uvc_device {
 	struct video_device vdev;
 	struct v4l2_device v4l2_dev;
 	enum uvc_state state;
+	bool defer_connect;
 	struct usb_function func;
 	struct uvc_video video;
 
@@ -147,6 +148,7 @@ static inline struct uvc_device *to_uvc(struct usb_function *f)
 struct uvc_file_handle {
 	struct v4l2_fh vfh;
 	struct uvc_video *device;
+	bool connected;
 };
 
 #define to_uvc_file_handle(handle) \
@@ -159,7 +161,7 @@ struct uvc_file_handle {
 extern void uvc_function_setup_continue(struct uvc_device *uvc);
 extern void uvc_endpoint_stream(struct uvc_device *dev);
 
-extern void uvc_function_connect(struct uvc_device *uvc);
-extern void uvc_function_disconnect(struct uvc_device *uvc);
+extern int uvc_function_connect(struct uvc_device *uvc);
+extern int uvc_function_disconnect(struct uvc_device *uvc);
 
 #endif /* _UVC_GADGET_H_ */

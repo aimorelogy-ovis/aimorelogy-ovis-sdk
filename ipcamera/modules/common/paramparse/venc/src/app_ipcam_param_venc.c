@@ -125,7 +125,8 @@ int Load_Param_Venc(const char *file)
             Venc->astVencChnCfg[i].astChn[1].s32ChnId = ini_getl(tmp_section, "dst_chn_id", 0, file);
         }
         ini_gets(tmp_section, "save_path", " ", tmp_buff, PARAM_STRING_LEN, file);
-        strncpy(Venc->astVencChnCfg[i].SavePath, tmp_buff, PARAM_STRING_LEN);
+        app_ipcam_Param_CopyString(Venc->astVencChnCfg[i].SavePath,
+            sizeof(Venc->astVencChnCfg[i].SavePath), tmp_buff);
 
         APP_PROF_LOG_PRINT(LEVEL_INFO, "Venc_chn[%d] enType=%d StreamTo=%d VpssGrp=%d VpssChn=%d u32Width=%d u32Height=%d\n save path =%s\n",
             i, Venc->astVencChnCfg[i].enType, Venc->astVencChnCfg[i].StreamTo, Venc->astVencChnCfg[i].VpssGrp, Venc->astVencChnCfg[i].VpssChn,
@@ -247,4 +248,3 @@ int Load_Param_Venc(const char *file)
 
     return CVI_SUCCESS;
 }
-

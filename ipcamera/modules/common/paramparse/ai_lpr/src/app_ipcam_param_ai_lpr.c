@@ -32,7 +32,7 @@ int Load_Param_Ai_LPR(const char * file)
 
     /* 检测模型配置 */
     ini_gets(tmp_section, "model_path_det", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_det, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_det, sizeof(Ai->model_path_det), tmp_buff);
     memset(tmp_buff, 0, sizeof(tmp_buff));
 
     ini_gets(tmp_section, "model_id_det", " ", str_name, PARAM_STRING_NAME_LEN, file);
@@ -46,7 +46,7 @@ int Load_Param_Ai_LPR(const char * file)
 
     /* 关键点模型配置 */
     ini_gets(tmp_section, "model_path_kp", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_kp, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_kp, sizeof(Ai->model_path_kp), tmp_buff);
     memset(tmp_buff, 0, sizeof(tmp_buff));
 
     memset(str_name, 0, sizeof(str_name));
@@ -61,7 +61,7 @@ int Load_Param_Ai_LPR(const char * file)
 
     /* 识别模型配置 */
     ini_gets(tmp_section, "model_path_rec", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path_rec, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path_rec, sizeof(Ai->model_path_rec), tmp_buff);
 
     memset(str_name, 0, sizeof(str_name));
     ini_gets(tmp_section, "model_id_rec", " ", str_name, PARAM_STRING_NAME_LEN, file);

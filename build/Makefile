@@ -688,6 +688,12 @@ ifeq ($(CONFIG_BUILD_TURNKEY_IPC),y)
 	${Q}cp -a $(TOP_DIR)/ipcamera/install/. $(OUTPUT_DIR)/rootfs/usr/share/ipcamera/
 	${Q}rm -rf $(OUTPUT_DIR)/rootfs/usr/share/ipcamera/rawimages
 endif
+ifeq ($(CONFIG_BUILD_OVIS_MANAGER),y)
+	${Q}test -x $(TOP_DIR)/ovis-manager/install/usr/sbin/ovis-managerd || \
+		{ echo "OVIS manager is enabled but has not been built; run build_ovis_manager first"; exit 1; }
+	${Q}rm -rf $(OUTPUT_DIR)/rootfs/usr/share/ovis-manager
+	${Q}cp -a $(TOP_DIR)/ovis-manager/install/. $(OUTPUT_DIR)/rootfs/
+endif
 	${Q}${BUILD_PATH}/boards/default/rootfs_script/prepare_rootfs.sh $(OUTPUT_DIR)/rootfs
 	# Generate S10_automount
 	${Q}python3 $(COMMON_TOOLS_PATH)/image_tool/create_automount.py $(FLASH_PARTITION_XML) $(OUTPUT_DIR)/rootfs/etc/init.d/

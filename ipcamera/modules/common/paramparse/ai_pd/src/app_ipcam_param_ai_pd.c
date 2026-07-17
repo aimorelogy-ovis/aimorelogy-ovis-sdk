@@ -30,7 +30,7 @@ int Load_Param_Ai_PD(const char * file)
     Ai->u32GrpHeight      = ini_getl(tmp_section, "grp_height", 0, file);
     Ai->threshold         = ini_getf(tmp_section, "threshold", 0, file);
     ini_gets(tmp_section, "model_path", " ", tmp_buff, 128, file);
-    strncpy(Ai->model_path, tmp_buff, 128);
+    app_ipcam_Param_CopyString(Ai->model_path, sizeof(Ai->model_path), tmp_buff);
 
     ini_gets(tmp_section, "model_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);

@@ -38,6 +38,18 @@ endif
 ifeq ($(CONFIG_MODULE_AI),y)
 	@cp -f $(TDL_PATH)/install/$(SOC_SEGMENT)/configs/model/model_factory.json $(APP_INSTALL_DIR)
 endif
+ifeq ($(CONFIG_RESOURCE_INSTALL_YOLOV8N_DET_MONITOR_PERSON),y)
+	@mkdir -p $(APP_INSTALL_DIR)/cv184x/
+	@cp -f $(APP_RESOURCE_DIR)/ai_model/yolov8n_det_monitor_person_256_448_INT8_cv184x.bmodel $(APP_INSTALL_DIR)/cv184x/
+endif
+ifeq ($(CONFIG_RESOURCE_INSTALL_SCRFD_DET_FACE),y)
+	@mkdir -p $(APP_INSTALL_DIR)/cv184x/
+	@cp -f $(APP_RESOURCE_DIR)/ai_model/scrfd_det_face_432_768_INT8_cv184x.bmodel $(APP_INSTALL_DIR)/cv184x/
+endif
+ifeq ($(CONFIG_RESOURCE_INSTALL_KEYPOINT_YOLOV8POSE_PERSON17),y)
+	@mkdir -p $(APP_INSTALL_DIR)/cv184x/
+	@cp -f $(APP_RESOURCE_DIR)/ai_model/keypoint_yolov8pose_person17_384_640_INT8_cv184x.bmodel $(APP_INSTALL_DIR)/cv184x/
+endif
 ifeq ($(CONFIG_RESOURCE_INSTALL_TRACKING_FEARTACK),y)
 	@mkdir -p $(APP_INSTALL_DIR)/cv184x/
 	@cp -f $(APP_RESOURCE_DIR)/ai_model/tracking_feartrack_128_128_256_256_INT8_cv184x.bmodel $(APP_INSTALL_DIR)/cv184x/

@@ -1,0 +1,105 @@
+# OVIS Manager
+
+`ovis-managerd` 是独立于 `ipcamera` 的无界面设备管理进程，提供设备识别、服务控制、运行配置持久化和版本查询接口。管理网页由 GitHub Pages 独立托管，板端不再安装静态网页资源。
+
+## 目标文件
+
+- `/usr/sbin/ovis-managerd`
+- `/etc/init.d/S98ovis-manager`
+- `/mnt/cfg/ovis-manager/device-id`
+- `/mnt/cfg/ovis-manager/ovis.account`
+- `/mnt/cfg/ipcamera/param_config.ini`
+
+首次启动时，`S98ovis-manager` 会生成持久化设备 ID：
+
+```text
+/mnt/cfg/ovis-manager/device-id
+```
+
+设备识别接口在重启后返回相同的 `device_id` 和 `serial`。
+
+首次启动时，`S98ovis-manager` 会生成随机管理员密码，并写入 CFG 持久化分区：
+
+```text
+/mnt/cfg/ovis-manager/ovis.account
+```
+
+账号文件采用可直接阅读的格式，权限为 `0600`：
+
+```ini
+username=admin
+password=<随机密码>
+```
+
+已通过 SSH 或 UART 登录设备的管理员可以直接查看：
+
+```bash
+cat /mnt/cfg/ovis-manager/ovis.account
+```
+
+如果升级前已存在旧版 `/mnt/cfg/ovis-manager/credentials`，启动脚本会保留原账号密码并自动迁移到 `ovis.account`。
+
+## 构建
+
+在 SDK 根目录执行：
+
+```bash
+source build/envsetup_soc.sh
+olddefconfig
+build_ovis_manager
+pack_rootfs
+```
+
+`build_ovis_manager` 只负责交叉编译和安装组件，产物先进入独立暂存目录：
+
+```text
+ovis-manager/install/usr/sbin/ovis-managerd
+ovis-manager/install/etc/init.d/S98ovis-manager
+```
+
+`pack_rootfs` 不会重新编译管理应用，只会检查上述产物并将 `ovis-manager/install/` 复制到目标 rootfs。`build_all` 已在 `pack_rootfs` 前调用 `build_ovis_manager`，完整构建不需要额外手动调用。
+
+默认只监听 USB NCM 地址 `192.168.42.1` 的 TCP 8080 端口。允许生产网页 `https://jeff010726.github.io` 以及本地 Vite 开发地址访问 API。
+
+## 设备识别接口
+
+网页通过匿名接口识别设备并执行心跳检测：
+
+```text
+GET /api/v1/device/info
+```
+
+响应包含协议名、API 版本、设备 ID、名称、型号、序列号、固件版本和 Manager 版本。接口支持 GitHub Pages 跨域请求及浏览器本地网络访问预检。
+
+对于允许的网页来源，Manager 同时返回
+`Access-Control-Allow-Private-Network`、`Private-Network-Access-Name` 和
+`Private-Network-Access-ID`。其中 48 位网络身份由持久化 `device_id` 派生，
+用于兼容不同版本 Chromium 的本地网络权限流程，不改变设备 API 身份。
+
+## 配置接口
+
+当前配置页面不做登录，以下接口允许受支持的网页来源直接访问：
+
+```text
+GET  /api/v1/config/capabilities
+GET  /api/v1/config
+POST /api/v1/config/validate
+PUT  /api/v1/config
+POST /api/v1/config/apply
+POST /api/v1/config/reset
+GET  /api/v1/tasks/{task_id}
+```
+
+配置白名单包括主码流帧率和码率、子码流开关/帧率/码率、OSD、人员检测、人脸检测、人体姿态、目标检测与跟踪和移动检测。分辨率使用板端公布的固定 profile，接口不会修改 UVC、VPSS、VB、Sensor 或 MIPI 参数。
+
+能力接口使用 schema version 2，并公布板端实际安装的 AI 工作负载。人员检测、人脸检测、人体姿态和目标跟踪最多启用一项；移动检测不占用 TPU，可独立同时开启。目标跟踪支持 `color` 和 `fastsam` 两种搜索方式。
+
+固件升级时，Manager 会补齐旧运行配置缺少的 AI 参数段，将旧 `/mnt/sd` 模型路径迁移到 `/usr/share/ipcamera/cv184x`，并消除旧配置中同时开启多个 TPU 功能的冲突，不覆盖已有视频参数。
+
+`PUT /api/v1/config` 只生成待应用配置，不会直接影响当前视频服务。`POST /api/v1/config/apply` 先返回处于 `queued` 状态的任务，并保留 1 秒响应窗口，然后校验对应 revision、备份当前配置、原子切换并异步重启 `ipcamera`；新配置启动失败时自动恢复备份并再次启动旧配置。网页通过任务接口读取进度及 `rolled_back` 结果，USB 网络短暂断开后可按设备 ID 重连并继续确认任务。
+
+可单独运行配置事务测试：
+
+```bash
+make -C ovis-manager test
+```

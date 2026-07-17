@@ -24,6 +24,8 @@ int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32Max
 
 int32_t UVC_GADGET_DeviceOpen(const char *pDevPath);
 
+int32_t UVC_GADGET_DeviceConnect(void);
+
 int32_t UVC_GADGET_DeviceClose(void);
 
 int32_t UVC_GADGET_DeviceCheck(void);

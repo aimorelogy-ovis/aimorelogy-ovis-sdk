@@ -5,6 +5,9 @@ UDHCPD=/usr/sbin/udhcpd
 UDHCPD_CONFIG=/etc/ncm-udhcpd.conf
 UDHCPD_PID=/var/run/udhcpd-ncm.pid
 UDHCPD_LEASES=/var/lib/misc/udhcpd-ncm.leases
+USB_GADGET=/tmp/usb/usb_gadget/cvitek
+COMPOSITE_PID=0x100D
+COMPOSITE_PRODUCT="OVIS NCM + UVC"
 
 wait_for_path() {
 	path=$1
@@ -45,6 +48,8 @@ start() {
 	/etc/run_usb.sh probe ncm || return 1
 	/etc/run_usb.sh probe uvc || return 1
 	sh /etc/ConfigUVC.sh setup || return 1
+	echo "$COMPOSITE_PID" > "$USB_GADGET/idProduct" || return 1
+	echo "$COMPOSITE_PRODUCT" > "$USB_GADGET/strings/0x409/product" || return 1
 	/etc/run_usb.sh start || return 1
 
 	wait_for_path /sys/class/net/usb0 || return 1

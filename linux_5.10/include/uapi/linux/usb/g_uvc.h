@@ -35,5 +35,6 @@ struct uvc_event {
 };
 
 #define UVCIOC_SEND_RESPONSE		_IOW('U', 1, struct uvc_request_data)
+#define UVCIOC_CONNECT			_IO('U', 2)
 
 #endif /* __LINUX_USB_G_UVC_H */
