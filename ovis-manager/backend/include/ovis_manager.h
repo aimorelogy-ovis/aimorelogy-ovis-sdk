@@ -13,7 +13,7 @@
 #define OVIS_BIND_ADDRESS "192.168.42.1"
 #endif
 #ifndef OVIS_ALLOWED_ORIGIN
-#define OVIS_ALLOWED_ORIGIN "https://jeff010726.github.io"
+#define OVIS_ALLOWED_ORIGIN "https://ovis.aimorelogy.com"
 #endif
 #ifndef OVIS_DEV_ORIGIN
 #define OVIS_DEV_ORIGIN "http://localhost:5173"

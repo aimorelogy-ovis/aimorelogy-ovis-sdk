@@ -59,7 +59,7 @@ ovis-manager/install/etc/init.d/S98ovis-manager
 
 `pack_rootfs` 不会重新编译管理应用，只会检查上述产物并将 `ovis-manager/install/` 复制到目标 rootfs。`build_all` 已在 `pack_rootfs` 前调用 `build_ovis_manager`，完整构建不需要额外手动调用。
 
-默认只监听 USB NCM 地址 `192.168.42.1` 的 TCP 8080 端口。允许生产网页 `https://jeff010726.github.io` 以及本地 Vite 开发地址访问 API。
+默认只监听 USB NCM 地址 `192.168.42.1` 的 TCP 8080 端口。允许生产网页 `https://ovis.aimorelogy.com` 以及本地 Vite 开发地址访问 API。
 
 ## 设备识别接口
 
