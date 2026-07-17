@@ -49,7 +49,9 @@ start() {
 	}
 	cd "$APP_DIR" || return 1
 	printf 'Starting ipcamera: %s -i %s\n' "$DAEMON" "$PARAM_CONFIG"
-	"$DAEMON" -i "$PARAM_CONFIG" &
+	# Keep the daemon off ovis-managerd's finite command-output pipe. Logs still
+	# go to the serial console on both boot and manager-triggered restarts.
+	"$DAEMON" -i "$PARAM_CONFIG" </dev/null >/dev/console 2>&1 &
 	pid=$!
 	echo "$pid" > "$PIDFILE"
 	sleep "$START_TIMEOUT"

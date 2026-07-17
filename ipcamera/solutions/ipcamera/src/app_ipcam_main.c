@@ -213,6 +213,8 @@ static int app_ipcam_Init(void)
 
     APP_CHK_RET(app_ipcam_Sys_Init(), "init systerm");
 
+    APP_CHK_RET(app_ipcam_Vpss_Mode_Set(), "configure vi-vpss mode");
+
     APP_CHK_RET(app_ipcam_Vi_Init(), "init vi module");
 
     APP_CHK_RET(app_ipcam_Vpss_Init(), "init vpss module");
