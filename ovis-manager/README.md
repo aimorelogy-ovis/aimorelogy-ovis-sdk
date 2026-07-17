@@ -5,8 +5,10 @@
 ## 目标文件
 
 - `/usr/sbin/ovis-managerd`
+- `/usr/sbin/ovis-device-identity`
 - `/etc/init.d/S98ovis-manager`
 - `/mnt/cfg/ovis-manager/device-id`
+- `/mnt/cfg/ovis-manager/ncm-subnet`
 - `/mnt/cfg/ovis-manager/ovis.account`
 - `/mnt/cfg/ipcamera/param_config.ini`
 
@@ -59,7 +61,42 @@ ovis-manager/install/etc/init.d/S98ovis-manager
 
 `pack_rootfs` 不会重新编译管理应用，只会检查上述产物并将 `ovis-manager/install/` 复制到目标 rootfs。`build_all` 已在 `pack_rootfs` 前调用 `build_ovis_manager`，完整构建不需要额外手动调用。
 
-默认只监听 USB NCM 地址 `192.168.42.1` 的 TCP 8080 端口。允许生产网页 `https://ovis.aimorelogy.com` 以及本地 Vite 开发地址访问 API。
+首次启动没有网络配置时，设备只枚举 `PID 0x100E` 的 WebUSB 配置接口，不启用
+NCM、UVC、DHCP 和 Manager。生产网页让用户填写 `192.168.X.1` 中的 `X`，校验当前
+连接设备没有重复网段后提交。第三段保存到 `/mnt/cfg/ovis-manager/ncm-subnet`，设备在
+前端确认写入结果后自动重启，并枚举为 `PID 0x100D` 的 `NCM + UVC` 运行设备。
+
+后续启动直接进入 `NCM + UVC` 运行模式并恢复地址、DHCP 和 Manager，不再加载
+FunctionFS WebUSB 接口，也不再要求配置。配置态和运行态分离，避免 FunctionFS
+影响 Windows 对视频复合设备的描述符枚举。
+
+USB gadget 的实际开机启动入口是 `S99v_ovis_usb`，位于 `S99user` 加载 MPP 模块之后、
+`S99z_ipcamera` 之前。`S77ncm` 保留为兼容控制入口。未配置网络时 `ipcamera` 延迟
+启动；WebUSB 提交配置并自动重启后，由开机 USB 脚本启动 Manager 和 `ipcamera`。
+延后入口会等待系统负载稳定，并在 UDC 未保持绑定时清理后重试，最多三次；完整启动
+trace 保存到 `/var/log/ovis-usb-startup.log`。
+
+USB NCM 地址、DHCP 地址池和 Manager 监听地址使用同一网段。USB 序列号和 NCM MAC
+由持久化 `device_id` 稳定派生。Manager 监听对应 NCM 地址的 TCP 8080 端口，并允许
+生产网页 `https://ovis.aimorelogy.com` 以及本地 Vite 开发地址访问 API。
+
+WebUSB 配置态使用带 Bulk IN/OUT 端点的 FunctionFS Vendor Interface，以兼容板端
+DWC2 UDC 和 Windows 枚举。配置命令仍通过 EP0 提供以下协议；这些端点不会出现在
+`NCM + UVC` 运行态，因此不占用运行态端点资源：
+
+| 请求 | 代码 | 方向 | 作用 |
+| --- | --- | --- | --- |
+| `GET_INFO` | `0x01` | IN | 读取设备 ID、当前第三段和待提交第三段 |
+| `QUIESCE_NCM` | `0x02` | OUT | 停止 DHCP、Manager 并关闭当前 NCM 地址 |
+| `SET_SUBNET` | `0x03` | OUT | 写入待提交的 `X`，有效范围为 `0-255` |
+| `COMMIT` | `0x04` | OUT | 原子保存第三段、同步 CFG 并延迟自动重启 |
+| `ABORT` | `0x05` | OUT | 取消待提交配置并保持 NCM 关闭，等待重试 |
+
+网页在 `COMMIT` 后、设备自动重启前再次调用 `GET_INFO`，只有确认最终第三段已经写入且
+待提交值已清除后才显示成功。板端将待提交文件重命名后同步 CFG 目录，避免紧接着断电
+或重启时丢失持久配置；提交过程写入 `/var/log/ovis-webusb.log`。COMMIT 后预留约三秒
+供前端确认状态，然后执行正常系统重启。开机入口重新加载持久化设备 ID，并据此恢复
+USB serialnumber 与 NCM 两端 MAC。
 
 ## 设备识别接口
 

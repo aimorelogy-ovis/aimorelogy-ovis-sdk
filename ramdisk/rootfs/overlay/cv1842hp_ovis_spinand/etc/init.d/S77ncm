@@ -2,13 +2,26 @@
 ${CVI_SHOPTS}
 
 UDHCPD=/usr/sbin/udhcpd
-UDHCPD_CONFIG=/etc/ncm-udhcpd.conf
+UDHCPD_TEMPLATE=/etc/ncm-udhcpd.conf
+UDHCPD_CONFIG=/var/run/ncm-udhcpd.conf
 UDHCPD_PID=/var/run/udhcpd-ncm.pid
 UDHCPD_LEASES=/var/lib/misc/udhcpd-ncm.leases
 USB_GADGET=/tmp/usb/usb_gadget/cvitek
-COMPOSITE_PID=0x100D
+IDENTITY_HELPER=/usr/sbin/ovis-device-identity
+STATE_DIR=/mnt/cfg/ovis-manager
+NCM_SUBNET_FILE="$STATE_DIR/ncm-subnet"
+NCM_PENDING_SUBNET_FILE="$STATE_DIR/ncm-subnet.pending"
+NCM_ADDRESS_FILE=/var/run/ovis-ncm-address
+WEBUSB_DAEMON=/usr/sbin/ovis-managerd
+WEBUSB_DIR=/dev/usb-ffs/ovis
+WEBUSB_PID=/var/run/ovis-webusb.pid
+WEBUSB_READY=/var/run/ovis-webusb-ready
+WEBUSB_LOG=/var/log/ovis-webusb.log
+OPERATIONAL_PID=0x100D
+PROVISIONING_PID=0x100E
 COMPOSITE_MANUFACTURER="AIMORELOGY"
-COMPOSITE_PRODUCT="OVIS NCM + UVC"
+OPERATIONAL_PRODUCT="OVIS NCM + UVC"
+PROVISIONING_PRODUCT="OVIS Network Setup"
 
 wait_for_path() {
 	path=$1
@@ -25,9 +38,78 @@ wait_for_path() {
 	fi
 }
 
+load_device_identity() {
+	[ -x "$IDENTITY_HELPER" ] || return 1
+	device_id=$("$IDENTITY_HELPER") || return 1
+	device_suffix=${device_id##*-}
+	mac_tail=$(printf '%s' "$device_suffix" | cut -c7-16 | sed 's/../&:/g; s/:$//')
+	ncm_device_mac="02:$mac_tail"
+	ncm_host_mac="06:$mac_tail"
+}
+
+load_network_subnet() {
+	ncm_subnet=$(sed -n '1p' "$NCM_SUBNET_FILE" 2>/dev/null)
+	case "$ncm_subnet" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$ncm_subnet" -le 255 ] || return 1
+	ncm_address="192.168.$ncm_subnet.1"
+	mkdir -p /var/run || return 1
+	sed "s/192\\.168\\.42\\./192.168.$ncm_subnet./g" \
+		"$UDHCPD_TEMPLATE" > "$UDHCPD_CONFIG" || return 1
+}
+
+configure_gadget_strings() {
+	product=$1
+	pid=$2
+
+	printf '%s\n' "$pid" > "$USB_GADGET/idProduct" || return 1
+	printf '%s\n' "$COMPOSITE_MANUFACTURER" \
+		> "$USB_GADGET/strings/0x409/manufacturer" || return 1
+	printf '%s\n' "$product" > "$USB_GADGET/strings/0x409/product" || return 1
+	printf '%s\n' "$device_id" > "$USB_GADGET/strings/0x409/serialnumber" || return 1
+}
+
+configure_ncm_identity() {
+	ncm_function=$(find "$USB_GADGET/functions" -maxdepth 1 -type d \
+		-name 'ncm.*' | sed -n '1p')
+	[ -n "$ncm_function" ] || return 1
+	printf '%s\n' "$ncm_device_mac" > "$ncm_function/dev_addr" || return 1
+	printf '%s\n' "$ncm_host_mac" > "$ncm_function/host_addr" || return 1
+}
+
+start_webusb() {
+	[ -x "$WEBUSB_DAEMON" ] || return 1
+	mkdir -p "$WEBUSB_DIR" /var/run /var/log || return 1
+	if [ ! -e "$WEBUSB_DIR/ep0" ]; then
+		mount -t functionfs ovis "$WEBUSB_DIR" || return 1
+	fi
+	rm -f "$WEBUSB_PID" "$WEBUSB_READY"
+	"$WEBUSB_DAEMON" --usb-provision >> "$WEBUSB_LOG" 2>&1 &
+	webusb_pid=$!
+	printf '%s\n' "$webusb_pid" > "$WEBUSB_PID"
+	wait_for_path "$WEBUSB_READY" || return 1
+}
+
+stop_webusb() {
+	if [ -s "$WEBUSB_PID" ]; then
+		webusb_pid=$(cat "$WEBUSB_PID")
+		kill "$webusb_pid" 2>/dev/null
+		count=0
+		while kill -0 "$webusb_pid" 2>/dev/null && [ "$count" -lt 20 ]; do
+			sleep 0.05
+			count=$((count + 1))
+		done
+		rm -f "$WEBUSB_PID"
+	fi
+	rm -f "$WEBUSB_READY"
+	umount "$WEBUSB_DIR" 2>/dev/null
+	rmdir "$WEBUSB_DIR" 2>/dev/null
+}
+
 start_dhcp() {
 	mkdir -p /var/lib/misc /var/run
-	touch "$UDHCPD_LEASES"
+	: > "$UDHCPD_LEASES"
 	if [ -s "$UDHCPD_PID" ] && kill -0 "$(cat "$UDHCPD_PID")" 2>/dev/null; then
 		return 0
 	fi
@@ -43,32 +125,88 @@ stop_dhcp() {
 	fi
 }
 
-start() {
-	printf "Starting USB NCM + UVC: "
-	/etc/uhubon.sh device || return 1
+disable_network() {
+	stop_dhcp
+	ifconfig usb0 down 2>/dev/null
+	rm -f "$NCM_ADDRESS_FILE" "$NCM_ADDRESS_FILE.tmp" "$UDHCPD_CONFIG"
+}
+
+activate_network() {
+	load_network_subnet || {
+		echo "OVIS NCM subnet is not configured" >&2
+		return 1
+	}
+	ifconfig usb0 "$ncm_address" netmask 255.255.255.0 up || return 1
+	printf '%s\n' "$ncm_address" > "$NCM_ADDRESS_FILE.tmp" || return 1
+	mv "$NCM_ADDRESS_FILE.tmp" "$NCM_ADDRESS_FILE" || return 1
+	start_dhcp || return 1
+	echo "OVIS NCM address: $ncm_address"
+	/etc/init.d/S98ovis-manager start || return 1
+	/etc/init.d/S99z_ipcamera start
+}
+
+setup_provisioning_gadget() {
+	/etc/run_usb.sh probe webusb || return 1
+	configure_gadget_strings "$PROVISIONING_PRODUCT" "$PROVISIONING_PID" || return 1
+	start_webusb || return 1
+	/etc/run_usb.sh start || return 1
+	echo "waiting for WebUSB NCM subnet configuration"
+}
+
+setup_operational_gadget() {
 	/etc/run_usb.sh probe ncm || return 1
 	/etc/run_usb.sh probe uvc || return 1
 	sh /etc/ConfigUVC.sh setup || return 1
-	echo "$COMPOSITE_PID" > "$USB_GADGET/idProduct" || return 1
-	echo "$COMPOSITE_MANUFACTURER" > "$USB_GADGET/strings/0x409/manufacturer" || return 1
-	echo "$COMPOSITE_PRODUCT" > "$USB_GADGET/strings/0x409/product" || return 1
+	configure_gadget_strings "$OPERATIONAL_PRODUCT" "$OPERATIONAL_PID" || return 1
+	configure_ncm_identity || return 1
 	/etc/run_usb.sh start || return 1
-
 	wait_for_path /sys/class/net/usb0 || return 1
 	wait_for_path /dev/video0 || return 1
-	ifconfig usb0 192.168.42.1 netmask 255.255.255.0 up || return 1
-	start_dhcp
+	activate_network
+}
+
+teardown_gadget() {
+	/etc/init.d/S99z_ipcamera stop 2>/dev/null
+	disable_network
+	/etc/init.d/S98ovis-manager stop 2>/dev/null
+	if [ -d "$USB_GADGET" ]; then
+		echo "" > "$USB_GADGET/UDC" 2>/dev/null
+		rm -f "$USB_GADGET/configs/c.1/ffs.ovis"
+	fi
+	stop_webusb
+	/etc/run_usb.sh stop
+}
+
+reboot_to_operational() {
+	load_network_subnet || return 1
+	echo "OVIS NCM configuration saved; rebooting into operational mode"
+	sync
+	sleep 2
+	/sbin/reboot
+}
+
+start() {
+	printf "Starting OVIS USB: "
+	load_device_identity || return 1
+	rm -f "$NCM_PENDING_SUBNET_FILE"
+	/etc/uhubon.sh device || return 1
+	if load_network_subnet; then
+		setup_operational_gadget
+	else
+		setup_provisioning_gadget
+	fi
 }
 
 stop() {
-	printf "Stopping USB NCM + UVC: "
-	stop_dhcp
-	ifconfig usb0 down 2>/dev/null
-	/etc/run_usb.sh stop
+	printf "Stopping OVIS USB: "
+	teardown_gadget
 }
 
 case "$1" in
 	start)
+		echo "OVIS USB startup deferred until MPP modules are ready"
+		;;
+	late-start)
 		start
 		;;
 	stop)
@@ -79,8 +217,14 @@ case "$1" in
 		sleep 1
 		start
 		;;
+	webusb-quiesce)
+		disable_network
+		;;
+	webusb-commit)
+		reboot_to_operational
+		;;
 	*)
-		echo "Usage: $0 {start|stop|restart}"
+		echo "Usage: $0 {start|late-start|stop|restart|webusb-quiesce|webusb-commit}"
 		exit 1
 		;;
 esac

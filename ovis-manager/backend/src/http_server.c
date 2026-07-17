@@ -334,9 +334,29 @@ static void handle_client(int fd)
 		route_request(fd, &request);
 }
 
+static void get_bind_address(char *value, size_t size)
+{
+	struct in_addr parsed;
+	FILE *file;
+
+	snprintf(value, size, "%s", OVIS_BIND_ADDRESS);
+	file = fopen(OVIS_BIND_ADDRESS_FILE, "r");
+	if (file == NULL)
+		return;
+	if (fgets(value, (int)size, file) == NULL) {
+		snprintf(value, size, "%s", OVIS_BIND_ADDRESS);
+	} else {
+		value[strcspn(value, "\r\n")] = '\0';
+		if (inet_pton(AF_INET, value, &parsed) != 1)
+			snprintf(value, size, "%s", OVIS_BIND_ADDRESS);
+	}
+	fclose(file);
+}
+
 int http_server_run(unsigned short port)
 {
 	struct sockaddr_in address = {0};
+	char bind_address[INET_ADDRSTRLEN];
 	int server;
 	int option = 1;
 
@@ -344,8 +364,9 @@ int http_server_run(unsigned short port)
 	if (server < 0) return 1;
 	setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
 	address.sin_family = AF_INET;
-	if (inet_pton(AF_INET, OVIS_BIND_ADDRESS, &address.sin_addr) != 1) {
-		fprintf(stderr, "invalid bind address: %s\n", OVIS_BIND_ADDRESS);
+	get_bind_address(bind_address, sizeof(bind_address));
+	if (inet_pton(AF_INET, bind_address, &address.sin_addr) != 1) {
+		fprintf(stderr, "invalid bind address: %s\n", bind_address);
 		close(server);
 		return 1;
 	}
@@ -353,7 +374,7 @@ int http_server_run(unsigned short port)
 	if (bind(server, (struct sockaddr *)&address, sizeof(address)) != 0 || listen(server, 8) != 0) {
 		perror("ovis-manager listen"); close(server); return 1;
 	}
-	printf("ovis-managerd listening on port %u\n", port);
+	printf("ovis-managerd listening on %s:%u\n", bind_address, port);
 	for (;;) {
 		int client = accept(server, NULL, NULL);
 		if (client < 0) { if (errno == EINTR) continue; break; }

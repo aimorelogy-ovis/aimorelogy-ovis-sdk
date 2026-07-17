@@ -8,6 +8,7 @@ DAEMON="$APP_DIR/ipcamera"
 MANAGER=/usr/sbin/ovis-managerd
 PARAM_CONFIG=/mnt/cfg/ipcamera/param_config.ini
 PIDFILE=/var/run/ipcamera.pid
+NCM_ADDRESS_FILE=/var/run/ovis-ncm-address
 START_TIMEOUT=3
 STOP_TIMEOUT=15
 
@@ -38,6 +39,10 @@ prepare_config() {
 
 start() {
 	[ -x "$DAEMON" ] || return 0
+	if [ ! -s "$NCM_ADDRESS_FILE" ]; then
+		echo "ipcamera start deferred until the OVIS USB network is configured"
+		return 0
+	fi
 	if is_running; then
 		echo "ipcamera is already running (PID $pid)"
 		return 0

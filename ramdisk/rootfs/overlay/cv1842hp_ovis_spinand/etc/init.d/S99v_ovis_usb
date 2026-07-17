@@ -1,0 +1,50 @@
+#!/bin/sh
+
+STARTUP_LOG=/var/log/ovis-usb-startup.log
+TRACE_FILE=/tmp/ovis-usb-startup.trace
+USB_GADGET=/tmp/usb/usb_gadget/cvitek
+
+start_usb() {
+	mkdir -p /var/log || return 1
+	: > "$STARTUP_LOG"
+	sleep 2
+	attempt=1
+	action=late-start
+	while [ "$attempt" -le 3 ]; do
+		echo "OVIS USB startup attempt $attempt" | tee -a "$STARTUP_LOG"
+		sh -x /etc/init.d/S77ncm "$action" > "$TRACE_FILE" 2>&1
+		status=$?
+		cat "$TRACE_FILE"
+		cat "$TRACE_FILE" >> "$STARTUP_LOG"
+		if [ "$status" -eq 0 ]; then
+			sleep 1
+			if [ -s "$USB_GADGET/UDC" ]; then
+				rm -f "$TRACE_FILE"
+				return 0
+			fi
+			echo "OVIS USB lost the UDC binding after startup" | tee -a "$STARTUP_LOG"
+		fi
+		attempt=$((attempt + 1))
+		action=restart
+		sleep 2
+	done
+	rm -f "$TRACE_FILE"
+	echo "OVIS USB startup failed after 3 attempts" | tee -a "$STARTUP_LOG"
+	return 1
+}
+
+case "$1" in
+	start)
+		start_usb
+		;;
+	stop)
+		exec /etc/init.d/S77ncm stop
+		;;
+	restart|reload)
+		exec /etc/init.d/S77ncm restart
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac
