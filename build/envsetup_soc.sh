@@ -1144,7 +1144,11 @@ function cvi_setup_env()
 
   # output folder path
   INSTALL_PATH="$TOP_DIR"/install
-  OUTPUT_DIR="$INSTALL_PATH"/soc_"$PROJECT_FULLNAME"
+  if [ "$PROJECT_FULLNAME" = "cv1842hp_ovis_spinand" ]; then
+    OUTPUT_DIR="$INSTALL_PATH"/soc_"$BOARD"
+  else
+    OUTPUT_DIR="$INSTALL_PATH"/soc_"$PROJECT_FULLNAME"
+  fi
   ROOTFS_DIR="$OUTPUT_DIR"/rootfs
   SYSTEM_OUT_DIR="$OUTPUT_DIR"/rootfs/system
 
@@ -1335,7 +1339,7 @@ function print_usage()
   printf "    (1)\33[94m menuconfig \33[0m- Use menu to configure your board.\n"
   printf "        ex: $ menuconfig\n\n"
   printf "    (2)\33[92m defconfig \$BOARD\33[0m - Choose board settings.\n"
-  printf "        ex: $ defconfig cv1842hp_ovis_spinand\n"
+  printf "        ex: $ defconfig ovis_spinand\n"
   printf "  -------------------------------------------------------------------------------------------------------\n"
 }
 

@@ -427,6 +427,9 @@ function defconfig()
   local board
 
   board=$1
+  if [ "${board}" = "ovis_spinand" ]; then
+    board=cv1842hp_ovis_spinand
+  fi
   chip_arch=`"${BUILD_PATH}/scripts/boards_scan.py" --get-chip-arch --board_name ${board}`
 
   # if input is chip series, then list boards by chip series
@@ -461,6 +464,7 @@ function setconfig()
 function _build_add_bash_completion()
 {
   _boards=$(find -L "${BUILD_PATH}/boards" -mindepth 2 -maxdepth 2 -type d -not -path '*/default/*' -printf '%f ')
+  _boards=${_boards//cv1842hp_ovis_spinand/ovis_spinand}
   complete -W "$_boards" defconfig
   complete -r setconfig 2> /dev/null || return 0
 }
