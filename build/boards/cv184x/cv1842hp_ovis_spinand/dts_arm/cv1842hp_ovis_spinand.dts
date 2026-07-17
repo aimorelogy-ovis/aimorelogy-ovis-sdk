@@ -5,6 +5,8 @@
 #include "cv184x_default_memmap.dtsi"
 
 / {
+	model = "AIMORELOGY OVIS";
+	compatible = "aimorelogy,ovis", "cvitek,cv184x";
 };
 
 &mipi_rx {
