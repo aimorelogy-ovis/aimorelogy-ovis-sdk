@@ -258,7 +258,7 @@ function pack_upgrade
   do
   extra_files_args="$extra_files_args -f utils $each"
   done
-  python3 "$IMGTOOL_PATH"/mk_package.py "$FLASH_PARTITION_XML" "$OUTPUT_DIR" -o "$OUTPUT_DIR"/upgrade.zip $extra_files_args
+  python3 "$IMGTOOL_PATH"/mk_package.py "$FLASH_PARTITION_XML" "$OUTPUT_DIR" -o "$OUTPUT_DIR"/aimorelogy_ovis_firmware.zip $extra_files_args
   command rm -rf "$TMPDIR"
 )}
 
