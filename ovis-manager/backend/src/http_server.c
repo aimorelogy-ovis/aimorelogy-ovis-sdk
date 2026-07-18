@@ -4,12 +4,20 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
+
+#define OVIS_NETWORK_RESET_COMMAND "/etc/init.d/S77ncm network-reset"
+#define OVIS_NETWORK_RESET_GRACE_MS 1000
+
+static pthread_mutex_t network_reset_lock = PTHREAD_MUTEX_INITIALIZER;
+static int network_reset_scheduled;
 
 static char *find_header(char *buffer, const char *name)
 {
@@ -34,6 +42,45 @@ static int send_all(int fd, const void *data, size_t size)
 		buffer += sent;
 		size -= (size_t)sent;
 	}
+	return 0;
+}
+
+static void *network_reset_worker(void *arg)
+{
+	struct timespec remaining = {
+		.tv_sec = OVIS_NETWORK_RESET_GRACE_MS / 1000,
+		.tv_nsec = (OVIS_NETWORK_RESET_GRACE_MS % 1000) * 1000000L,
+	};
+	int result;
+
+	(void)arg;
+	while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR)
+		;
+	result = system(OVIS_NETWORK_RESET_COMMAND);
+	audit_log("device.network.reset", result == 0 ? "success" : "failed");
+	pthread_mutex_lock(&network_reset_lock);
+	network_reset_scheduled = 0;
+	pthread_mutex_unlock(&network_reset_lock);
+	return NULL;
+}
+
+static int schedule_network_reset(void)
+{
+	pthread_t thread;
+
+	pthread_mutex_lock(&network_reset_lock);
+	if (network_reset_scheduled) {
+		pthread_mutex_unlock(&network_reset_lock);
+		return 1;
+	}
+	network_reset_scheduled = 1;
+	if (pthread_create(&thread, NULL, network_reset_worker, NULL) != 0) {
+		network_reset_scheduled = 0;
+		pthread_mutex_unlock(&network_reset_lock);
+		return -1;
+	}
+	pthread_detach(thread);
+	pthread_mutex_unlock(&network_reset_lock);
 	return 0;
 }
 
@@ -203,6 +250,19 @@ static void route_request(int fd, const struct http_request *request)
 			send_json_error(fd, 500, "无法生成设备信息", request);
 		else
 			send_response(fd, 200, "application/json; charset=utf-8", json, request);
+		return;
+	}
+	if (strcmp(request->method, "POST") == 0 &&
+	    strcmp(request->path, "/api/v1/device/network/reset") == 0) {
+		rc = schedule_network_reset();
+		if (rc == 1)
+			send_json_error(fd, 409, "设备网络重置已在执行", request);
+		else if (rc != 0)
+			send_json_error(fd, 500, "无法创建设备网络重置任务", request);
+		else {
+			audit_log("device.network.reset", "accepted");
+			send_response(fd, 202, "text/plain; charset=utf-8", "", request);
+		}
 		return;
 	}
 	if (strcmp(request->method, "GET") == 0 &&

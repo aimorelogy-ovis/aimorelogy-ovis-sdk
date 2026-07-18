@@ -113,6 +113,16 @@ GET /api/v1/device/info
 `Private-Network-Access-ID`。其中 48 位网络身份由持久化 `device_id` 派生，
 用于兼容不同版本 Chromium 的本地网络权限流程，不改变设备 API 身份。
 
+已初始化设备通过以下接口清除 USB NCM 网段：
+
+```text
+POST /api/v1/device/network/reset
+```
+
+请求没有消息体；Manager 先返回空的 `202 Accepted`，随后延迟删除
+`/mnt/cfg/ovis-manager/ncm-subnet` 和待提交文件，同步 CFG 并正常重启。设备重启后
+重新枚举为 `PID 0x100E` 的 WebUSB 配置设备，设备 ID、管理账号和视频配置不受影响。
+
 ## 配置接口
 
 当前配置页面不做登录，以下接口允许受支持的网页来源直接访问：

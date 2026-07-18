@@ -185,6 +185,14 @@ reboot_to_operational() {
 	/sbin/reboot
 }
 
+reset_network_configuration() {
+	echo "Removing OVIS NCM configuration; rebooting into provisioning mode"
+	rm -f "$NCM_SUBNET_FILE" "$NCM_PENDING_SUBNET_FILE" || return 1
+	sync
+	sleep 2
+	/sbin/reboot
+}
+
 start() {
 	printf "Starting OVIS USB: "
 	load_device_identity || return 1
@@ -223,8 +231,11 @@ case "$1" in
 	webusb-commit)
 		reboot_to_operational
 		;;
+	network-reset)
+		reset_network_configuration
+		;;
 	*)
-		echo "Usage: $0 {start|late-start|stop|restart|webusb-quiesce|webusb-commit}"
+		echo "Usage: $0 {start|late-start|stop|restart|webusb-quiesce|webusb-commit|network-reset}"
 		exit 1
 		;;
 esac
