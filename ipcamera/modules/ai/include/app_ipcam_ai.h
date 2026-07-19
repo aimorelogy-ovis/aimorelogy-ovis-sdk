@@ -160,6 +160,7 @@ typedef struct APP_PARAM_AI_OBJECT_TRACK_CFG_T
     CVI_U32 u32SotGrpWidth;
     CVI_U32 u32SotGrpHeight;
     CVI_BOOL bDetInputPreprocessed;
+    CVI_BOOL bSotRefineSelectedDet;
     TDLModel model_id_det;
     TDLModel model_id_sot;
     char model_path_det[MODEL_PATH_LEN];

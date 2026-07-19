@@ -137,7 +137,25 @@ POST /api/v1/config/reset
 GET  /api/v1/tasks/{task_id}
 ```
 
-配置白名单包括主码流帧率和码率、子码流开关/帧率/码率、OSD、人员检测、人脸检测、人体姿态、目标检测与跟踪和移动检测。分辨率使用板端公布的固定 profile。主码流选择 60 fps 时，接口会同步切换 SC235HAI 到 1080p60 sensor 模式；选择 15、25 或 30 fps 时使用 1080p30 sensor 模式，由编码通道按目标帧率输出。接口不会修改 UVC、VB、MIPI 或 VPSS 拓扑参数，只会让人员、人脸、移动和跟踪的独立 VPSS 处理组跟随对应功能开关。
+配置白名单包括主码流帧率和码率、子码流开关/帧率/码率、OSD、人员检测、人脸检测、人体姿态、目标检测与跟踪和移动检测。分辨率使用板端公布的固定 profile。主码流选择 60 fps 时，接口会同步切换 SC235HAI 到 1080p60 sensor 模式；选择 15、25 或 30 fps 时使用 1080p30 sensor 模式，由编码通道按目标帧率输出。人员、人脸和移动检测的独立 VPSS 处理组跟随对应功能开关；目标跟踪复用 grp0 的全高清源通道，遗留 grp5 始终关闭。运行时配置迁移会自动校正这套固定 VPSS/VB 拓扑，普通配置提交不会改动 UVC 或 MIPI 参数。
+
+目标跟踪通过 `/tmp/track` 接收一次性选择命令，命令被消费后文件会自动删除。坐标以预览画布为基准，板端会换算到检测输入尺寸：
+
+```sh
+# 点击选择：x、y、预览宽、预览高
+printf 'point 960 540 1920 1080\n' > /tmp/track.tmp
+mv /tmp/track.tmp /tmp/track
+
+# 框选：x1、y1、x2、y2、预览宽、预览高
+printf 'box 760 340 1160 740 1920 1080\n' > /tmp/track.tmp
+mv /tmp/track.tmp /tmp/track
+
+# 停止跟踪
+printf 'stop\n' > /tmp/track.tmp
+mv /tmp/track.tmp /tmp/track
+```
+
+`default` 和 `point` 始终按 `search_method` 使用颜色分割或 FastSAM，`box` 使用显式框作为搜索提示；只有 `id <track_id>` 会选择对应的完整检测框。兼容旧命令 `echo 1 > /tmp/track`，其含义是对画面中心点执行搜索。生产调用应像示例一样先写临时文件再原子重命名，避免读取到未写完的命令。
 
 关闭子码流时，Manager 会同时关闭 `vpssgrp0.chn1`、子码流编码通道、依赖该 VPSS 通道的 JPEG 抓图通道以及第二路 OSD；重新开启子码流时会原子恢复这些依赖项。前端只需继续提交 `video.sub.enabled`，不需要增加额外字段。
 

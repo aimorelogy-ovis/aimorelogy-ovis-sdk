@@ -128,7 +128,7 @@ static int active_config_value_equals(const char *wanted_section,
 }
 
 static char *make_payload(cJSON *document, int fps, int bitrate, int sensitivity,
-	int sub_enabled, int motion_enabled)
+	int sub_enabled, int motion_enabled, int object_tracking_enabled)
 {
 	cJSON *payload = cJSON_CreateObject();
 	cJSON *revision = cJSON_GetObjectItemCaseSensitive(document, "revision");
@@ -139,6 +139,8 @@ static char *make_payload(cJSON *document, int fps, int bitrate, int sensitivity
 	cJSON *sub_stream = cJSON_GetObjectItemCaseSensitive(video, "sub");
 	cJSON *detection = cJSON_GetObjectItemCaseSensitive(values, "detection");
 	cJSON *motion = cJSON_GetObjectItemCaseSensitive(detection, "motion");
+	cJSON *object_tracking = cJSON_GetObjectItemCaseSensitive(
+		detection, "object_tracking");
 	char *json;
 
 	cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(main_stream, "fps"), fps);
@@ -150,6 +152,8 @@ static char *make_payload(cJSON *document, int fps, int bitrate, int sensitivity
 		sensitivity);
 	cJSON_ReplaceItemInObjectCaseSensitive(motion, "enabled",
 		cJSON_CreateBool(motion_enabled));
+	cJSON_ReplaceItemInObjectCaseSensitive(object_tracking, "enabled",
+		cJSON_CreateBool(object_tracking_enabled));
 	cJSON_AddItemToObject(payload, "revision", cJSON_Duplicate(revision, 1));
 	cJSON_AddItemToObject(payload, "values", values);
 	json = cJSON_PrintUnformatted(payload);
@@ -178,7 +182,8 @@ static char *make_ai_conflict_payload(cJSON *document)
 }
 
 static void stage_and_apply(int fps, int bitrate, int sensitivity, int sub_enabled,
-	int motion_enabled, int fail_first_restart, int expect_success, int expect_rollback)
+	int motion_enabled, int object_tracking_enabled, int fail_first_restart,
+	int expect_success, int expect_rollback)
 {
 	char current_revision[33];
 	char staged_revision[33];
@@ -190,7 +195,7 @@ static void stage_and_apply(int fps, int bitrate, int sensitivity, int sub_enabl
 	cJSON *saved;
 	cJSON *item;
 	char *payload = make_payload(document, fps, bitrate, sensitivity, sub_enabled,
-		motion_enabled);
+		motion_enabled, object_tracking_enabled);
 	int rolled_back = 0;
 	int result;
 
@@ -231,8 +236,17 @@ int main(void)
 		fail("unable to create test directory");
 	if (config_ensure_runtime(error, sizeof(error)) != 0)
 		fail(error);
+	if (!active_config_value_equals("ai_object_track_config", "sot_vpss_grp", "0") ||
+	    !active_config_value_equals("ai_object_track_config",
+		    "sot_refine_selected_det", "0") ||
+	    !active_config_value_equals("vpssgrp0.chn0", "depth", "0") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "dst_framerate", "-1") ||
+	    !active_config_value_equals("vb_config", "vb_pool_cnt", "7") ||
+	    !active_config_value_equals("vb_pool_5", "blk_cnt", "8") ||
+	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
+		fail("ObjectTrack VPSS topology migration failed");
 
-	stage_and_apply(30, 9000, 80, 0, 1, 0, 1, 0);
+	stage_and_apply(30, 9000, 80, 0, 1, 0, 0, 1, 0);
 	if (!active_config_value_equals("vpssgrp2", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp3", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp4", "grp_enable", "1") ||
@@ -259,7 +273,7 @@ int main(void)
 		"motion");
 	if (cJSON_GetObjectItemCaseSensitive(motion, "sensitivity")->valueint != 80)
 		fail("motion sensitivity did not round-trip");
-	payload = make_payload(document, 30, 20000, 80, 0, 1);
+	payload = make_payload(document, 30, 20000, 80, 0, 1, 0);
 	if (config_validate_json(payload, validation, sizeof(validation), error,
 			sizeof(error)) != 1 || strstr(validation, "OUT_OF_RANGE") == NULL)
 		fail("out-of-range bitrate was not rejected");
@@ -271,13 +285,13 @@ int main(void)
 	free(payload);
 	cJSON_Delete(document);
 
-	stage_and_apply(30, 8500, 60, 1, 0, 1, 0, 1);
+	stage_and_apply(30, 8500, 60, 1, 0, 0, 1, 0, 1);
 	document = read_document(revision_after, sizeof(revision_after));
 	if (strcmp(revision_before, revision_after) != 0)
 		fail("rollback did not restore the previous file");
 	cJSON_Delete(document);
 
-	stage_and_apply(60, 8800, 60, 1, 0, 0, 1, 0);
+	stage_and_apply(60, 8800, 60, 1, 0, 0, 0, 1, 0);
 	if (!active_config_value_equals("vpssgrp4", "grp_enable", "0"))
 		fail("disabled motion detection left its VPSS group enabled");
 	if (!active_config_value_equals("vpssgrp0.chn1", "chn_enable", "1") ||
@@ -298,6 +312,11 @@ int main(void)
 	if (!active_config_contains(OVIS_SC235HAI_60FPS_SNS_TYPE))
 		fail("60 fps sensor type was not persisted");
 	cJSON_Delete(document);
+	stage_and_apply(60, 8800, 60, 1, 0, 1, 0, 1, 0);
+	if (!active_config_value_equals("ai_object_track_config",
+			"object_track_enable", "1") ||
+	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
+		fail("ObjectTrack enabled the retired VPSS group");
 
 	fail_service_calls = 0;
 	if (config_apply_defaults(message, sizeof(message), &rolled_back) != 0)

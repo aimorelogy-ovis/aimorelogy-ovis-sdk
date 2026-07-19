@@ -400,14 +400,18 @@ int32_t YoloV8Segmentation::outputParse(
     if (protoinfo.data_type == TDLDataType::INT8) {
       int8_t *p_proto_int8 = proto_tensor->getBatchPtr<int8_t>(b);
       for (int i = 0; i < proto_c; ++i) {
-        std::memcpy(proto_output.row(i).data(), p_proto_int8 + i * proto_hw,
-                    proto_hw * sizeof(float));
+        for (int j = 0; j < proto_hw; ++j) {
+          proto_output(i, j) =
+              static_cast<float>(p_proto_int8[i * proto_hw + j]);
+        }
       }
     } else if (protoinfo.data_type == TDLDataType::UINT8) {
       uint8_t *p_proto_uint8 = proto_tensor->getBatchPtr<uint8_t>(b);
       for (int i = 0; i < proto_c; ++i) {
-        std::memcpy(proto_output.row(i).data(), p_proto_uint8 + i * proto_hw,
-                    proto_hw * sizeof(float));
+        for (int j = 0; j < proto_hw; ++j) {
+          proto_output(i, j) =
+              static_cast<float>(p_proto_uint8[i * proto_hw + j]);
+        }
       }
     } else if (protoinfo.data_type == TDLDataType::FP32) {
       float *p_proto_float = proto_tensor->getBatchPtr<float>(b);
@@ -424,16 +428,25 @@ int32_t YoloV8Segmentation::outputParse(
     obj_seg->mask_height = proto_h;
     obj_seg->mask_width = proto_w;
     for (uint32_t i = 0; i < obj_seg->box_seg.size(); i++) {
-      int x1 = static_cast<int>(round(obj_seg->box_seg[i].x1 / proto_stride));
-      int x2 = static_cast<int>(round(obj_seg->box_seg[i].x2 / proto_stride));
-      int y1 = static_cast<int>(round(obj_seg->box_seg[i].y1 / proto_stride));
-      int y2 = static_cast<int>(round(obj_seg->box_seg[i].y2 / proto_stride));
+      int x1 = std::max(
+          0, std::min(proto_w, static_cast<int>(
+                                   round(obj_seg->box_seg[i].x1 / proto_stride))));
+      int x2 = std::max(
+          0, std::min(proto_w, static_cast<int>(
+                                   round(obj_seg->box_seg[i].x2 / proto_stride))));
+      int y1 = std::max(
+          0, std::min(proto_h, static_cast<int>(
+                                   round(obj_seg->box_seg[i].y1 / proto_stride))));
+      int y2 = std::max(
+          0, std::min(proto_h, static_cast<int>(
+                                   round(obj_seg->box_seg[i].y2 / proto_stride))));
       if (obj_seg->box_seg[i].mask != nullptr) {
         free(obj_seg->box_seg[i].mask);
       }
       obj_seg->box_seg[i].mask = (uint8_t *)malloc(proto_hw * sizeof(uint8_t));
       if (obj_seg->box_seg[i].mask == nullptr) {
         LOGE("Failed to allocate memory for mask_property\n");
+        continue;
       }
       memset(obj_seg->box_seg[i].mask, 0, proto_hw * sizeof(uint8_t));
       for (int j = y1; j < y2; ++j) {

@@ -332,6 +332,48 @@ int app_ipcam_Vpss_Chn_SetEnabled(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
     return CVI_SUCCESS;
 }
 
+int app_ipcam_Vpss_Chn_SetDepth(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
+                                CVI_U32 u32Depth)
+{
+    CVI_S32 s32Ret = CVI_SUCCESS;
+    VPSS_CHN_ATTR_S stChnAttr = {0};
+    APP_VPSS_GRP_CFG_T *pstVpssGrpCfg = NULL;
+
+    if (VpssGrp < 0 || VpssGrp >= CVI_MAX_VPSS_GRP ||
+        VpssChn < 0 || VpssChn >= VPSS_MAX_PHY_CHN_NUM || u32Depth > 8) {
+        return CVI_FAILURE;
+    }
+
+    pstVpssGrpCfg = &g_pstVpssCfg->astVpssGrpCfg[VpssGrp];
+    if (!pstVpssGrpCfg->bCreate ||
+        !pstVpssGrpCfg->abChnCreate[VpssChn]) {
+        return CVI_FAILURE;
+    }
+
+    s32Ret = CVI_VPSS_GetChnAttr(VpssGrp, VpssChn, &stChnAttr);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "CVI_VPSS_GetChnAttr(%d, %d) failed with %#x\n",
+            VpssGrp, VpssChn, s32Ret);
+        return s32Ret;
+    }
+    if (stChnAttr.u32Depth == u32Depth) {
+        return CVI_SUCCESS;
+    }
+
+    stChnAttr.u32Depth = u32Depth;
+    s32Ret = CVI_VPSS_SetChnAttr(VpssGrp, VpssChn, &stChnAttr);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "CVI_VPSS_SetChnAttr(%d, %d) depth(%u) failed with %#x\n",
+            VpssGrp, VpssChn, u32Depth, s32Ret);
+        return s32Ret;
+    }
+
+    pstVpssGrpCfg->astVpssChnAttr[VpssChn].u32Depth = u32Depth;
+    return CVI_SUCCESS;
+}
+
 int app_ipcam_Vpss_DeInit(void)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;

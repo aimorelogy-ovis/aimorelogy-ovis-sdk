@@ -225,7 +225,12 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
       }
       seed.x = (bbox.x2 + bbox.x1) / 2;
       seed.y = (bbox.y2 + bbox.y1) / 2;
-      int ret = fastsam_segmentor_->segment(image, seed, &result);
+      cv::Rect hint_bbox(
+          static_cast<int>(bbox.x1), static_cast<int>(bbox.y1),
+          static_cast<int>(bbox.x2 - bbox.x1),
+          static_cast<int>(bbox.y2 - bbox.y1));
+      int ret = fastsam_segmentor_->segment(
+          image, seed, &result, &hint_bbox);
       if (ret != 0) {
         initBBox(image, bbox);
         return 0;
@@ -235,8 +240,6 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
       area_bbox.y1 = static_cast<float>(result.bbox.y);
       area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
       area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      std::cout << "area_bbox: " << area_bbox.x1 << " " << area_bbox.y1 << " "
-                << area_bbox.x2 << " " << area_bbox.y2 << std::endl;
       initBBox(image, area_bbox);
     } else {
       initBBox(image, bbox);
@@ -323,7 +326,12 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
     }
     seed.x = (bbox.x2 + bbox.x1) / 2;
     seed.y = (bbox.y2 + bbox.y1) / 2;
-    int ret = fastsam_segmentor_->segment(image, seed, &result);
+    cv::Rect hint_bbox(
+        static_cast<int>(bbox.x1), static_cast<int>(bbox.y1),
+        static_cast<int>(bbox.x2 - bbox.x1),
+        static_cast<int>(bbox.y2 - bbox.y1));
+    int ret = fastsam_segmentor_->segment(
+        image, seed, &result, &hint_bbox);
     if (ret != 0) {
       initBBox(image, bbox);
       return 0;
@@ -333,8 +341,6 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
     area_bbox.y1 = static_cast<float>(result.bbox.y);
     area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
     area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-    std::cout << "area_bbox: " << area_bbox.x1 << " " << area_bbox.y1 << " "
-              << area_bbox.x2 << " " << area_bbox.y2 << std::endl;
     initBBox(image, area_bbox);
   } else {
     initBBox(image, bbox);
@@ -349,7 +355,6 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
   frame_id_ = frame_id;
   // 如果检测框为空，直接使用目标框选算法
   if (detect_boxes.empty()) {
-    std::cout << "detect_boxes empty" << std::endl;
     if (frame_type == 1) {
       cv::Point seed;
       cvtdl_grabcut_result_t result;
@@ -402,8 +407,6 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
       area_bbox.y1 = static_cast<float>(result.bbox.y);
       area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
       area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      std::cout << "area_bbox: " << area_bbox.x1 << " " << area_bbox.y1 << " "
-                << area_bbox.x2 << " " << area_bbox.y2 << std::endl;
       initBBox(image, area_bbox);
     } else if (frame_type == 0) {
       LOGE("该位置无检测框");
@@ -480,8 +483,6 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
       area_bbox.y1 = static_cast<float>(result.bbox.y);
       area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
       area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      std::cout << "area_bbox: " << area_bbox.x1 << " " << area_bbox.y1 << " "
-                << area_bbox.x2 << " " << area_bbox.y2 << std::endl;
       initBBox(image, area_bbox);
     } else if (frame_type == 0) {
       LOGE("该位置无检测框");

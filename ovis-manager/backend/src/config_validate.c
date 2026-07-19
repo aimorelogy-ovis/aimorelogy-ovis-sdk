@@ -44,10 +44,23 @@ static const struct config_field required_fields[] = {
 	{ "object_tracking_search_type", "ai_object_track_config", "search_type", VALUE_INTEGER, 2, 3 },
 	{ "object_tracking_use_kalman", "ai_object_track_config", "use_kalman", VALUE_INTEGER, 0, 1 },
 	{ "object_tracking_score_threshold", "ai_object_track_config", "tracking_score_threshold", VALUE_DECIMAL, 0, 1 },
+	{ "object_tracking_det_width", "ai_object_track_config", "grp_width", VALUE_INTEGER, 640, 640 },
+	{ "object_tracking_det_height", "ai_object_track_config", "grp_height", VALUE_INTEGER, 384, 384 },
+	{ "object_tracking_sot_group", "ai_object_track_config", "sot_vpss_grp", VALUE_INTEGER, 0, 0 },
+	{ "object_tracking_sot_channel", "ai_object_track_config", "sot_vpss_chn", VALUE_INTEGER, 0, 0 },
+	{ "object_tracking_sot_width", "ai_object_track_config", "sot_grp_width", VALUE_INTEGER, 1920, 1920 },
+	{ "object_tracking_sot_height", "ai_object_track_config", "sot_grp_height", VALUE_INTEGER, 1080, 1080 },
+	{ "object_tracking_preprocessed", "ai_object_track_config", "det_input_preprocessed", VALUE_INTEGER, 1, 1 },
+	{ "object_tracking_det_refine", "ai_object_track_config", "sot_refine_selected_det", VALUE_INTEGER, 0, 0 },
+	{ "object_tracking_source_depth", "vpssgrp0.chn0", "depth", VALUE_INTEGER, 0, 0 },
+	{ "object_tracking_det_src_fps", "vpssgrp0.chn2", "src_framerate", VALUE_INTEGER, -1, -1 },
+	{ "object_tracking_det_dst_fps", "vpssgrp0.chn2", "dst_framerate", VALUE_INTEGER, -1, -1 },
+	{ "object_tracking_vb_pool_count", "vb_config", "vb_pool_cnt", VALUE_INTEGER, 7, 7 },
+	{ "object_tracking_source_blocks", "vb_pool_5", "blk_cnt", VALUE_INTEGER, 8, 8 },
 	{ "person_vpss_enabled", "vpssgrp2", "grp_enable", VALUE_INTEGER, 0, 1 },
 	{ "face_vpss_enabled", "vpssgrp3", "grp_enable", VALUE_INTEGER, 0, 1 },
 	{ "motion_vpss_enabled", "vpssgrp4", "grp_enable", VALUE_INTEGER, 0, 1 },
-	{ "object_tracking_vpss_enabled", "vpssgrp5", "grp_enable", VALUE_INTEGER, 0, 1 },
+	{ "object_tracking_legacy_vpss_disabled", "vpssgrp5", "grp_enable", VALUE_INTEGER, 0, 0 },
 	{ "sub_vpss_enabled", "vpssgrp0.chn1", "chn_enable", VALUE_INTEGER, 0, 1 },
 	{ "jpeg_enabled", "vencchn2", "bEnable", VALUE_INTEGER, 0, 1 },
 	{ "sub_osd_enabled", "osdc_config1", "bShow", VALUE_INTEGER, 0, 1 },
@@ -114,7 +127,6 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	long person_vpss_enabled = 0;
 	long face_vpss_enabled = 0;
 	long motion_vpss_enabled = 0;
-	long object_tracking_vpss_enabled = 0;
 	long sub_vpss_enabled = 0;
 	long jpeg_enabled = 0;
 	long sub_osd_enabled = 0;
@@ -192,8 +204,6 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					face_vpss_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "motion_vpss_enabled") == 0)
 					motion_vpss_enabled = strtol(value, NULL, 10);
-				else if (strcmp(required_fields[i].id, "object_tracking_vpss_enabled") == 0)
-					object_tracking_vpss_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "sub_vpss_enabled") == 0)
 					sub_vpss_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "jpeg_enabled") == 0)
@@ -235,8 +245,7 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	}
 	if (person_enabled != person_vpss_enabled ||
 	    face_enabled != face_vpss_enabled ||
-	    motion_enabled != motion_vpss_enabled ||
-	    object_tracking_enabled != object_tracking_vpss_enabled) {
+	    motion_enabled != motion_vpss_enabled) {
 		snprintf(error, error_size, "AI 功能与 VPSS 处理组开关不匹配");
 		return -1;
 	}

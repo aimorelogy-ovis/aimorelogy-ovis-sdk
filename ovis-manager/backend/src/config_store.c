@@ -699,8 +699,14 @@ static int append_missing_ai_sections(const char *path)
 			"object_track_enable = 0\n"
 			"vpss_grp          = 0\n"
 			"vpss_chn          = 2\n"
-			"grp_width         = 960\n"
-			"grp_height        = 540\n"
+			"grp_width         = 640\n"
+			"grp_height        = 384\n"
+			"sot_vpss_grp      = 0\n"
+			"sot_vpss_chn      = 0\n"
+			"sot_grp_width     = 1920\n"
+			"sot_grp_height    = 1080\n"
+			"det_input_preprocessed = 1\n"
+			"sot_refine_selected_det = 0\n"
 			"model_id_det      = TDL_MODEL_YOLOV8N_DET_PERSON_VEHICLE\n"
 			"model_id_sot      = TDL_MODEL_TRACKING_FEARTRACK\n"
 			"model_path_det    = \"/usr/share/ipcamera/cv184x/yolov8n_det_person_vehicle_384_640_INT8_cv184x.bmodel\"\n"
@@ -709,7 +715,7 @@ static int append_missing_ai_sections(const char *path)
 			"model_path_cfg    = \"/usr/share/ipcamera/model_factory.json\"\n"
 			"threshold_occluded = 0.1\n"
 			"threshold_reappear = 2.0\n"
-			"search_type       = 2\n"
+			"search_type       = 3\n"
 			"use_kalman        = 1\n"
 			"tracking_score_threshold = 0.5\n"
 			"debug_log_enable  = 0\n", file);
@@ -735,6 +741,19 @@ static int migrate_runtime_config(const char *path)
 		{ "ai_object_track_config", "model_path_sot", "\"/usr/share/ipcamera/cv184x/tracking_feartrack_128_128_256_256_INT8_cv184x.bmodel\"", 0 },
 		{ "ai_object_track_config", "model_path_sam", "\"/usr/share/ipcamera/cv184x/fastsam_seg_320_320_INT8_cv184x.bmodel\"", 0 },
 		{ "ai_object_track_config", "model_path_cfg", "\"/usr/share/ipcamera/model_factory.json\"", 0 },
+		{ "ai_object_track_config", "grp_width", "640", 0 },
+		{ "ai_object_track_config", "grp_height", "384", 0 },
+		{ "ai_object_track_config", "sot_vpss_grp", "0", 0 },
+		{ "ai_object_track_config", "sot_vpss_chn", "0", 0 },
+		{ "ai_object_track_config", "sot_grp_width", "1920", 0 },
+		{ "ai_object_track_config", "sot_grp_height", "1080", 0 },
+		{ "ai_object_track_config", "det_input_preprocessed", "1", 0 },
+		{ "ai_object_track_config", "sot_refine_selected_det", "0", 0 },
+		{ "vpssgrp0.chn0", "depth", "0", 0 },
+		{ "vpssgrp0.chn2", "src_framerate", "-1", 0 },
+		{ "vpssgrp0.chn2", "dst_framerate", "-1", 0 },
+		{ "vb_config", "vb_pool_cnt", "7", 0 },
+		{ "vb_pool_5", "blk_cnt", "8", 0 },
 		{ "vpssgrp2", "grp_enable", "", 0 },
 		{ "vpssgrp3", "grp_enable", "", 0 },
 		{ "vpssgrp4", "grp_enable", "", 0 },
@@ -754,11 +773,14 @@ static int migrate_runtime_config(const char *path)
 	int keep = -1;
 	int index;
 	int needs_update;
-	static const int path_update_indexes[] = {1, 3, 5, 7, 8, 9, 10};
+	static const int fixed_update_indexes[] = {
+		1, 3, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+		18, 19, 20, 21, 22, 23
+	};
 	enum {
-		AI_GROUP_UPDATE_BASE = 11,
+		AI_GROUP_UPDATE_BASE = 24,
 		AI_GROUP_UPDATE_COUNT = 4,
-		SUB_UPDATE_BASE = 15,
+		SUB_UPDATE_BASE = 28,
 		SUB_UPDATE_COUNT = 3,
 	};
 
@@ -778,8 +800,11 @@ static int migrate_runtime_config(const char *path)
 		return -1;
 	if (enabled[0] + enabled[1] + enabled[2] + enabled[3] > 1)
 		needs_update = 1;
-	for (index = 0; index < (int)(sizeof(path_update_indexes) / sizeof(path_update_indexes[0])); index++) {
-		const struct ini_update *update = &updates[path_update_indexes[index]];
+	for (index = 0;
+	     index < (int)(sizeof(fixed_update_indexes) /
+		     sizeof(fixed_update_indexes[0]));
+	     index++) {
+		const struct ini_update *update = &updates[fixed_update_indexes[index]];
 		if (read_ini_value(path, update->section, update->key,
 				value, sizeof(value)) != 0 || strcmp(value, update->value) != 0) {
 			needs_update = 1;
@@ -794,7 +819,7 @@ static int migrate_runtime_config(const char *path)
 	group_enabled[0] = enabled[0];
 	group_enabled[1] = enabled[1];
 	group_enabled[2] = motion_enabled;
-	group_enabled[3] = enabled[3];
+	group_enabled[3] = 0;
 	for (index = 0; index < AI_GROUP_UPDATE_COUNT; index++) {
 		int current;
 
@@ -907,8 +932,7 @@ static int stage_values(const struct config_values *values, char revision[17],
 	snprintf(updates[22].value, sizeof(updates[22].value), "%d", values->person_enabled);
 	snprintf(updates[23].value, sizeof(updates[23].value), "%d", values->face_enabled);
 	snprintf(updates[24].value, sizeof(updates[24].value), "%d", values->motion_enabled);
-	snprintf(updates[25].value, sizeof(updates[25].value), "%d",
-		values->object_tracking_enabled);
+	snprintf(updates[25].value, sizeof(updates[25].value), "%d", 0);
 	snprintf(updates[26].value, sizeof(updates[26].value), "%d", values->sub_enabled);
 	snprintf(updates[27].value, sizeof(updates[27].value), "%d", values->sub_enabled);
 	snprintf(updates[28].value, sizeof(updates[28].value), "%d",
