@@ -61,6 +61,8 @@
 #define OVIS_WEBUSB_EP0 "/dev/usb-ffs/ovis/ep0"
 #define OVIS_WEBUSB_READY_FILE "/var/run/ovis-webusb-ready"
 #define OVIS_AUDIT_LOG "/mnt/cfg/ovis-manager/audit.log"
+#define OVIS_SC235HAI_30FPS_SNS_TYPE "0X20B83320"
+#define OVIS_SC235HAI_60FPS_SNS_TYPE "0X20B83420"
 
 enum service_action {
 	SERVICE_START,

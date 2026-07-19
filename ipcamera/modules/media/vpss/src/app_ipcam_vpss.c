@@ -259,12 +259,13 @@ int app_ipcam_Vpss_Unbind(VPSS_GRP VpssGrp)
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "VpssGrp=%d bindMode:%d\n", VpssGrp, pstVpssGrpCfg->bBindMode);
 
-    if (pstVpssGrpCfg->bBindMode) {
+    if (pstVpssGrpCfg->bBindMode && pstVpssGrpCfg->bBound) {
         s32Ret = CVI_SYS_UnBind(&pstVpssGrpCfg->astChn[0], &pstVpssGrpCfg->astChn[1]);
         if (s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_SYS_UnBind failed with %#x\n", s32Ret);
             return s32Ret;
         }
+        pstVpssGrpCfg->bBound = CVI_FALSE;
     }
 
     return CVI_SUCCESS;
@@ -282,14 +283,52 @@ int app_ipcam_Vpss_Bind(VPSS_GRP VpssGrp)
 
     APP_PROF_LOG_PRINT(LEVEL_DEBUG, "GrpID=%d isEnable=%d\n", pstVpssGrpCfg->VpssGrp, pstVpssGrpCfg->bEnable);
 
-    if (pstVpssGrpCfg->bBindMode) {
+    if (pstVpssGrpCfg->bBindMode && !pstVpssGrpCfg->bBound) {
         s32Ret = CVI_SYS_Bind(&pstVpssGrpCfg->astChn[0], &pstVpssGrpCfg->astChn[1]);
         if (s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_SYS_Bind failed with %#x\n", s32Ret);
             return s32Ret;
         }
+        pstVpssGrpCfg->bBound = CVI_TRUE;
     }
 
+    return CVI_SUCCESS;
+}
+
+int app_ipcam_Vpss_Chn_SetEnabled(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
+                                  CVI_BOOL bEnable)
+{
+    CVI_S32 s32Ret = CVI_SUCCESS;
+    APP_VPSS_GRP_CFG_T *pstVpssGrpCfg = NULL;
+
+    if (VpssGrp < 0 || VpssGrp >= CVI_MAX_VPSS_GRP ||
+        VpssChn < 0 || VpssChn >= VPSS_MAX_PHY_CHN_NUM) {
+        return CVI_FAILURE;
+    }
+
+    pstVpssGrpCfg = &g_pstVpssCfg->astVpssGrpCfg[VpssGrp];
+    if (!pstVpssGrpCfg->bCreate ||
+        !pstVpssGrpCfg->abChnEnable[VpssChn]) {
+        return CVI_FAILURE;
+    }
+
+    if (bEnable == pstVpssGrpCfg->abChnCreate[VpssChn]) {
+        return CVI_SUCCESS;
+    }
+
+    if (bEnable) {
+        s32Ret = CVI_VPSS_EnableChn(VpssGrp, VpssChn);
+    } else {
+        s32Ret = CVI_VPSS_DisableChn(VpssGrp, VpssChn);
+    }
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "CVI_VPSS_%sChn(%d, %d) failed with %#x\n",
+            bEnable ? "Enable" : "Disable", VpssGrp, VpssChn, s32Ret);
+        return s32Ret;
+    }
+
+    pstVpssGrpCfg->abChnCreate[VpssChn] = bEnable;
     return CVI_SUCCESS;
 }
 

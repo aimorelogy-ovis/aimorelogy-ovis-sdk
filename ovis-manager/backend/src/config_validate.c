@@ -21,7 +21,8 @@ static const struct config_field required_fields[] = {
 	{ "main_enabled", "vencchn0", "bEnable", VALUE_INTEGER, 1, 1 },
 	{ "main_width", "vencchn0", "width", VALUE_INTEGER, 1920, 1920 },
 	{ "main_height", "vencchn0", "height", VALUE_INTEGER, 1080, 1080 },
-	{ "main_fps", "vencchn0", "dst_framerate", VALUE_INTEGER, 15, 30 },
+	{ "main_fps", "vencchn0", "dst_framerate", VALUE_INTEGER, 15, 60 },
+	{ "main_src_fps", "vencchn0", "src_framerate", VALUE_INTEGER, 30, 60 },
 	{ "main_bitrate", "vencchn0", "bit_rate", VALUE_INTEGER, 512, 15000 },
 	{ "main_max_bitrate", "vencchn0", "max_bitrate", VALUE_INTEGER, 512, 15000 },
 	{ "sub_enabled", "vencchn1", "bEnable", VALUE_INTEGER, 0, 1 },
@@ -43,6 +44,13 @@ static const struct config_field required_fields[] = {
 	{ "object_tracking_search_type", "ai_object_track_config", "search_type", VALUE_INTEGER, 2, 3 },
 	{ "object_tracking_use_kalman", "ai_object_track_config", "use_kalman", VALUE_INTEGER, 0, 1 },
 	{ "object_tracking_score_threshold", "ai_object_track_config", "tracking_score_threshold", VALUE_DECIMAL, 0, 1 },
+	{ "person_vpss_enabled", "vpssgrp2", "grp_enable", VALUE_INTEGER, 0, 1 },
+	{ "face_vpss_enabled", "vpssgrp3", "grp_enable", VALUE_INTEGER, 0, 1 },
+	{ "motion_vpss_enabled", "vpssgrp4", "grp_enable", VALUE_INTEGER, 0, 1 },
+	{ "object_tracking_vpss_enabled", "vpssgrp5", "grp_enable", VALUE_INTEGER, 0, 1 },
+	{ "sub_vpss_enabled", "vpssgrp0.chn1", "chn_enable", VALUE_INTEGER, 0, 1 },
+	{ "jpeg_enabled", "vencchn2", "bEnable", VALUE_INTEGER, 0, 1 },
+	{ "sub_osd_enabled", "osdc_config1", "bShow", VALUE_INTEGER, 0, 1 },
 };
 
 static char *trim(char *text)
@@ -79,9 +87,13 @@ static int fps_is_supported(const char *id, const char *text)
 {
 	long fps = strtol(text, NULL, 10);
 
-	if (strcmp(id, "main_fps") != 0 && strcmp(id, "sub_fps") != 0)
-		return 1;
-	return fps == 15 || fps == 25 || fps == 30;
+	if (strcmp(id, "main_fps") == 0)
+		return fps == 15 || fps == 25 || fps == 30 || fps == 60;
+	if (strcmp(id, "main_src_fps") == 0)
+		return fps == 30 || fps == 60;
+	if (strcmp(id, "sub_fps") == 0)
+		return fps == 15 || fps == 25 || fps == 30;
+	return 1;
 }
 
 int config_validate_file(const char *path, char *error, size_t error_size)
@@ -89,6 +101,23 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	int found[sizeof(required_fields) / sizeof(required_fields[0])] = {0};
 	char line[1024];
 	char section[64] = "";
+	long main_fps = 0;
+	long main_src_fps = 0;
+	long sub_enabled = 0;
+	long osd_enabled = 0;
+	unsigned long sensor_type = 0;
+	int sensor_type_found = 0;
+	long person_enabled = 0;
+	long face_enabled = 0;
+	long motion_enabled = 0;
+	long object_tracking_enabled = 0;
+	long person_vpss_enabled = 0;
+	long face_vpss_enabled = 0;
+	long motion_vpss_enabled = 0;
+	long object_tracking_vpss_enabled = 0;
+	long sub_vpss_enabled = 0;
+	long jpeg_enabled = 0;
+	long sub_osd_enabled = 0;
 	FILE *file;
 	size_t i;
 	int active_tpu_features = 0;
@@ -117,6 +146,20 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 		*equals = '\0';
 		value = trim(equals + 1);
 		key = trim(key);
+		if (strcmp(section, "sensor_config0") == 0 && strcmp(key, "sns_type") == 0) {
+			char *end;
+
+			errno = 0;
+			sensor_type = strtoul(value, &end, 0);
+			while (isspace((unsigned char)*end))
+				end++;
+			if (errno != 0 || end == value || (*end != '\0' && *end != ';')) {
+				snprintf(error, error_size, "sensor_type 格式无效");
+				fclose(file);
+				return -1;
+			}
+			sensor_type_found = 1;
+		}
 		for (i = 0; i < sizeof(required_fields) / sizeof(required_fields[0]); i++) {
 			if (strcmp(section, required_fields[i].section) == 0 &&
 			    strcmp(key, required_fields[i].key) == 0) {
@@ -127,6 +170,36 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					return -1;
 				}
 				found[i] = 1;
+				if (strcmp(required_fields[i].id, "main_fps") == 0)
+					main_fps = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "main_src_fps") == 0)
+					main_src_fps = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "sub_enabled") == 0)
+					sub_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "osd_enabled") == 0)
+					osd_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "person_enabled") == 0)
+					person_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "face_enabled") == 0)
+					face_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "motion_enabled") == 0)
+					motion_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "object_tracking_enabled") == 0)
+					object_tracking_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "person_vpss_enabled") == 0)
+					person_vpss_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "face_vpss_enabled") == 0)
+					face_vpss_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "motion_vpss_enabled") == 0)
+					motion_vpss_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "object_tracking_vpss_enabled") == 0)
+					object_tracking_vpss_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "sub_vpss_enabled") == 0)
+					sub_vpss_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "jpeg_enabled") == 0)
+					jpeg_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "sub_osd_enabled") == 0)
+					sub_osd_enabled = strtol(value, NULL, 10);
 				if ((strcmp(required_fields[i].id, "person_enabled") == 0 ||
 				     strcmp(required_fields[i].id, "face_enabled") == 0 ||
 				     strcmp(required_fields[i].id, "human_pose_enabled") == 0 ||
@@ -143,8 +216,33 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 			return -1;
 		}
 	}
+	if (!sensor_type_found) {
+		snprintf(error, error_size, "缺少配置项 sensor_type");
+		return -1;
+	}
+	if (main_src_fps != (main_fps == 60 ? 60 : 30)) {
+		snprintf(error, error_size, "主码流源帧率与输出帧率不匹配");
+		return -1;
+	}
+	if (sensor_type != strtoul(main_fps == 60 ? OVIS_SC235HAI_60FPS_SNS_TYPE :
+			OVIS_SC235HAI_30FPS_SNS_TYPE, NULL, 0)) {
+		snprintf(error, error_size, "SC235HAI 模式与主码流帧率不匹配");
+		return -1;
+	}
 	if (active_tpu_features > 1) {
 		snprintf(error, error_size, "TPU AI 功能最多只能启用一项");
+		return -1;
+	}
+	if (person_enabled != person_vpss_enabled ||
+	    face_enabled != face_vpss_enabled ||
+	    motion_enabled != motion_vpss_enabled ||
+	    object_tracking_enabled != object_tracking_vpss_enabled) {
+		snprintf(error, error_size, "AI 功能与 VPSS 处理组开关不匹配");
+		return -1;
+	}
+	if (sub_vpss_enabled != sub_enabled || jpeg_enabled != sub_enabled ||
+	    sub_osd_enabled != (sub_enabled && osd_enabled)) {
+		snprintf(error, error_size, "子码流与依赖处理通道开关不匹配");
 		return -1;
 	}
 	return 0;

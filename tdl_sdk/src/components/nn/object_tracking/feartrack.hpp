@@ -15,7 +15,12 @@ class FearTrack final : public BaseModel {
   virtual int32_t outputParse(
       const std::vector<std::vector<std::shared_ptr<BaseImage>>>& images,
       std::vector<std::shared_ptr<ModelOutputInfo>>& out_datas) override;
+  virtual int32_t inference(
+      const std::vector<std::vector<std::shared_ptr<BaseImage>>>& images,
+      std::vector<std::shared_ptr<ModelOutputInfo>>& out_datas,
+      const std::map<std::string, float>& parameters = {}) override;
   virtual int32_t onModelOpened() override;
+  virtual void invalidateInputCache() override;
 
  private:
   // 生成网格坐标
@@ -32,4 +37,5 @@ class FearTrack final : public BaseModel {
   // 网格坐标
   std::vector<std::vector<int>> grid_x_;
   std::vector<std::vector<int>> grid_y_;
+  bool template_input_cached_ = false;
 };

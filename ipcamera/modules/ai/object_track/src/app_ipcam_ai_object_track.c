@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <stdint.h>
+#include <time.h>
+#include <unistd.h>
 #include "stdbool.h"
 #include <stdlib.h>
 #include <pthread.h>
@@ -13,6 +16,9 @@
 #define FEATURE_SIZE 256
 #define MAX_DET_NUM 100
 #define TRACK_REQUEST_PATH "/tmp/track"
+#define TRACK_FPS_STATUS_PATH "/tmp/object_track_fps"
+#define TRACK_FPS_STATUS_TMP_PATH "/tmp/object_track_fps.tmp"
+#define TRACK_PERF_WINDOW_US (1000ULL * 1000ULL)
 #define SELECTION_BOX_SIZE 200
 
 /**************************************************************************
@@ -42,7 +48,22 @@ static CVI_U32 g_u32DetInputHeight = 0;
 SMT_MUTEXAUTOLOCK_INIT(g_Mutex);
 static pthread_mutex_t g_StatusMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_ModeMutex = PTHREAD_MUTEX_INITIALIZER;
+static CVI_BOOL g_bPipelineInitialized = CVI_FALSE;
+static APP_PARAM_OBJECT_TRACK_MODE g_PipelineMode = DETECTION;
 const int LOST_TIMEOUT_SECONDS = 5;  // Timeout for object lost
+
+typedef struct APP_OBJECT_TRACK_PERF_T {
+    APP_PARAM_OBJECT_TRACK_MODE mode;
+    uint64_t window_start_us;
+    uint64_t input_frames;
+    uint64_t det_frames;
+    uint64_t sot_frames;
+    uint64_t sot_init_frames;
+    uint64_t frame_wait_total_us;
+    uint64_t det_total_us;
+    uint64_t sot_total_us;
+    uint64_t sot_init_total_us;
+} APP_OBJECT_TRACK_PERF_S;
 
 /**************************************************************************
  *                 E X T E R N A L    R E F E R E N C E S                 *
@@ -57,6 +78,124 @@ static uint32_t get_time_in_ms() {
     return 0;
   }
   return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+static uint64_t app_ipcam_Ai_Object_Track_TimeUs(void)
+{
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+    return (uint64_t)ts.tv_sec * 1000ULL * 1000ULL +
+           (uint64_t)ts.tv_nsec / 1000ULL;
+}
+
+static CVI_VOID app_ipcam_Ai_Object_Track_Perf_Reset(
+    APP_OBJECT_TRACK_PERF_S *pstPerf, APP_PARAM_OBJECT_TRACK_MODE mode,
+    uint64_t now_us)
+{
+    memset(pstPerf, 0, sizeof(*pstPerf));
+    pstPerf->mode = mode;
+    pstPerf->window_start_us = now_us;
+}
+
+static CVI_VOID app_ipcam_Ai_Object_Track_Perf_Write(
+    APP_OBJECT_TRACK_PERF_S *pstPerf, uint64_t now_us)
+{
+    uint64_t elapsed_us = now_us - pstPerf->window_start_us;
+    FILE *pFile = NULL;
+    double elapsed_seconds = 0.0;
+
+    if (elapsed_us < TRACK_PERF_WINDOW_US) {
+        return;
+    }
+
+    elapsed_seconds = (double)elapsed_us / 1000000.0;
+    pFile = fopen(TRACK_FPS_STATUS_TMP_PATH, "w");
+    if (pFile != NULL) {
+        fprintf(pFile,
+            "mode=%s\n"
+            "input_fps=%.2f\n"
+            "det_fps=%.2f\n"
+            "sot_fps=%.2f\n"
+            "frame_wait_avg_ms=%.3f\n"
+            "det_avg_ms=%.3f\n"
+            "sot_avg_ms=%.3f\n"
+            "sot_init_avg_ms=%.3f\n"
+            "template_input_cache=1\n"
+            "direct_search_tensor=1\n",
+            pstPerf->mode == TRACKING ? "tracking" : "detection",
+            pstPerf->input_frames / elapsed_seconds,
+            pstPerf->det_frames / elapsed_seconds,
+            pstPerf->sot_frames / elapsed_seconds,
+            pstPerf->input_frames > 0 ?
+                (double)pstPerf->frame_wait_total_us /
+                    pstPerf->input_frames / 1000.0 : 0.0,
+            pstPerf->det_frames > 0 ?
+                (double)pstPerf->det_total_us /
+                    pstPerf->det_frames / 1000.0 : 0.0,
+            pstPerf->sot_frames > 0 ?
+                (double)pstPerf->sot_total_us /
+                    pstPerf->sot_frames / 1000.0 : 0.0,
+            pstPerf->sot_init_frames > 0 ?
+                (double)pstPerf->sot_init_total_us /
+                    pstPerf->sot_init_frames / 1000.0 : 0.0);
+        if (fclose(pFile) == 0) {
+            rename(TRACK_FPS_STATUS_TMP_PATH, TRACK_FPS_STATUS_PATH);
+        }
+    }
+
+    app_ipcam_Ai_Object_Track_Perf_Reset(pstPerf, pstPerf->mode, now_us);
+}
+
+static CVI_S32 app_ipcam_Ai_Object_Track_Pipeline_Set(
+    APP_PARAM_OBJECT_TRACK_MODE mode)
+{
+    CVI_S32 s32Ret = CVI_SUCCESS;
+
+    if (g_bPipelineInitialized && g_PipelineMode == mode) {
+        return CVI_SUCCESS;
+    }
+
+    if (mode == TRACKING) {
+        s32Ret = app_ipcam_Vpss_Chn_SetEnabled(
+            g_pstObjTrackCfg->SotVpssGrp, g_pstObjTrackCfg->SotVpssChn,
+            CVI_TRUE);
+        if (s32Ret == CVI_SUCCESS) {
+            s32Ret = app_ipcam_Vpss_Bind(g_pstObjTrackCfg->SotVpssGrp);
+        }
+        if (s32Ret == CVI_SUCCESS) {
+            s32Ret = app_ipcam_Vpss_Chn_SetEnabled(
+                g_pstObjTrackCfg->VpssGrp, g_pstObjTrackCfg->VpssChn,
+                CVI_FALSE);
+        }
+    } else {
+        s32Ret = app_ipcam_Vpss_Unbind(g_pstObjTrackCfg->SotVpssGrp);
+        if (s32Ret == CVI_SUCCESS) {
+            s32Ret = app_ipcam_Vpss_Chn_SetEnabled(
+                g_pstObjTrackCfg->SotVpssGrp,
+                g_pstObjTrackCfg->SotVpssChn, CVI_FALSE);
+        }
+        if (s32Ret == CVI_SUCCESS) {
+            s32Ret = app_ipcam_Vpss_Chn_SetEnabled(
+                g_pstObjTrackCfg->VpssGrp, g_pstObjTrackCfg->VpssChn,
+                CVI_TRUE);
+        }
+    }
+
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "switch ObjectTrack VPSS pipeline to %s failed with %#x\n",
+            mode == TRACKING ? "tracking" : "detection", s32Ret);
+        return s32Ret;
+    }
+
+    g_PipelineMode = mode;
+    g_bPipelineInitialized = CVI_TRUE;
+    APP_PROF_LOG_PRINT(LEVEL_INFO, "ObjectTrack VPSS pipeline: %s\n",
+        mode == TRACKING ? "tracking" : "detection");
+    return CVI_SUCCESS;
 }
 
 CVI_VOID app_ipcam_Ai_Object_Track_DefaultBox_Get(int32_t box[4])
@@ -194,6 +333,14 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
     bool track_init = CVI_FALSE;
     bool preprocessed_input_error_reported = false;
     bool sot_input_error_reported = false;
+    APP_OBJECT_TRACK_PERF_S stPerf = {0};
+
+    (void)pArgs;
+    g_bPipelineInitialized = CVI_FALSE;
+    unlink(TRACK_FPS_STATUS_PATH);
+    unlink(TRACK_FPS_STATUS_TMP_PATH);
+    app_ipcam_Ai_Object_Track_Perf_Reset(
+        &stPerf, DETECTION, app_ipcam_Ai_Object_Track_TimeUs());
 
     for (CVI_U32 wait_ms = 0;
          !app_ipcam_Venc_All_Stream_Ready() && wait_ms < 8000;
@@ -224,6 +371,8 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
         bool frame_acquired = false;
         bool has_track_request = (access(TRACK_REQUEST_PATH, F_OK) == 0);
         bool det_input_preprocessed = false;
+        uint64_t frame_wait_start_us = 0;
+        uint64_t inference_start_us = 0;
 
         if (app_ipcam_Ai_Object_Track_Pause_Get()) {
             usleep(1000*1000);
@@ -243,11 +392,20 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
         }
 
         mode = app_ipcam_Ai_Object_Track_Mode_Get();
+        if (app_ipcam_Ai_Object_Track_Pipeline_Set(mode) != CVI_SUCCESS) {
+            usleep(10 * 1000);
+            continue;
+        }
+        if (stPerf.mode != mode) {
+            app_ipcam_Ai_Object_Track_Perf_Reset(
+                &stPerf, mode, app_ipcam_Ai_Object_Track_TimeUs());
+        }
         if (mode == TRACKING) {
             FrameVpssGrp = SotVpssGrp;
             FrameVpssChn = SotVpssChn;
         }
 
+        frame_wait_start_us = app_ipcam_Ai_Object_Track_TimeUs();
         s32Ret = CVI_VPSS_GetChnFrame(FrameVpssGrp, FrameVpssChn, &stFrame, 3000);
         if (s32Ret != 0){
             APP_PROF_LOG_PRINT(LEVEL_ERROR,
@@ -256,6 +414,9 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
             continue;
         }
         frame_acquired = true;
+        stPerf.input_frames++;
+        stPerf.frame_wait_total_us +=
+            app_ipcam_Ai_Object_Track_TimeUs() - frame_wait_start_us;
 
         g_frame_id++;
 
@@ -306,11 +467,15 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
          * det_obj_meta 仅在本线程内读写，为后续目标选择保留最近一次检测结果。
          */
         if (mode == DETECTION) {
+            inference_start_us = app_ipcam_Ai_Object_Track_TimeUs();
             s32Ret = TDL_Detection(g_ObjectTrackTDLHandle, g_pstObjTrackCfg->model_id_det, image, &cur_det_meta);
             if (s32Ret != 0) {
                 APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_Detection failed with %#x!\n", s32Ret);
                 goto loop_cleanup;
             }
+            stPerf.det_frames++;
+            stPerf.det_total_us +=
+                app_ipcam_Ai_Object_Track_TimeUs() - inference_start_us;
             // What changed: Gate test-only [OBS] detection count by debug_log_enable.
             // Previous behavior: Only LEVEL_DEBUG "Detect N objects" existed and was compiled out.
             // Impact: Production logs stay quiet unless tracking debug is enabled.
@@ -379,8 +544,12 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                 model_path = g_pstObjTrackCfg->model_path_sam;
             }
 
+            inference_start_us = app_ipcam_Ai_Object_Track_TimeUs();
             s32Ret = TDL_SetSingleObjectTracking(g_ObjectTrackTDLHandle, image, &empty_det_meta, box, 4, g_frame_id,
                                                  search_type, model_path);
+            stPerf.sot_init_frames++;
+            stPerf.sot_init_total_us +=
+                app_ipcam_Ai_Object_Track_TimeUs() - inference_start_us;
             if (s32Ret != 0) {
                 APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_SetSingleObjectTracking failed with %#x!\n", s32Ret);
                 remove(TRACK_REQUEST_PATH);
@@ -395,6 +564,7 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
              * 持续追踪阶段：每帧调用 SingleObjectTracking 并更新单目标框。
              * 当连续 LOST 超时后，按原逻辑回退检测态并等待下一次外部触发。
              */
+            inference_start_us = app_ipcam_Ai_Object_Track_TimeUs();
             s32Ret = TDL_SingleObjectTracking(g_ObjectTrackTDLHandle, image, &track_meta, g_frame_id);
             if (s32Ret != 0) {
                APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_SingleObjectTracking failed with %#x!\n", s32Ret);
@@ -403,6 +573,9 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                remove(TRACK_REQUEST_PATH);
                goto loop_cleanup;
             }
+            stPerf.sot_frames++;
+            stPerf.sot_total_us +=
+                app_ipcam_Ai_Object_Track_TimeUs() - inference_start_us;
 
             // What changed: Gate test-only [OBS] SOT score/threshold/pass/box print.
             // Previous behavior: Only LEVEL_DEBUG "track score lower than threshold" existed and was compiled out.
@@ -492,9 +665,12 @@ loop_cleanup:
                                    FrameVpssGrp, FrameVpssChn, s32Ret);
             }
         }
+        app_ipcam_Ai_Object_Track_Perf_Write(
+            &stPerf, app_ipcam_Ai_Object_Track_TimeUs());
     }
 
     TDL_ReleaseObjectMeta(&det_obj_meta);
+    unlink(TRACK_FPS_STATUS_TMP_PATH);
     pthread_exit(NULL);
 
     return NULL;

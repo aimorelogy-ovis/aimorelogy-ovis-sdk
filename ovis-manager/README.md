@@ -137,11 +137,13 @@ POST /api/v1/config/reset
 GET  /api/v1/tasks/{task_id}
 ```
 
-配置白名单包括主码流帧率和码率、子码流开关/帧率/码率、OSD、人员检测、人脸检测、人体姿态、目标检测与跟踪和移动检测。分辨率使用板端公布的固定 profile，接口不会修改 UVC、VPSS、VB、Sensor 或 MIPI 参数。
+配置白名单包括主码流帧率和码率、子码流开关/帧率/码率、OSD、人员检测、人脸检测、人体姿态、目标检测与跟踪和移动检测。分辨率使用板端公布的固定 profile。主码流选择 60 fps 时，接口会同步切换 SC235HAI 到 1080p60 sensor 模式；选择 15、25 或 30 fps 时使用 1080p30 sensor 模式，由编码通道按目标帧率输出。接口不会修改 UVC、VB、MIPI 或 VPSS 拓扑参数，只会让人员、人脸、移动和跟踪的独立 VPSS 处理组跟随对应功能开关。
+
+关闭子码流时，Manager 会同时关闭 `vpssgrp0.chn1`、子码流编码通道、依赖该 VPSS 通道的 JPEG 抓图通道以及第二路 OSD；重新开启子码流时会原子恢复这些依赖项。前端只需继续提交 `video.sub.enabled`，不需要增加额外字段。
 
 能力接口使用 schema version 2，并公布板端实际安装的 AI 工作负载。人员检测、人脸检测、人体姿态和目标跟踪最多启用一项；移动检测不占用 TPU，可独立同时开启。目标跟踪支持 `color` 和 `fastsam` 两种搜索方式。
 
-固件升级时，Manager 会补齐旧运行配置缺少的 AI 参数段，将旧 `/mnt/sd` 模型路径迁移到 `/usr/share/ipcamera/cv184x`，并消除旧配置中同时开启多个 TPU 功能的冲突，不覆盖已有视频参数。
+固件升级时，Manager 会补齐旧运行配置缺少的 AI 参数段，将旧 `/mnt/sd` 模型路径迁移到 `/usr/share/ipcamera/cv184x`，消除旧配置中同时开启多个 TPU 功能的冲突，并同步各 AI 功能对应的 VPSS 处理组开关，不覆盖已有视频参数。
 
 `PUT /api/v1/config` 只生成待应用配置，不会直接影响当前视频服务。`POST /api/v1/config/apply` 先返回处于 `queued` 状态的任务，并保留 1 秒响应窗口，然后校验对应 revision、备份当前配置、原子切换并异步重启 `ipcamera`；新配置启动失败时自动恢复备份并再次启动旧配置。网页通过任务接口读取进度及 `rolled_back` 结果，USB 网络短暂断开后可按设备 ID 重连并继续确认任务。
 

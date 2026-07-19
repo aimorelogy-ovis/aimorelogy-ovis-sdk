@@ -28,6 +28,7 @@ typedef struct APP_VPSS_GRP_CFG_S {
     CVI_U32 aAttachEn[VPSS_MAX_PHY_CHN_NUM];
     CVI_U32	aAttachPool[VPSS_MAX_PHY_CHN_NUM];
     CVI_BOOL bBindMode;
+    CVI_BOOL bBound;    /* update by coding */
     MMF_CHN_S astChn[2];
     VPSS_CHN_BUF_WRAP_S stVpssChnBufWrap[VPSS_MAX_PHY_CHN_NUM];
 } APP_VPSS_GRP_CFG_T;
@@ -57,6 +58,8 @@ int app_ipcam_Vpss_Create(VPSS_GRP VpssGrp);
 int app_ipcam_Vpss_Destroy(VPSS_GRP VpssGrp);
 int app_ipcam_Vpss_Bind(VPSS_GRP VpssGrp);
 int app_ipcam_Vpss_Unbind(VPSS_GRP VpssGrp);
+int app_ipcam_Vpss_Chn_SetEnabled(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
+                                  CVI_BOOL bEnable);
 int app_ipcam_CmdTask_Rotate_Switch(CVI_MQ_MSG_t *msg, CVI_VOID *userdate);
 
 #ifdef __cplusplus

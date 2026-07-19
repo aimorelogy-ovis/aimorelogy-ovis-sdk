@@ -29,6 +29,11 @@
 static APP_PARAM_RTSP_T stRtspCtx;
 static APP_PARAM_RTSP_T *pstRtspCtx = &stRtspCtx;
 static pthread_mutex_t RtspMutex = PTHREAD_MUTEX_INITIALIZER;
+
+CVI_VOID __wrap_RBUF_ShowLog(CVI_VOID *rbuf)
+{
+    (void)rbuf;
+}
 /**************************************************************************
  *                 E X T E R N A L    R E F E R E N C E S                 *
  **************************************************************************/
@@ -234,7 +239,7 @@ static void rtsp_service_start_media_by_name(char *name)
                     video.name = v_name;
                     video.entry = rtsp_service_media_task;
                     video.param = (void *)c;
-                    video.priority = OSAL_TASK_PRI_NORMAL;
+                    video.priority = OSAL_TASK_PRI_RT_LOW;
                     video.detached = false;
                     video.stack_size = 128 * 1024;
                     OSAL_TASK_Create(&video, &c->media_task);

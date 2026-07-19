@@ -976,28 +976,15 @@ static CVI_S32 cmos_set_image_mode(VI_PIPE ViPipe, ISP_CMOS_SENSOR_IMAGE_MODE_S 
 			       pstSnsState->enWDRMode);
 			return CVI_FAILURE;
 		}
-	} else {
-		if (pstSnsState->enWDRMode == WDR_MODE_NONE) {
-			if (pstSensorImageMode->u8LaneNum == 2) {
-				if (pstSensorImageMode->u8EnableMaster == ISP_SNS_NORMAL_MODE) {
-					u8SensorImageMode = SC235HAI_MODE_1080P30_2L;
-				} else {
-					CVI_TRACE_SNS(CVI_DBG_ERR, "Not support! Width:%d, Height:%d, Fps:%f, WDRMode:%d\n",
-						pstSensorImageMode->u16Width,
-						pstSensorImageMode->u16Height,
-						pstSensorImageMode->f32Fps,
-						pstSnsState->enWDRMode);
-					return CVI_FAILURE;
-				}
-			} else {
-				CVI_TRACE_SNS(CVI_DBG_ERR, "Not support! Width:%d, Height:%d, Fps:%f, WDRMode:%d\n",
-					pstSensorImageMode->u16Width,
-					pstSensorImageMode->u16Height,
-					pstSensorImageMode->f32Fps,
-					pstSnsState->enWDRMode);
-				return CVI_FAILURE;
-			}
-		}else {
+	} else if (pstSensorImageMode->f32Fps <= 60) {
+		if (pstSnsState->enWDRMode == WDR_MODE_NONE &&
+		    pstSensorImageMode->u8LaneNum == 2 &&
+		    pstSensorImageMode->u8EnableMaster == ISP_SNS_NORMAL_MODE &&
+		    SC235HAI_RES_IS_1080P(pstSensorImageMode->u16Width,
+			pstSensorImageMode->u16Height)) {
+			u8SensorImageMode = pstSensorImageMode->f32Fps <= 30 ?
+				SC235HAI_MODE_1080P30_2L : SC235HAI_MODE_1080P60_2L;
+		} else {
 			CVI_TRACE_SNS(CVI_DBG_ERR, "Not support! Width:%d, Height:%d, Fps:%f, WDRMode:%d\n",
 			       pstSensorImageMode->u16Width,
 			       pstSensorImageMode->u16Height,
@@ -1005,7 +992,13 @@ static CVI_S32 cmos_set_image_mode(VI_PIPE ViPipe, ISP_CMOS_SENSOR_IMAGE_MODE_S 
 			       pstSnsState->enWDRMode);
 			return CVI_FAILURE;
 		}
-
+	} else {
+		CVI_TRACE_SNS(CVI_DBG_ERR, "Not support! Width:%d, Height:%d, Fps:%f, WDRMode:%d\n",
+		       pstSensorImageMode->u16Width,
+		       pstSensorImageMode->u16Height,
+		       pstSensorImageMode->f32Fps,
+		       pstSnsState->enWDRMode);
+		return CVI_FAILURE;
 	}
 
 	if ((pstSnsState->bInit == CVI_TRUE) && (u8SensorImageMode == pstSnsState->u8ImgMode)) {
@@ -1312,4 +1305,3 @@ ISP_SNS_OBJ_S stSnsSC235HAI_Obj = {
 	.pfnExpAeCb		= cmos_init_ae_exp_function,
 	.pfnSnsProbe		= sc235hai_probe,
 };
-

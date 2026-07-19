@@ -313,7 +313,7 @@ int config_capabilities_json(char *json, size_t size)
 	static const char capabilities[] =
 		"{\"schema_version\":2,\"video\":{"
 		"\"main\":{\"profiles\":[{\"id\":\"1080p\",\"width\":1920,\"height\":1080,"
-		"\"fps_options\":[15,25,30],\"bitrate_min\":512,\"bitrate_max\":15000}]},"
+		"\"fps_options\":[15,25,30,60],\"bitrate_min\":512,\"bitrate_max\":15000}]},"
 		"\"sub\":{\"profiles\":[{\"id\":\"768x572\",\"width\":768,\"height\":572,"
 		"\"fps_options\":[15,25,30],\"bitrate_min\":128,\"bitrate_max\":4000}]}},"
 		"\"features\":{\"osd\":true,\"person_detection\":true,"
@@ -488,7 +488,12 @@ static void add_issue(cJSON *issues, const char *field, const char *code,
 	cJSON_AddItemToArray(issues, issue);
 }
 
-static int fps_supported(int fps)
+static int main_fps_supported(int fps)
+{
+	return fps == 15 || fps == 25 || fps == 30 || fps == 60;
+}
+
+static int sub_fps_supported(int fps)
 {
 	return fps == 15 || fps == 25 || fps == 30;
 }
@@ -499,11 +504,11 @@ static cJSON *validate_values(const struct config_values *values)
 	int active_tpu_features = values->person_enabled + values->face_enabled +
 		values->human_pose_enabled + values->object_tracking_enabled;
 
-	if (!fps_supported(values->main_fps))
+	if (!main_fps_supported(values->main_fps))
 		add_issue(errors, "video.main.fps", "UNSUPPORTED_FPS", "主码流不支持此帧率");
 	if (values->main_bitrate < 512 || values->main_bitrate > 15000)
 		add_issue(errors, "video.main.bitrate_kbps", "OUT_OF_RANGE", "主码流码率范围为 512-15000 Kbps");
-	if (!fps_supported(values->sub_fps))
+	if (!sub_fps_supported(values->sub_fps))
 		add_issue(errors, "video.sub.fps", "UNSUPPORTED_FPS", "子码流不支持此帧率");
 	if (values->sub_bitrate < 128 || values->sub_bitrate > 4000)
 		add_issue(errors, "video.sub.bitrate_kbps", "OUT_OF_RANGE", "子码流码率范围为 128-4000 Kbps");
@@ -730,14 +735,32 @@ static int migrate_runtime_config(const char *path)
 		{ "ai_object_track_config", "model_path_sot", "\"/usr/share/ipcamera/cv184x/tracking_feartrack_128_128_256_256_INT8_cv184x.bmodel\"", 0 },
 		{ "ai_object_track_config", "model_path_sam", "\"/usr/share/ipcamera/cv184x/fastsam_seg_320_320_INT8_cv184x.bmodel\"", 0 },
 		{ "ai_object_track_config", "model_path_cfg", "\"/usr/share/ipcamera/model_factory.json\"", 0 },
+		{ "vpssgrp2", "grp_enable", "", 0 },
+		{ "vpssgrp3", "grp_enable", "", 0 },
+		{ "vpssgrp4", "grp_enable", "", 0 },
+		{ "vpssgrp5", "grp_enable", "", 0 },
+		{ "vpssgrp0.chn1", "chn_enable", "", 0 },
+		{ "vencchn2", "bEnable", "", 0 },
+		{ "osdc_config1", "bShow", "", 0 },
 	};
 	char migrated[512];
 	char value[160];
 	int enabled[4] = {0};
+	int motion_enabled = 0;
+	int group_enabled[4];
+	int sub_enabled = 0;
+	int osd_enabled = 0;
+	int sub_dependent_enabled[3];
 	int keep = -1;
 	int index;
 	int needs_update;
 	static const int path_update_indexes[] = {1, 3, 5, 7, 8, 9, 10};
+	enum {
+		AI_GROUP_UPDATE_BASE = 11,
+		AI_GROUP_UPDATE_COUNT = 4,
+		SUB_UPDATE_BASE = 15,
+		SUB_UPDATE_COUNT = 3,
+	};
 
 	if (access(path, F_OK) != 0)
 		return -1;
@@ -747,8 +770,11 @@ static int migrate_runtime_config(const char *path)
 		return -1;
 	if (read_int(path, "ai_pd_config", "pd_enable", &enabled[0]) != 0 ||
 	    read_int(path, "ai_fd_config", "fd_enable", &enabled[1]) != 0 ||
+	    read_int(path, "ai_md_config", "md_enable", &motion_enabled) != 0 ||
 	    read_int(path, "ai_human_keypoint_config", "human_keypoint_enable", &enabled[2]) != 0 ||
-	    read_int(path, "ai_object_track_config", "object_track_enable", &enabled[3]) != 0)
+	    read_int(path, "ai_object_track_config", "object_track_enable", &enabled[3]) != 0 ||
+	    read_int(path, "vencchn1", "bEnable", &sub_enabled) != 0 ||
+	    read_int(path, "osdc_config", "enable", &osd_enabled) != 0)
 		return -1;
 	if (enabled[0] + enabled[1] + enabled[2] + enabled[3] > 1)
 		needs_update = 1;
@@ -760,17 +786,52 @@ static int migrate_runtime_config(const char *path)
 			break;
 		}
 	}
-	if (!needs_update)
-		return 0;
 	for (index = 0; index < 4; index++) {
 		if (enabled[index] && keep < 0)
 			keep = index;
 		enabled[index] = enabled[index] && keep == index;
 	}
+	group_enabled[0] = enabled[0];
+	group_enabled[1] = enabled[1];
+	group_enabled[2] = motion_enabled;
+	group_enabled[3] = enabled[3];
+	for (index = 0; index < AI_GROUP_UPDATE_COUNT; index++) {
+		int current;
+
+		if (read_int(path, updates[AI_GROUP_UPDATE_BASE + index].section,
+				updates[AI_GROUP_UPDATE_BASE + index].key, &current) != 0 ||
+		    current != group_enabled[index]) {
+			needs_update = 1;
+			break;
+		}
+	}
+	sub_dependent_enabled[0] = sub_enabled;
+	sub_dependent_enabled[1] = sub_enabled;
+	sub_dependent_enabled[2] = sub_enabled && osd_enabled;
+	for (index = 0; index < SUB_UPDATE_COUNT; index++) {
+		int current;
+
+		if (read_int(path, updates[SUB_UPDATE_BASE + index].section,
+				updates[SUB_UPDATE_BASE + index].key, &current) != 0 ||
+		    current != sub_dependent_enabled[index]) {
+			needs_update = 1;
+			break;
+		}
+	}
+	if (!needs_update)
+		return 0;
 	snprintf(updates[0].value, sizeof(updates[0].value), "%d", enabled[0]);
 	snprintf(updates[2].value, sizeof(updates[2].value), "%d", enabled[1]);
 	snprintf(updates[4].value, sizeof(updates[4].value), "%d", enabled[2]);
 	snprintf(updates[6].value, sizeof(updates[6].value), "%d", enabled[3]);
+	for (index = 0; index < AI_GROUP_UPDATE_COUNT; index++)
+		snprintf(updates[AI_GROUP_UPDATE_BASE + index].value,
+			sizeof(updates[AI_GROUP_UPDATE_BASE + index].value),
+			"%d", group_enabled[index]);
+	for (index = 0; index < SUB_UPDATE_COUNT; index++)
+		snprintf(updates[SUB_UPDATE_BASE + index].value,
+			sizeof(updates[SUB_UPDATE_BASE + index].value),
+			"%d", sub_dependent_enabled[index]);
 	snprintf(migrated, sizeof(migrated), "%s.migrated", path);
 	if (write_updates(path, migrated, updates, sizeof(updates) / sizeof(updates[0])) != 0)
 		return -1;
@@ -805,6 +866,15 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "ai_object_track_config", "search_type", "", 0 },
 		{ "ai_object_track_config", "use_kalman", "", 0 },
 		{ "ai_object_track_config", "tracking_score_threshold", "", 0 },
+		{ "sensor_config0", "sns_type", "", 0 },
+		{ "vencchn0", "src_framerate", "", 0 },
+		{ "vpssgrp2", "grp_enable", "", 0 },
+		{ "vpssgrp3", "grp_enable", "", 0 },
+		{ "vpssgrp4", "grp_enable", "", 0 },
+		{ "vpssgrp5", "grp_enable", "", 0 },
+		{ "vpssgrp0.chn1", "chn_enable", "", 0 },
+		{ "vencchn2", "bEnable", "", 0 },
+		{ "osdc_config1", "bShow", "", 0 },
 	};
 	char validation_error[256];
 
@@ -830,6 +900,19 @@ static int stage_values(const struct config_values *values, char revision[17],
 	snprintf(updates[18].value, sizeof(updates[18].value), "%d", values->object_tracking_use_kalman);
 	snprintf(updates[19].value, sizeof(updates[19].value), "%.6g",
 		values->object_tracking_score_threshold);
+	snprintf(updates[20].value, sizeof(updates[20].value), "%s",
+		values->main_fps == 60 ? OVIS_SC235HAI_60FPS_SNS_TYPE : OVIS_SC235HAI_30FPS_SNS_TYPE);
+	snprintf(updates[21].value, sizeof(updates[21].value), "%d",
+		values->main_fps == 60 ? 60 : 30);
+	snprintf(updates[22].value, sizeof(updates[22].value), "%d", values->person_enabled);
+	snprintf(updates[23].value, sizeof(updates[23].value), "%d", values->face_enabled);
+	snprintf(updates[24].value, sizeof(updates[24].value), "%d", values->motion_enabled);
+	snprintf(updates[25].value, sizeof(updates[25].value), "%d",
+		values->object_tracking_enabled);
+	snprintf(updates[26].value, sizeof(updates[26].value), "%d", values->sub_enabled);
+	snprintf(updates[27].value, sizeof(updates[27].value), "%d", values->sub_enabled);
+	snprintf(updates[28].value, sizeof(updates[28].value), "%d",
+		values->sub_enabled && values->osd_enabled);
 	if (write_updates(OVIS_CONFIG_FILE, OVIS_CONFIG_PENDING, updates,
 			sizeof(updates) / sizeof(updates[0])) != 0) {
 		snprintf(error, error_size, "无法创建待应用配置");

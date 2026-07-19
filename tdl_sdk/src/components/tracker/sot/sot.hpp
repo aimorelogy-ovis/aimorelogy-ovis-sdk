@@ -55,6 +55,10 @@ class SOT : public Tracker {
       float offset, int crop_size, std::vector<int>& context,
       std::shared_ptr<BaseImage>& reuse_image);
 
+  bool calculateContext(const std::shared_ptr<BaseImage>& image,
+                        const std::vector<float>& bbox, float offset,
+                        std::vector<int>& context) const;
+
   void updateScoreLst(float score);
 
   // 计算跟踪结果置信度
@@ -103,7 +107,6 @@ class SOT : public Tracker {
 
   // 模板图像
   std::shared_ptr<BaseImage> template_image_;
-  std::shared_ptr<BaseImage> search_image_;
 
   // 是否已初始化
   bool is_initialized_ = false;

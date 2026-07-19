@@ -35,25 +35,11 @@ void SOT::getStatus(const std::vector<float>& bbox,
   float reappear_iou_abs = iou - reappear_iou_threshold_;
   float confidence_of_occluded = 0.1 * score_abs + 0.7 * score_ratio_abs +
                                  0.5 * iou_abs + 0.5 * size_ratio_abs;
-  LOGI(
-      "confidence_of_occluded:%.4f, score_abs:%.4f, score_ratio_abs:%.4f, "
-      "iou_abs:%.4f, size_ratio_abs:%.4f\n",
-      confidence_of_occluded, score_abs, score_ratio_abs, iou_abs,
-      size_ratio_abs);
   float confidence_of_reappear = 2 * reappear_score_abs +
                                  2 * reappear_score_ratio_abs +
                                  0.1 * reappear_iou_abs - 0.2 * size_ratio_abs;
   sot_info_.is_occluded = confidence_of_occluded > occluded_threshold_;
   sot_info_.is_reappear = confidence_of_reappear > reappear_threshold_;
-  LOGI(
-      "confidence_of_reappear:%.4f, reappear_score_abs:%.4f, "
-      "reappear_score_ratio_abs:%.4f, reappear_iou_abs:%.4f, "
-      "size_ratio_abs:%.4f\n",
-      confidence_of_reappear, reappear_score_abs, reappear_score_ratio_abs,
-      reappear_iou_abs, size_ratio_abs);
-
-  LOGI("sot_info_.is_occluded: %d, sot_info_.is_reappear:%d\n",
-       sot_info_.is_occluded, sot_info_.is_reappear);
 }
 
 void SOT::ensureBBoxBoundaries(std::vector<float>& bbox,
@@ -93,30 +79,10 @@ std::shared_ptr<BaseImage> SOT::preprocessReuse(
     const std::shared_ptr<BaseImage>& image, const std::vector<float>& bbox,
     float offset, int crop_size, std::vector<int>& context,
     std::shared_ptr<BaseImage>& reuse_image) {
-  if (!image || bbox.size() < 4) {
+  if (!calculateContext(image, bbox, offset, context)) {
     LOGE("预处理输入无效");
     return nullptr;
   }
-
-  int width = image->getWidth();
-  int height = image->getHeight();
-
-  // 计算上下文区域
-  float x = bbox[0];
-  float y = bbox[1];
-  float w = bbox[2];
-  float h = bbox[3];
-
-  context[0] = static_cast<int>(x - w * offset);
-  context[1] = static_cast<int>(y - h * offset);
-  context[2] = static_cast<int>(w * (1.0f + 2 * offset));
-  context[3] = static_cast<int>(h * (1.0f + 2 * offset));
-
-  // 确保裁剪区域在图像内
-  context[0] = std::max(0, std::min(context[0], width));
-  context[1] = std::max(0, std::min(context[1], height));
-  context[2] = std::max(0, std::min(context[2], width - context[0]));
-  context[3] = std::max(0, std::min(context[3], height - context[1]));
 
   PreprocessParams params;
   memset(&params, 0, sizeof(PreprocessParams));
@@ -135,13 +101,6 @@ std::shared_ptr<BaseImage> SOT::preprocessReuse(
   params.scale[1] = 1;
   params.scale[2] = 1;
   params.keep_aspect_ratio = false;
-  LOGI(
-      "dst_image_format: %d\n dst_pixdata_type: %d\n dst_width: %d\n "
-      "dst_height: %d\n crop_x: %d\n crop_y: %d\n crop_width: %d\n "
-      "crop_height: %d",
-      params.dst_image_format, params.dst_pixdata_type, params.dst_width,
-      params.dst_height, params.crop_x, params.crop_y, params.crop_width,
-      params.crop_height);
   if (!reuse_image ||
       reuse_image->getWidth() != static_cast<uint32_t>(crop_size) ||
       reuse_image->getHeight() != static_cast<uint32_t>(crop_size) ||
@@ -162,6 +121,34 @@ std::shared_ptr<BaseImage> SOT::preprocessReuse(
     return nullptr;
   }
   return reuse_image;
+}
+
+bool SOT::calculateContext(const std::shared_ptr<BaseImage>& image,
+                           const std::vector<float>& bbox, float offset,
+                           std::vector<int>& context) const {
+  if (!image || bbox.size() < 4 || context.size() < 4) {
+    return false;
+  }
+
+  const int width = image->getWidth();
+  const int height = image->getHeight();
+  const float x = bbox[0];
+  const float y = bbox[1];
+  const float w = bbox[2];
+  const float h = bbox[3];
+  if (width <= 0 || height <= 0 || w <= 0.0f || h <= 0.0f) {
+    return false;
+  }
+
+  context[0] = static_cast<int>(x - w * offset);
+  context[1] = static_cast<int>(y - h * offset);
+  context[2] = static_cast<int>(w * (1.0f + 2.0f * offset));
+  context[3] = static_cast<int>(h * (1.0f + 2.0f * offset));
+  context[0] = std::max(0, std::min(context[0], width));
+  context[1] = std::max(0, std::min(context[1], height));
+  context[2] = std::max(0, std::min(context[2], width - context[0]));
+  context[3] = std::max(0, std::min(context[3], height - context[1]));
+  return context[2] > 0 && context[3] > 0;
 }
 
 void SOT::updateScoreLst(float score) {
@@ -568,6 +555,7 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
     LOGE("模板提取失败");
     return -1;
   }
+  sot_model_->invalidateInputCache();
   is_initialized_ = true;
   LOGI("跟踪器初始化成功");
   return 0;
@@ -581,19 +569,26 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   }
   std::vector<int> context;
   context.resize(4);
-  std::shared_ptr<BaseImage> search_image =
-      preprocessReuse(image, current_bbox_, search_bbox_offset_,
-                      instance_size_, context, search_image_);
-  if (!search_image) {
-    LOGE("搜索区域提取失败");
+  if (!calculateContext(image, current_bbox_, search_bbox_offset_, context)) {
+    LOGE("搜索区域计算失败");
     return -1;
   }
 
   std::vector<std::vector<std::shared_ptr<BaseImage>>> input_images = {
-      {template_image_, search_image}};
+      {template_image_, image}};
   std::vector<std::shared_ptr<ModelOutputInfo>> output_datas;
+  std::map<std::string, float> inference_params = {
+      {"search_crop_x", static_cast<float>(context[0])},
+      {"search_crop_y", static_cast<float>(context[1])},
+      {"search_crop_width", static_cast<float>(context[2])},
+      {"search_crop_height", static_cast<float>(context[3])}};
 
-  sot_model_->inference(input_images, output_datas);
+  int32_t ret =
+      sot_model_->inference(input_images, output_datas, inference_params);
+  if (ret != 0) {
+    LOGE("跟踪模型推理失败: %#x", ret);
+    return ret;
+  }
 
   if (output_datas.empty()) {
     LOGE("跟踪结果为空");
