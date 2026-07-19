@@ -346,6 +346,9 @@ int32_t VPSSImage::extractImageInfo(const VIDEO_FRAME_INFO_S& frame,
   } else if (pixel_format == PIXEL_FORMAT_RGB_888_PLANAR) {
     image_format_ = ImageFormat::RGB_PLANAR;
     pix_data_type_ = TDLDataType::UINT8;
+  } else if (pixel_format == PIXEL_FORMAT_UINT8_C3_PLANAR) {
+    image_format_ = ImageFormat::RGB_PLANAR;
+    pix_data_type_ = TDLDataType::UINT8;
   } else if (pixel_format == PIXEL_FORMAT_BGR_888_PLANAR) {
     image_format_ = ImageFormat::BGR_PLANAR;
     pix_data_type_ = TDLDataType::UINT8;

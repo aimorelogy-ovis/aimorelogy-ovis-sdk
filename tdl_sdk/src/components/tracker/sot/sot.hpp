@@ -50,10 +50,10 @@ class SOT : public Tracker {
   int32_t initBBox(const std::shared_ptr<BaseImage>& image,
                    const ObjectBoxInfo& init_bbox);
 
-  std::shared_ptr<BaseImage> preprocess(const std::shared_ptr<BaseImage>& image,
-                                        const std::vector<float>& bbox,
-                                        float offset, int crop_size,
-                                        std::vector<int>& context);
+  std::shared_ptr<BaseImage> preprocessReuse(
+      const std::shared_ptr<BaseImage>& image, const std::vector<float>& bbox,
+      float offset, int crop_size, std::vector<int>& context,
+      std::shared_ptr<BaseImage>& reuse_image);
 
   void updateScoreLst(float score);
 
@@ -103,6 +103,7 @@ class SOT : public Tracker {
 
   // 模板图像
   std::shared_ptr<BaseImage> template_image_;
+  std::shared_ptr<BaseImage> search_image_;
 
   // 是否已初始化
   bool is_initialized_ = false;

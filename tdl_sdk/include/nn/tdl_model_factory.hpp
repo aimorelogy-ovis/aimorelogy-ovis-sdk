@@ -92,6 +92,9 @@ class TDLModelFactory {
    */
   std::shared_ptr<BaseModel> getModelWithoutOpen(const ModelType model_type);
   std::shared_ptr<BaseModel> getModelWithoutOpen(const std::string &model_type);
+  std::shared_ptr<BaseModel> getModelWithoutOpen(
+      const ModelType model_type, const std::string &model_path,
+      const ModelConfig &model_config);
 
   /*
    * load model config from model_config_file

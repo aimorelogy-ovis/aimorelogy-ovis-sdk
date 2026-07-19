@@ -37,6 +37,8 @@ static volatile bool g_bObjectTrackPause = CVI_FALSE;
 static pthread_t g_ObjectTrackHandle;
 static TDLHandle g_ObjectTrackTDLHandle;
 static TDLObject g_stObjDraw = {0};
+static CVI_U32 g_u32DetInputWidth = 0;
+static CVI_U32 g_u32DetInputHeight = 0;
 SMT_MUTEXAUTOLOCK_INIT(g_Mutex);
 static pthread_mutex_t g_StatusMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_ModeMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -85,6 +87,32 @@ CVI_VOID app_ipcam_Ai_Object_Track_DefaultBox_Get(int32_t box[4])
     box[1] = (int32_t)(center_y - box_size / 2);
     box[2] = (int32_t)(box[0] + box_size);
     box[3] = (int32_t)(box[1] + box_size);
+}
+
+static CVI_VOID app_ipcam_Ai_Object_Track_Box_Scale(int32_t box[4],
+                                                    CVI_U32 src_width,
+                                                    CVI_U32 src_height,
+                                                    CVI_U32 dst_width,
+                                                    CVI_U32 dst_height)
+{
+    if (box == NULL || src_width == 0 || src_height == 0 ||
+        dst_width == 0 || dst_height == 0) {
+        return;
+    }
+
+    box[0] = (int32_t)((int64_t)box[0] * dst_width / src_width);
+    box[1] = (int32_t)((int64_t)box[1] * dst_height / src_height);
+    box[2] = (int32_t)((int64_t)box[2] * dst_width / src_width);
+    box[3] = (int32_t)((int64_t)box[3] * dst_height / src_height);
+
+    if (box[0] < 0) box[0] = 0;
+    if (box[1] < 0) box[1] = 0;
+    if (box[0] >= (int32_t)dst_width) box[0] = (int32_t)dst_width - 1;
+    if (box[1] >= (int32_t)dst_height) box[1] = (int32_t)dst_height - 1;
+    if (box[2] > (int32_t)dst_width) box[2] = (int32_t)dst_width;
+    if (box[3] > (int32_t)dst_height) box[3] = (int32_t)dst_height;
+    if (box[2] <= box[0]) box[2] = box[0] + 1;
+    if (box[3] <= box[1]) box[3] = box[1] + 1;
 }
 
 APP_PARAM_AI_OBJECT_TRACK_CFG_S *app_ipcam_Ai_Object_Track_Param_Get(void)
@@ -158,23 +186,44 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
     CVI_S32 s32Ret = CVI_SUCCESS;
     VPSS_GRP VpssGrp = g_pstObjTrackCfg->VpssGrp;
     VPSS_CHN VpssChn = g_pstObjTrackCfg->VpssChn;
+    VPSS_GRP SotVpssGrp = g_pstObjTrackCfg->SotVpssGrp;
+    VPSS_CHN SotVpssChn = g_pstObjTrackCfg->SotVpssChn;
     TDLObject det_obj_meta = {0};
     TDLObject cur_det_meta = {0};
     TDLTracker track_meta = {0};
     bool track_init = CVI_FALSE;
+    bool preprocessed_input_error_reported = false;
+    bool sot_input_error_reported = false;
+
+    for (CVI_U32 wait_ms = 0;
+         !app_ipcam_Venc_All_Stream_Ready() && wait_ms < 8000;
+         wait_ms += 10) {
+        usleep(10 * 1000);
+    }
+    if (!app_ipcam_Venc_All_Stream_Ready()) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN,
+                           "VENC streams not stable after 8000 ms, start ObjectTrack frame loop anyway\n");
+    } else {
+        APP_PROF_LOG_PRINT(LEVEL_INFO,
+                           "VENC streams stable, start ObjectTrack frame loop\n");
+    }
 
     /*
      * 单线程主循环调度说明：
-     * 1. 每次循环只取一次 VPSS 帧，按 mode 在同一线程执行 DET 或 TRACK。
-     * 2. 检测分支负责更新绘制框和 det_obj_meta 缓存，追踪初始化直接复用该缓存。
+     * 1. 每次循环只取一次 VPSS 帧，DET 和 TRACK 分别使用专用通道。
+     * 2. DET 使用模型输入尺寸，TRACK 使用高分辨率 NV12，并统一换算 OSD 坐标。
      * 3. 通过 /tmp/track 作为追踪触发事件源，避免阻塞等待；无事件时自动回检测态。
      * 4. 统一在循环末尾释放 frame/image/meta，保证资源生命周期稳定可控。
      */
     while (app_ipcam_Ai_Object_Track_ProcStatus_Get()) {
         VIDEO_FRAME_INFO_S stFrame = {0};
         TDLImage image = NULL;
+        VPSS_GRP FrameVpssGrp = VpssGrp;
+        VPSS_CHN FrameVpssChn = VpssChn;
+        APP_PARAM_OBJECT_TRACK_MODE mode = DETECTION;
         bool frame_acquired = false;
         bool has_track_request = (access(TRACK_REQUEST_PATH, F_OK) == 0);
+        bool det_input_preprocessed = false;
 
         if (app_ipcam_Ai_Object_Track_Pause_Get()) {
             usleep(1000*1000);
@@ -193,16 +242,60 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
             app_ipcam_Ai_Object_Track_Mode_Set(TRACKING);
         }
 
-        s32Ret = CVI_VPSS_GetChnFrame(VpssGrp, VpssChn, &stFrame, 3000);
+        mode = app_ipcam_Ai_Object_Track_Mode_Get();
+        if (mode == TRACKING) {
+            FrameVpssGrp = SotVpssGrp;
+            FrameVpssChn = SotVpssChn;
+        }
+
+        s32Ret = CVI_VPSS_GetChnFrame(FrameVpssGrp, FrameVpssChn, &stFrame, 3000);
         if (s32Ret != 0){
-            APP_PROF_LOG_PRINT(LEVEL_ERROR, "Failed to CVI_VPSS_GetChnFrame with %x\n", s32Ret);
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                               "Grp(%d)-Chn(%d) get frame failed with %#x\n",
+                               FrameVpssGrp, FrameVpssChn, s32Ret);
             continue;
         }
         frame_acquired = true;
 
         g_frame_id++;
 
-        image = TDL_WrapFrame(&stFrame, true, false);
+        det_input_preprocessed =
+            g_pstObjTrackCfg->bDetInputPreprocessed &&
+            mode == DETECTION;
+        if (det_input_preprocessed &&
+            (stFrame.stVFrame.enPixelFormat != PIXEL_FORMAT_UINT8_C3_PLANAR ||
+             stFrame.stVFrame.u32Width != g_u32DetInputWidth ||
+             stFrame.stVFrame.u32Height != g_u32DetInputHeight)) {
+            if (!preprocessed_input_error_reported) {
+                APP_PROF_LOG_PRINT(
+                    LEVEL_ERROR,
+                    "preprocessed DET input mismatch: got %ux%u format=%d, expected %ux%u PIXEL_FORMAT_UINT8_C3_PLANAR\n",
+                    stFrame.stVFrame.u32Width, stFrame.stVFrame.u32Height,
+                    stFrame.stVFrame.enPixelFormat, g_u32DetInputWidth,
+                    g_u32DetInputHeight);
+                preprocessed_input_error_reported = true;
+            }
+            goto loop_cleanup;
+        }
+
+        if (mode == TRACKING &&
+            (stFrame.stVFrame.enPixelFormat != PIXEL_FORMAT_NV12 ||
+             stFrame.stVFrame.u32Width != g_pstObjTrackCfg->u32SotGrpWidth ||
+             stFrame.stVFrame.u32Height != g_pstObjTrackCfg->u32SotGrpHeight)) {
+            if (!sot_input_error_reported) {
+                APP_PROF_LOG_PRINT(
+                    LEVEL_ERROR,
+                    "SOT input mismatch: got %ux%u format=%d, expected %ux%u PIXEL_FORMAT_NV12\n",
+                    stFrame.stVFrame.u32Width, stFrame.stVFrame.u32Height,
+                    stFrame.stVFrame.enPixelFormat,
+                    g_pstObjTrackCfg->u32SotGrpWidth,
+                    g_pstObjTrackCfg->u32SotGrpHeight);
+                sot_input_error_reported = true;
+            }
+            goto loop_cleanup;
+        }
+
+        image = TDL_WrapFrame(&stFrame, true, det_input_preprocessed);
         if (image == NULL) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "Failed to wrap frame \n");
             goto loop_cleanup;
@@ -210,9 +303,9 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
 
         /*
          * 检测阶段：每帧更新检测结果缓存 det_obj_meta，并同步更新 OSD 绘制数据。
-         * det_obj_meta 仅在本线程内读写，后续追踪初始化直接复用，避免跨线程共享。
+         * det_obj_meta 仅在本线程内读写，为后续目标选择保留最近一次检测结果。
          */
-        if (app_ipcam_Ai_Object_Track_Mode_Get() == DETECTION) {
+        if (mode == DETECTION) {
             s32Ret = TDL_Detection(g_ObjectTrackTDLHandle, g_pstObjTrackCfg->model_id_det, image, &cur_det_meta);
             if (s32Ret != 0) {
                 APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_Detection failed with %#x!\n", s32Ret);
@@ -272,6 +365,11 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
 
             int32_t box[4] = {0};
             app_ipcam_Ai_Object_Track_DefaultBox_Get(box);
+            app_ipcam_Ai_Object_Track_Box_Scale(
+                box, g_pstObjTrackCfg->u32GrpWidth,
+                g_pstObjTrackCfg->u32GrpHeight,
+                g_pstObjTrackCfg->u32SotGrpWidth,
+                g_pstObjTrackCfg->u32SotGrpHeight);
             APP_PROF_LOG_PRINT(LEVEL_DEBUG, "track box : [%d, %d, %d, %d] \n", box[0], box[1], box[2], box[3]);
             if (search_type < TDL_REJECT || search_type > TDL_FASTSAM) {
                 APP_PROF_LOG_PRINT(LEVEL_WARN, "invalid search_type(%d), fallback to TDL_REJECT\n", search_type);
@@ -330,11 +428,15 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                 track_meta.info[0].score >= g_pstObjTrackCfg->tracking_score_threshold) {
                 SMT_MutexAutoLock(g_Mutex, lock);
                 if (g_stObjDraw.info != NULL) {
+                    float scale_x = (float)g_pstObjTrackCfg->u32GrpWidth /
+                                    g_pstObjTrackCfg->u32SotGrpWidth;
+                    float scale_y = (float)g_pstObjTrackCfg->u32GrpHeight /
+                                    g_pstObjTrackCfg->u32SotGrpHeight;
                     g_stObjDraw.size = 1;
-                    g_stObjDraw.info[0].box.x1 = track_meta.info[0].bbox.x1;
-                    g_stObjDraw.info[0].box.x2 = track_meta.info[0].bbox.x2;
-                    g_stObjDraw.info[0].box.y1 = track_meta.info[0].bbox.y1;
-                    g_stObjDraw.info[0].box.y2 = track_meta.info[0].bbox.y2;
+                    g_stObjDraw.info[0].box.x1 = track_meta.info[0].bbox.x1 * scale_x;
+                    g_stObjDraw.info[0].box.x2 = track_meta.info[0].bbox.x2 * scale_x;
+                    g_stObjDraw.info[0].box.y1 = track_meta.info[0].bbox.y1 * scale_y;
+                    g_stObjDraw.info[0].box.y2 = track_meta.info[0].bbox.y2 * scale_y;
                 } else {
                     g_stObjDraw.size = 0;
                 }
@@ -383,9 +485,11 @@ loop_cleanup:
             TDL_DestroyImage(image);
         }
         if (frame_acquired) {
-            s32Ret = CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stFrame);
+            s32Ret = CVI_VPSS_ReleaseChnFrame(FrameVpssGrp, FrameVpssChn, &stFrame);
             if (s32Ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) release frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                                   "Grp(%d)-Chn(%d) release frame failed with %#x\n",
+                                   FrameVpssGrp, FrameVpssChn, s32Ret);
             }
         }
     }
@@ -401,31 +505,105 @@ static CVI_S32 app_ipcam_Ai_Object_Track_Proc_Init(CVI_VOID)
     APP_PROF_LOG_PRINT(LEVEL_INFO, "AI ObjectTrack init ------------------> start \n");
 
     CVI_S32 s32Ret = CVI_SUCCESS;
+    TDLPreprocessParams stDetPreprocessParams = {0};
+
+    if (g_pstObjTrackCfg->u32GrpWidth == 0 ||
+        g_pstObjTrackCfg->u32GrpHeight == 0 ||
+        g_pstObjTrackCfg->u32SotGrpWidth == 0 ||
+        g_pstObjTrackCfg->u32SotGrpHeight == 0) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                           "invalid ObjectTrack frame size: DET=%ux%u SOT=%ux%u\n",
+                           g_pstObjTrackCfg->u32GrpWidth,
+                           g_pstObjTrackCfg->u32GrpHeight,
+                           g_pstObjTrackCfg->u32SotGrpWidth,
+                           g_pstObjTrackCfg->u32SotGrpHeight);
+        return CVI_FAILURE;
+    }
+
+    APP_PROF_LOG_PRINT(LEVEL_INFO,
+                       "ObjectTrack pipeline: DET Grp(%d)-Chn(%d) %ux%u, "
+                       "SOT Grp(%d)-Chn(%d) %ux%u\n",
+                       g_pstObjTrackCfg->VpssGrp,
+                       g_pstObjTrackCfg->VpssChn,
+                       g_pstObjTrackCfg->u32GrpWidth,
+                       g_pstObjTrackCfg->u32GrpHeight,
+                       g_pstObjTrackCfg->SotVpssGrp,
+                       g_pstObjTrackCfg->SotVpssChn,
+                       g_pstObjTrackCfg->u32SotGrpWidth,
+                       g_pstObjTrackCfg->u32SotGrpHeight);
+
+    APP_PROF_LOG_PRINT(LEVEL_INFO,
+                       "wait all VENC streams stable before loading ObjectTrack models\n");
+    for (CVI_U32 wait_ms = 0;
+         !app_ipcam_Venc_All_Stream_Ready() && wait_ms < 8000;
+         wait_ms += 10) {
+        usleep(10 * 1000);
+    }
+    if (!app_ipcam_Venc_All_Stream_Ready()) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN,
+                           "VENC streams not stable after 8000 ms, load ObjectTrack models anyway\n");
+    }
 
     if (g_ObjectTrackTDLHandle == NULL)
     {
         g_ObjectTrackTDLHandle = TDL_CreateHandle(0);
+        if (g_ObjectTrackTDLHandle == NULL) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_CreateHandle failed\n");
+            return CVI_FAILURE;
+        }
     }
     else
     {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDLHandle has created\n");
-        return s32Ret;
+        return CVI_FAILURE;
     }
 
-    s32Ret = TDL_OpenModel(g_ObjectTrackTDLHandle, TDL_MODEL_YOLOV8N_DET_PERSON_VEHICLE, g_pstObjTrackCfg->model_path_det, g_pstObjTrackCfg->model_path_cfg, 0);
+    s32Ret = TDL_OpenModelSkipInputAlloc(
+        g_ObjectTrackTDLHandle, g_pstObjTrackCfg->model_id_det,
+        g_pstObjTrackCfg->model_path_det, g_pstObjTrackCfg->model_path_cfg, 0,
+        g_pstObjTrackCfg->bDetInputPreprocessed);
     if (s32Ret != CVI_SUCCESS)
     {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_OpenModel DET failed with %#x!\n", s32Ret);
-        return s32Ret;
+        goto init_failed;
     }else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "TDL_OpenModel DET success !\n");
+        APP_PROF_LOG_PRINT(LEVEL_INFO, "TDL_OpenModel DET success, preprocessed_input=%d !\n",
+                           g_pstObjTrackCfg->bDetInputPreprocessed);
     }
 
-    s32Ret = TDL_OpenModel(g_ObjectTrackTDLHandle, TDL_MODEL_TRACKING_FEARTRACK, g_pstObjTrackCfg->model_path_sot, g_pstObjTrackCfg->model_path_cfg, 0);
+    if (g_pstObjTrackCfg->bDetInputPreprocessed) {
+        s32Ret = TDL_GetPreprocessParameters(
+            g_ObjectTrackTDLHandle, g_pstObjTrackCfg->model_id_det,
+            &stDetPreprocessParams);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                               "TDL_GetPreprocessParameters DET failed with %#x!\n",
+                               s32Ret);
+            goto init_failed;
+        }
+        g_u32DetInputWidth = stDetPreprocessParams.dst_width;
+        g_u32DetInputHeight = stDetPreprocessParams.dst_height;
+        if (g_pstObjTrackCfg->u32GrpWidth != g_u32DetInputWidth ||
+            g_pstObjTrackCfg->u32GrpHeight != g_u32DetInputHeight) {
+            APP_PROF_LOG_PRINT(
+                LEVEL_ERROR,
+                "preprocessed DET config mismatch: configured %ux%u, model expects %ux%u\n",
+                g_pstObjTrackCfg->u32GrpWidth,
+                g_pstObjTrackCfg->u32GrpHeight, g_u32DetInputWidth,
+                g_u32DetInputHeight);
+            s32Ret = CVI_FAILURE;
+            goto init_failed;
+        }
+    }
+
+    s32Ret = TDL_OpenModel(g_ObjectTrackTDLHandle,
+                           g_pstObjTrackCfg->model_id_sot,
+                           g_pstObjTrackCfg->model_path_sot,
+                           g_pstObjTrackCfg->model_path_cfg, 0);
     if (s32Ret != CVI_SUCCESS)
     {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_OpenModel SOT failed with %#x!\n", s32Ret);
-        return s32Ret;
+        goto init_failed;
     } else {
         APP_PROF_LOG_PRINT(LEVEL_INFO, "TDL_OpenModel SOT success !\n");
     }
@@ -435,7 +613,7 @@ static CVI_S32 app_ipcam_Ai_Object_Track_Proc_Init(CVI_VOID)
     if (s32Ret != CVI_SUCCESS)
     {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_SetSingleObjectTrackingUseKalman failed with %#x!\n", s32Ret);
-        return s32Ret;
+        goto init_failed;
     }
 
     if (g_pstObjTrackCfg->debug_log_enable) {
@@ -458,13 +636,21 @@ static CVI_S32 app_ipcam_Ai_Object_Track_Proc_Init(CVI_VOID)
         g_stObjDraw.info = malloc(MAX_DET_NUM * sizeof(TDLObjectInfo));
         if (g_stObjDraw.info == NULL) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "malloc g_stObjDraw.info failed\n");
-            return CVI_FAILURE;
+            s32Ret = CVI_FAILURE;
+            goto init_failed;
         }
     }
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "AI ObjectTrack init ------------------> done \n");
 
     return CVI_SUCCESS;
+
+init_failed:
+    TDL_DestroyHandle(g_ObjectTrackTDLHandle);
+    g_ObjectTrackTDLHandle = NULL;
+    g_u32DetInputWidth = 0;
+    g_u32DetInputHeight = 0;
+    return s32Ret;
 }
 
 int app_ipcam_Ai_Object_Track_Stop(void)
@@ -501,6 +687,8 @@ int app_ipcam_Ai_Object_Track_Stop(void)
         return s32Ret;
     }
     g_ObjectTrackTDLHandle = NULL;
+    g_u32DetInputWidth = 0;
+    g_u32DetInputHeight = 0;
 
     return s32Ret;
 }

@@ -269,6 +269,54 @@ int32_t TDL_OpenModel(TDLHandle handle, const TDLModel model_id,
   return 0;
 }
 
+int32_t TDL_OpenModelSkipInputAlloc(TDLHandle handle, const TDLModel model_id,
+                                    const char *model_path,
+                                    const char *model_config_json,
+                                    const int vpss_dev,
+                                    bool skip_input_alloc) {
+  TDLContext *context = (TDLContext *)handle;
+  if (context == nullptr) {
+    return -1;
+  }
+  if (!skip_input_alloc) {
+    return TDL_OpenModel(handle, model_id, model_path, model_config_json,
+                         vpss_dev);
+  }
+  if (context->models.find(model_id) != context->models.end()) {
+    return 0;
+  }
+
+  ModelType model_type = convertModelType(model_id);
+  TDLModelFactory &factory = TDLModelFactory::getInstance();
+  if (model_config_json != nullptr &&
+      factory.loadModelConfig(model_config_json) != 0) {
+    return -1;
+  }
+  std::string str_model_path = model_path != nullptr ? model_path : "";
+  if (str_model_path.empty()) {
+    str_model_path = factory.getModelPath(model_type);
+  }
+
+  ModelConfig model_config = factory.getModelConfig(model_type);
+  std::shared_ptr<BaseModel> model = factory.getModelWithoutOpen(
+      model_type, str_model_path, model_config);
+  if (model == nullptr) {
+    return -1;
+  }
+
+  NetParam net_param = model->getNetParam();
+  net_param.skip_input_alloc = true;
+  model->setNetParam(net_param);
+
+  int32_t ret = model->modelOpen(vpss_dev);
+  if (ret != 0) {
+    return ret;
+  }
+
+  context->models[model_id] = model;
+  return 0;
+}
+
 int32_t TDL_OpenModelFromBuffer(TDLHandle handle, const TDLModel model_id,
                                 const uint8_t *model_buffer,
                                 uint32_t model_buffer_size,

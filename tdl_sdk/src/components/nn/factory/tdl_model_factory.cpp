@@ -482,6 +482,46 @@ std::shared_ptr<BaseModel> TDLModelFactory::getModelWithoutOpen(
 }
 
 std::shared_ptr<BaseModel> TDLModelFactory::getModelWithoutOpen(
+    const ModelType model_type, const std::string &model_path,
+    const ModelConfig &model_config) {
+  if (model_type == ModelType::INVALID) {
+    LOGE("model type not found for model type: %d",
+         static_cast<int>(model_type));
+    return nullptr;
+  }
+  if (model_path.empty()) {
+    LOGE("model path is empty for model type: %s",
+         modelTypeToString(model_type).c_str());
+    return nullptr;
+  }
+
+  std::shared_ptr<BaseModel> model = getModelInstance(model_type);
+  if (model == nullptr) {
+    LOGE("model instance not found for model type: %d",
+         static_cast<int>(model_type));
+    return nullptr;
+  }
+
+  model->setModelType(model_type);
+  NetParam net_param = model->getNetParam();
+  net_param.model_file_path = model_path;
+
+  ModelConfig merged_config = model_config;
+  if (merged_config.rgb_order.empty()) {
+    merged_config.rgb_order = net_param.model_config.rgb_order;
+  }
+  if (merged_config.mean.empty()) {
+    merged_config.mean = net_param.model_config.mean;
+  }
+  if (merged_config.std.empty()) {
+    merged_config.std = net_param.model_config.std;
+  }
+  net_param.model_config = merged_config;
+  model->setNetParam(net_param);
+  return model;
+}
+
+std::shared_ptr<BaseModel> TDLModelFactory::getModelWithoutOpen(
     const std::string &model_type) {
   ModelType model_type_enum = modelTypeFromString(model_type);
   return getModelWithoutOpen(model_type_enum);

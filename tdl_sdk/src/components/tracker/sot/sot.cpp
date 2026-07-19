@@ -89,9 +89,10 @@ void SOT::clampBBox(std::vector<float>& bbox,
   }
 }
 
-std::shared_ptr<BaseImage> SOT::preprocess(
+std::shared_ptr<BaseImage> SOT::preprocessReuse(
     const std::shared_ptr<BaseImage>& image, const std::vector<float>& bbox,
-    float offset, int crop_size, std::vector<int>& context) {
+    float offset, int crop_size, std::vector<int>& context,
+    std::shared_ptr<BaseImage>& reuse_image) {
   if (!image || bbox.size() < 4) {
     LOGE("预处理输入无效");
     return nullptr;
@@ -141,9 +142,26 @@ std::shared_ptr<BaseImage> SOT::preprocess(
       params.dst_image_format, params.dst_pixdata_type, params.dst_width,
       params.dst_height, params.crop_x, params.crop_y, params.crop_width,
       params.crop_height);
-  std::shared_ptr<BaseImage> crop_image =
-      preprocessor_->preprocess(image, params, nullptr);
-  return crop_image;
+  if (!reuse_image ||
+      reuse_image->getWidth() != static_cast<uint32_t>(crop_size) ||
+      reuse_image->getHeight() != static_cast<uint32_t>(crop_size) ||
+      reuse_image->getImageFormat() != params.dst_image_format ||
+      reuse_image->getPixDataType() != params.dst_pixdata_type ||
+      !reuse_image->isInitialized()) {
+    reuse_image = ImageFactory::createImage(
+        crop_size, crop_size, params.dst_image_format, params.dst_pixdata_type,
+        true);
+    if (!reuse_image) {
+      LOGE("create reusable SOT image failed");
+      return nullptr;
+    }
+  }
+
+  if (preprocessor_->preprocessToImage(image, params, reuse_image) != 0) {
+    LOGE("SOT preprocessToImage failed");
+    return nullptr;
+  }
+  return reuse_image;
 }
 
 void SOT::updateScoreLst(float score) {
@@ -543,8 +561,9 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
   if (use_kalman_filter_) {
     kalman_tracker_ = std::make_shared<KalmanBoxTracker>(current_bbox_);
   }
-  template_image_ = preprocess(image, current_bbox_, template_bbox_offset_,
-                               template_size_, context);
+  template_image_ =
+      preprocessReuse(image, current_bbox_, template_bbox_offset_,
+                      template_size_, context, template_image_);
   if (!template_image_) {
     LOGE("模板提取失败");
     return -1;
@@ -562,8 +581,13 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   }
   std::vector<int> context;
   context.resize(4);
-  std::shared_ptr<BaseImage> search_image = preprocess(
-      image, current_bbox_, search_bbox_offset_, instance_size_, context);
+  std::shared_ptr<BaseImage> search_image =
+      preprocessReuse(image, current_bbox_, search_bbox_offset_,
+                      instance_size_, context, search_image_);
+  if (!search_image) {
+    LOGE("搜索区域提取失败");
+    return -1;
+  }
 
   std::vector<std::vector<std::shared_ptr<BaseImage>>> input_images = {
       {template_image_, search_image}};

@@ -158,13 +158,15 @@ int app_ipcam_Vpss_Create(VPSS_GRP VpssGrp)
         return CVI_SUCCESS;
     }
 
-    if (CVI_VPSS_CreateGrp(pstVpssGrpCfg->VpssGrp, &pstVpssGrpCfg->stVpssGrpAttr) != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_CreateGrp(grp:%d) failed with %d!\n", pstVpssGrpCfg->VpssGrp, s32Ret);
+    s32Ret = CVI_VPSS_CreateGrp(pstVpssGrpCfg->VpssGrp, &pstVpssGrpCfg->stVpssGrpAttr);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_CreateGrp(grp:%d) failed with %#x!\n", pstVpssGrpCfg->VpssGrp, s32Ret);
         goto VPSS_EXIT;
     }
 
-    if (CVI_VPSS_ResetGrp(pstVpssGrpCfg->VpssGrp) != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_ResetGrp(grp:%d) failed with %d!\n", pstVpssGrpCfg->VpssGrp, s32Ret);
+    s32Ret = CVI_VPSS_ResetGrp(pstVpssGrpCfg->VpssGrp);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_ResetGrp(grp:%d) failed with %#x!\n", pstVpssGrpCfg->VpssGrp, s32Ret);
         goto VPSS_EXIT;
     }
 
@@ -172,13 +174,23 @@ int app_ipcam_Vpss_Create(VPSS_GRP VpssGrp)
         APP_PROF_LOG_PRINT(LEVEL_DEBUG, "\tChnID=%d isEnable=%d\n", VpssChn, pstVpssGrpCfg->abChnEnable[VpssChn]);
         if (pstVpssGrpCfg->abChnEnable[VpssChn]) {
 
-            if (CVI_VPSS_SetChnAttr(pstVpssGrpCfg->VpssGrp, VpssChn, &pstVpssGrpCfg->astVpssChnAttr[VpssChn]) != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_SetChnAttr(%d) failed with %d\n", VpssChn, s32Ret);
+            s32Ret = CVI_VPSS_SetChnAttr(
+                pstVpssGrpCfg->VpssGrp, VpssChn,
+                &pstVpssGrpCfg->astVpssChnAttr[VpssChn]);
+            if (s32Ret != CVI_SUCCESS) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "CVI_VPSS_SetChnAttr(%d) failed with %#x\n",
+                    VpssChn, s32Ret);
                 goto VPSS_EXIT;
             }
 
-            if (CVI_VPSS_SetChnCrop(pstVpssGrpCfg->VpssGrp, VpssChn, &pstVpssGrpCfg->stVpssChnCropInfo[VpssChn]) != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_SetChnCrop(%d) failed with %d\n", VpssChn, s32Ret);
+            s32Ret = CVI_VPSS_SetChnCrop(
+                pstVpssGrpCfg->VpssGrp, VpssChn,
+                &pstVpssGrpCfg->stVpssChnCropInfo[VpssChn]);
+            if (s32Ret != CVI_SUCCESS) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "CVI_VPSS_SetChnCrop(%d) failed with %#x\n",
+                    VpssChn, s32Ret);
                 goto VPSS_EXIT;
             }
 
@@ -197,16 +209,23 @@ int app_ipcam_Vpss_Create(VPSS_GRP VpssGrp)
                 }
             }
 
-            if (CVI_VPSS_EnableChn(pstVpssGrpCfg->VpssGrp, VpssChn) != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_EnableChn(%d) failed with %d\n", VpssChn, s32Ret);
+            s32Ret = CVI_VPSS_EnableChn(pstVpssGrpCfg->VpssGrp, VpssChn);
+            if (s32Ret != CVI_SUCCESS) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "CVI_VPSS_EnableChn(%d) failed with %#x\n",
+                    VpssChn, s32Ret);
                 goto VPSS_EXIT;
             }
 
             pstVpssGrpCfg->abChnCreate[VpssChn] = CVI_TRUE;
 
             if (pstVpssGrpCfg->aAttachEn[VpssChn]) {
-                if (CVI_VPSS_AttachVbPool(pstVpssGrpCfg->VpssGrp, VpssChn, pstVpssGrpCfg->aAttachPool[VpssChn]) != CVI_SUCCESS) {
-                    APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_VPSS_AttachVbPool failed with %d\n", s32Ret);
+                s32Ret = CVI_VPSS_AttachVbPool(
+                    pstVpssGrpCfg->VpssGrp, VpssChn,
+                    pstVpssGrpCfg->aAttachPool[VpssChn]);
+                if (s32Ret != CVI_SUCCESS) {
+                    APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                        "CVI_VPSS_AttachVbPool failed with %#x\n", s32Ret);
                     goto VPSS_EXIT;
                 }
             }
