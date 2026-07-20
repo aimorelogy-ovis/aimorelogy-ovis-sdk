@@ -925,6 +925,9 @@ static int migrate_runtime_config(const char *path)
 		{ "vencchn3", "vpss_chn", "0", 0 },
 		{ "vencchn3", "src_framerate", "30", 0 },
 		{ "vencchn3", "dst_framerate", "30", 0 },
+		{ "vencchn3", "rc_mode", "VENC_RC_MODE_MJPEGCBR", 0 },
+		{ "vencchn3", "bit_rate", "50000", 0 },
+		{ "vencchn3", "max_bitrate", "50000", 0 },
 	};
 	char migrated[512];
 	char value[160];

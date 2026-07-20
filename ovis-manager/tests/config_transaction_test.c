@@ -281,6 +281,10 @@ int main(void)
 	    !active_config_value_equals("vencchn3", "vpss_chn", "0") ||
 	    !active_config_value_equals("vencchn3", "src_framerate", "30") ||
 	    !active_config_value_equals("vencchn3", "dst_framerate", "30") ||
+	    !active_config_value_equals("vencchn3", "rc_mode",
+		    "VENC_RC_MODE_MJPEGCBR") ||
+	    !active_config_value_equals("vencchn3", "bit_rate", "50000") ||
+	    !active_config_value_equals("vencchn3", "max_bitrate", "50000") ||
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
 		fail("ObjectTrack VPSS topology migration failed");
 

@@ -1,7 +1,8 @@
 #!/bin/sh
 
 set -e
-UVC_BIT_RATE=20000000
+UVC_MIN_BIT_RATE=20000000
+UVC_MAX_BIT_RATE=50000000
 MAX_FRAME_SIZE=2097152
 
 CVI_GADGET=${CVI_GADGET:-/tmp/usb/usb_gadget/cvitek}
@@ -63,8 +64,8 @@ setup_uvc() {
 	# MJPEG format index 1, frame index 1: 1920x1080 at 30 fps.
 	echo 1920 > "$frame/wWidth"
 	echo 1080 > "$frame/wHeight"
-	echo "$UVC_BIT_RATE" > "$frame/dwMinBitRate"
-	echo "$UVC_BIT_RATE" > "$frame/dwMaxBitRate"
+	echo "$UVC_MIN_BIT_RATE" > "$frame/dwMinBitRate"
+	echo "$UVC_MAX_BIT_RATE" > "$frame/dwMaxBitRate"
 	echo "$MAX_FRAME_SIZE" > "$frame/dwMaxVideoFrameBufferSize"
 	echo 333333 > "$frame/dwDefaultFrameInterval"
 	echo 333333 > "$frame/dwFrameInterval"
@@ -77,11 +78,12 @@ setup_uvc() {
 	add_link "$header" "$streaming/class/hs/h"
 	add_link "$header" "$streaming/class/ss/h"
 
-	# Reserve three 1024-byte transactions per 125 us microframe. Combined with
-	# the deeper gadget request queue this shortens each MJPEG frame's transfer
-	# window and reduces DWC2/host scheduling pressure.
+	# Bulk transport gives MJPEG payloads USB-level retry semantics. This avoids
+	# visible partial JPEG frames when 60 fps capture and AI load contend with
+	# the DWC2 controller.
+	echo 1 > "$UVC_FUNCTION/streaming_bulk"
 	echo 1 > "$UVC_FUNCTION/streaming_interval"
-	echo 3072 > "$UVC_FUNCTION/streaming_maxpacket"
+	echo 512 > "$UVC_FUNCTION/streaming_maxpacket"
 	echo 0 > "$UVC_FUNCTION/streaming_maxburst"
 	echo 1 > "$UVC_FUNCTION/defer_connect"
 }

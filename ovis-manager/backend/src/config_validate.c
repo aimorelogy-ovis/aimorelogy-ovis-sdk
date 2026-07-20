@@ -97,6 +97,8 @@ static const struct config_field required_fields[] = {
 	{ "uvc_venc_channel", "vencchn3", "vpss_chn", VALUE_INTEGER, 0, 0 },
 	{ "uvc_venc_src_fps", "vencchn3", "src_framerate", VALUE_INTEGER, 30, 30 },
 	{ "uvc_venc_dst_fps", "vencchn3", "dst_framerate", VALUE_INTEGER, 30, 30 },
+	{ "uvc_venc_bitrate", "vencchn3", "bit_rate", VALUE_INTEGER, 50000, 50000 },
+	{ "uvc_venc_max_bitrate", "vencchn3", "max_bitrate", VALUE_INTEGER, 50000, 50000 },
 	{ "person_vpss_enabled", "vpssgrp2", "grp_enable", VALUE_INTEGER, 0, 1 },
 	{ "face_vpss_enabled", "vpssgrp3", "grp_enable", VALUE_INTEGER, 0, 1 },
 	{ "motion_vpss_enabled", "vpssgrp4", "grp_enable", VALUE_INTEGER, 0, 1 },

@@ -85,6 +85,7 @@
 #define UVC_STREAMING_CONTROL_SIZE 26
 
 #define MAX_BITSTREAM_BUFFER_SIZE CACHE_MEM_SIZE
+#define UVC_BULK_PAYLOAD_SIZE 16383
 #define UVC_CONFIGFS_GADGET_PATH "/tmp/usb/usb_gadget/cvitek"
 #define UVC_VIDEO_CLASS_PATH "/sys/class/video4linux"
 
@@ -1405,7 +1406,7 @@ static void uvc_fill_streaming_control(UVC_DEVICE_CTX_S *dev, struct uvc_streami
     if (!dev->bulk)
         ctrl->dwMaxPayloadTransferSize = (dev->maxpkt) * (dev->mult + 1) * (dev->burst + 1);
     else
-        ctrl->dwMaxPayloadTransferSize = ctrl->dwMaxVideoFrameSize;
+        ctrl->dwMaxPayloadTransferSize = UVC_BULK_PAYLOAD_SIZE;
 
     ctrl->dwClockFrequency = 48000000;
     ctrl->bmFramingInfo = 3;
@@ -1906,7 +1907,13 @@ static int uvc_events_process_data(UVC_DEVICE_CTX_S *dev, struct uvc_request_dat
         dev->height = frame->height;
         dev->fps = 10000000 / target->dwFrameInterval;
         uvc_video_set_format(dev);
-        UVC_VideoEnable(dev);
+        if (dev->bulk && !dev->is_streaming) {
+            ret = uvc_handle_streamon_event(dev);
+            if (ret < 0)
+                goto err;
+        } else {
+            UVC_VideoEnable(dev);
+        }
     }
 
     return 0;
@@ -2008,25 +2015,12 @@ static int uvc_events_init(UVC_DEVICE_CTX_S *dev) {
         UVC_EVENT_CONNECT,
         UVC_EVENT_DISCONNECT,
     };
-    uint32_t payload_size = 0;
-
-    switch (dev->fcc) {
-        case V4L2_PIX_FMT_YUYV:
-            // payload_size = dev->width * dev->height * 2;
-            // break;
-        case V4L2_PIX_FMT_MJPEG:
-        case V4L2_PIX_FMT_H264:
-        case V4L2_PIX_FMT_HEVC:
-            payload_size = dev->imgsize;
-            break;
-    }
-
     uvc_fill_streaming_control(dev, &dev->probe, 0, 0);
     uvc_fill_streaming_control(dev, &dev->commit, 0, 0);
 
     if (dev->bulk) {
-        /* FIXME Crude hack, must be negotiated with the driver. */
-        dev->probe.dwMaxPayloadTransferSize = dev->commit.dwMaxPayloadTransferSize = payload_size;
+        dev->probe.dwMaxPayloadTransferSize =
+            dev->commit.dwMaxPayloadTransferSize = UVC_BULK_PAYLOAD_SIZE;
     }
 
     memset(&sub, 0, sizeof sub);
@@ -2102,13 +2096,13 @@ int32_t UVC_GADGET_DeviceCheck(void) {
 }
 
 int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32MaxFrameSize) {
-    int bulk_mode = 0;
+    int bulk_mode = 1;
 
     int nbufs = WAITED_NODE_SIZE;              /* Ping-Pong buffers */
     /* USB speed related params */
-    int mult = 2;
+    int mult = 0;
     int burst = 0;
-    int maxp = 1024;
+    int maxp = 512;
 
     enum usb_device_speed speed = USB_SPEED_HIGH;
     enum io_method uvc_io_method = IO_METHOD_MMAP;
@@ -2163,8 +2157,8 @@ int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32Max
 
     if (maxp) s_stUVCDevCtx.maxpkt = maxp;
 
-    printf("UVC transport: high-speed isochronous payload=%u bytes\n",
-        s_stUVCDevCtx.maxpkt * (s_stUVCDevCtx.mult + 1));
+    printf("UVC transport: high-speed bulk payload=%u bytes\n",
+        UVC_BULK_PAYLOAD_SIZE);
 
     s_stUVCDevCtx.uvc_fd = -1;
 
