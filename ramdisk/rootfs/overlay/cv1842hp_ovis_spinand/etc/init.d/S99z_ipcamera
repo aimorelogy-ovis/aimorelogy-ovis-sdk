@@ -81,11 +81,11 @@ stop() {
 		return 1
 	}
 	count=0
-	while kill -0 "$pid" 2>/dev/null && [ "$count" -lt "$STOP_TIMEOUT" ]; do
+	while is_running && [ "$count" -lt "$STOP_TIMEOUT" ]; do
 		sleep 1
 		count=$((count + 1))
 	done
-	if kill -0 "$pid" 2>/dev/null; then
+	if is_running; then
 		echo "FAIL (timeout waiting for PID $pid)"
 		return 1
 	fi

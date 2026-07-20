@@ -71,7 +71,7 @@ typedef struct tagUVC_STREAM_ATTR_S {
 /* UVC Context */
 typedef struct tagUVC_CONTEXT_S {
     char szDevPath[64];
-    bool bRun;
+    volatile bool bRun;
     bool bPCConnect;
     pthread_t TskId;
     pthread_t Tsk2Id;

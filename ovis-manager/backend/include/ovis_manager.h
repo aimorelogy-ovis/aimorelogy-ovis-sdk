@@ -35,6 +35,9 @@
 #ifndef OVIS_SERVICE_SCRIPT
 #define OVIS_SERVICE_SCRIPT "/etc/init.d/S99z_ipcamera"
 #endif
+#ifndef OVIS_USB_SERVICE_SCRIPT
+#define OVIS_USB_SERVICE_SCRIPT "/etc/init.d/S77ncm"
+#endif
 #ifndef OVIS_PID_FILE
 #define OVIS_PID_FILE "/var/run/ipcamera.pid"
 #endif
@@ -85,6 +88,8 @@ int http_server_run(unsigned short port);
 int usb_provision_run(void);
 int service_get_status(char *json, size_t size);
 int service_run_action(enum service_action action, char *output, size_t size);
+int usb_schedule_output_reboot(char *output, size_t size);
+int config_get_output_flags(int *rtsp_enabled, int *uvc_enabled);
 unsigned long task_submit(enum service_action action);
 unsigned long config_task_submit_apply(const char *revision);
 unsigned long config_task_submit_reset(void);

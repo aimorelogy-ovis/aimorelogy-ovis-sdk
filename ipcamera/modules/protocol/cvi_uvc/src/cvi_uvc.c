@@ -270,8 +270,6 @@ static void *UVC_CheckTask(void *pvArg) {
             printf("UVC_GADGET_DeviceCheck %x\n", ret);
             cvi_uvc_stream_set_enabled(false);
             break;
-        } else if (ret == 0) {
-            printf("Timeout Do Nothing\n");
         }
         //usleep(50 * 1000);
     }
@@ -399,6 +397,8 @@ int32_t UVC_Start(const char *pDevPath) {
 }
 
 int32_t UVC_Stop(void) {
+    int join_ret;
+
     if (false == s_stUVCCtx.bRun) {
         printf("UVC not run\n");
         return 0;
@@ -406,7 +406,15 @@ int32_t UVC_Stop(void) {
 
     cvi_uvc_stream_set_enabled(false);
     s_stUVCCtx.bRun = false;
-    pthread_join(s_stUVCCtx.TskId, NULL);
+    printf("UVC: waiting for event thread to stop.\n");
+    join_ret = pthread_join(s_stUVCCtx.TskId, NULL);
+    if (join_ret != 0) {
+        printf("UVC: event thread stop failed: %s (%d).\n",
+            strerror(join_ret), join_ret);
+        return -1;
+    }
+    s_stUVCCtx.TskId = (pthread_t)-1;
+    printf("UVC: event thread stopped.\n");
 
     return UVC_GADGET_DeviceClose();
 }
@@ -415,18 +423,20 @@ UVC_CONTEXT_S *UVC_GetCtx(void) { return &s_stUVCCtx; }
 
 void app_uvc_exit(void)
 {
-    if(!s_uvc_init){
+    if (!s_uvc_init) {
         printf("uvc not init\n");
         return;
     }
 
-	if (UVC_Stop() != 0) {
-		printf("UVC_Stop Failed !");
-	}
-	if (UVC_Deinit() != 0) {
-		printf("UVC_Deinit Failed !");
-	}
+    if (UVC_Stop() != 0) {
+        printf("UVC_Stop Failed !");
+        return;
+    }
+    if (UVC_Deinit() != 0) {
+        printf("UVC_Deinit Failed !");
+    }
     destroy_uvc_cache();
+    s_uvc_init = false;
 }
 
 int app_uvc_init(void)

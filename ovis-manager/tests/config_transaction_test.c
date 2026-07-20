@@ -8,16 +8,32 @@
 #include <unistd.h>
 
 static int fail_service_calls;
+static int service_calls;
+static int fail_usb_reboot_calls;
+static int usb_reboot_calls;
 
 int service_run_action(enum service_action action, char *output, size_t size)
 {
 	(void)action;
+	service_calls++;
 	if (fail_service_calls > 0) {
 		fail_service_calls--;
 		snprintf(output, size, "simulated restart failure");
 		return 1;
 	}
 	snprintf(output, size, "simulated restart success");
+	return 0;
+}
+
+int usb_schedule_output_reboot(char *output, size_t size)
+{
+	usb_reboot_calls++;
+	if (fail_usb_reboot_calls > 0) {
+		fail_usb_reboot_calls--;
+		snprintf(output, size, "simulated USB output reboot failure");
+		return 1;
+	}
+	snprintf(output, size, "simulated USB output reboot success");
 	return 0;
 }
 
@@ -128,13 +144,17 @@ static int active_config_value_equals(const char *wanted_section,
 }
 
 static char *make_payload(cJSON *document, int fps, int bitrate, int sensitivity,
-	int sub_enabled, int motion_enabled, int object_tracking_enabled)
+	int sub_enabled, int rtsp_enabled, int uvc_enabled, int motion_enabled,
+	int object_tracking_enabled)
 {
 	cJSON *payload = cJSON_CreateObject();
 	cJSON *revision = cJSON_GetObjectItemCaseSensitive(document, "revision");
 	cJSON *values = cJSON_Duplicate(
 		cJSON_GetObjectItemCaseSensitive(document, "values"), 1);
 	cJSON *video = cJSON_GetObjectItemCaseSensitive(values, "video");
+	cJSON *outputs = cJSON_GetObjectItemCaseSensitive(values, "outputs");
+	cJSON *rtsp = cJSON_GetObjectItemCaseSensitive(outputs, "rtsp");
+	cJSON *uvc = cJSON_GetObjectItemCaseSensitive(outputs, "uvc");
 	cJSON *main_stream = cJSON_GetObjectItemCaseSensitive(video, "main");
 	cJSON *sub_stream = cJSON_GetObjectItemCaseSensitive(video, "sub");
 	cJSON *detection = cJSON_GetObjectItemCaseSensitive(values, "detection");
@@ -148,6 +168,10 @@ static char *make_payload(cJSON *document, int fps, int bitrate, int sensitivity
 		bitrate);
 	cJSON_ReplaceItemInObjectCaseSensitive(sub_stream, "enabled",
 		cJSON_CreateBool(sub_enabled));
+	cJSON_ReplaceItemInObjectCaseSensitive(rtsp, "enabled",
+		cJSON_CreateBool(rtsp_enabled));
+	cJSON_ReplaceItemInObjectCaseSensitive(uvc, "enabled",
+		cJSON_CreateBool(uvc_enabled));
 	cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(motion, "sensitivity"),
 		sensitivity);
 	cJSON_ReplaceItemInObjectCaseSensitive(motion, "enabled",
@@ -182,8 +206,9 @@ static char *make_ai_conflict_payload(cJSON *document)
 }
 
 static void stage_and_apply(int fps, int bitrate, int sensitivity, int sub_enabled,
-	int motion_enabled, int object_tracking_enabled, int fail_first_restart,
-	int expect_success, int expect_rollback)
+	int rtsp_enabled, int uvc_enabled, int motion_enabled,
+	int object_tracking_enabled, int fail_first_restart, int expect_success,
+	int expect_rollback)
 {
 	char current_revision[33];
 	char staged_revision[33];
@@ -195,7 +220,7 @@ static void stage_and_apply(int fps, int bitrate, int sensitivity, int sub_enabl
 	cJSON *saved;
 	cJSON *item;
 	char *payload = make_payload(document, fps, bitrate, sensitivity, sub_enabled,
-		motion_enabled, object_tracking_enabled);
+		rtsp_enabled, uvc_enabled, motion_enabled, object_tracking_enabled);
 	int rolled_back = 0;
 	int result;
 
@@ -288,7 +313,7 @@ int main(void)
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
 		fail("ObjectTrack VPSS topology migration failed");
 
-	stage_and_apply(30, 9000, 80, 0, 1, 0, 0, 1, 0);
+	stage_and_apply(30, 9000, 80, 0, 1, 1, 1, 0, 0, 1, 0);
 	if (!active_config_value_equals("vpssgrp2", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp3", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp4", "grp_enable", "1") ||
@@ -316,7 +341,7 @@ int main(void)
 		"motion");
 	if (cJSON_GetObjectItemCaseSensitive(motion, "sensitivity")->valueint != 80)
 		fail("motion sensitivity did not round-trip");
-	payload = make_payload(document, 30, 20000, 80, 0, 1, 0);
+	payload = make_payload(document, 30, 20000, 80, 0, 1, 1, 1, 0);
 	if (config_validate_json(payload, validation, sizeof(validation), error,
 			sizeof(error)) != 1 || strstr(validation, "OUT_OF_RANGE") == NULL)
 		fail("out-of-range bitrate was not rejected");
@@ -328,13 +353,13 @@ int main(void)
 	free(payload);
 	cJSON_Delete(document);
 
-	stage_and_apply(30, 8500, 60, 1, 0, 0, 1, 0, 1);
+	stage_and_apply(30, 8500, 60, 1, 1, 1, 0, 0, 1, 0, 1);
 	document = read_document(revision_after, sizeof(revision_after));
 	if (strcmp(revision_before, revision_after) != 0)
 		fail("rollback did not restore the previous file");
 	cJSON_Delete(document);
 
-	stage_and_apply(60, 8800, 60, 1, 0, 0, 0, 1, 0);
+	stage_and_apply(60, 8800, 60, 1, 1, 1, 0, 0, 0, 1, 0);
 	if (!active_config_value_equals("vpssgrp4", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "0"))
 		fail("disabled motion detection left its VPSS group enabled");
@@ -358,12 +383,52 @@ int main(void)
 	if (!active_config_value_equals("vpssgrp6.chn0", "src_framerate", "60"))
 		fail("60 fps did not update the UVC VPSS source frame rate");
 	cJSON_Delete(document);
-	stage_and_apply(60, 8800, 60, 1, 0, 1, 0, 1, 0);
+	stage_and_apply(60, 8800, 60, 1, 1, 1, 0, 1, 0, 1, 0);
 	if (!active_config_value_equals("ai_object_track_config",
 			"object_track_enable", "1") ||
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "1"))
 		fail("ObjectTrack enabled the retired VPSS group");
+
+	service_calls = 0;
+	usb_reboot_calls = 0;
+	stage_and_apply(60, 8800, 60, 1, 0, 0, 0, 1, 0, 1, 0);
+	if (service_calls != 0 || usb_reboot_calls != 1 ||
+	    !active_config_value_equals("output_config", "rtsp_enable", "0") ||
+	    !active_config_value_equals("output_config", "uvc_enable", "0") ||
+	    !active_config_value_equals("output_config", "sub_enable", "1") ||
+	    !active_config_value_equals("vb_pool_6", "bEnable", "0") ||
+	    !active_config_value_equals("vpssgrp1", "grp_enable", "0") ||
+	    !active_config_value_equals("vencchn0", "bEnable", "0") ||
+	    !active_config_value_equals("vencchn1", "bEnable", "0") ||
+	    !active_config_value_equals("vencchn2", "bEnable", "0") ||
+	    !active_config_value_equals("vb_pool_8", "bEnable", "0") ||
+	    !active_config_value_equals("vpssgrp6", "grp_enable", "0") ||
+	    !active_config_value_equals("vpssgrp6.chn0", "chn_enable", "0") ||
+	    !active_config_value_equals("vencchn3", "bEnable", "0") ||
+	    !active_config_value_equals("rtsp_config", "rtsp_cnt", "0"))
+		fail("disabled outputs left processing resources enabled");
+	document = read_document(revision_after, sizeof(revision_after));
+	{
+		cJSON *values = cJSON_GetObjectItemCaseSensitive(document, "values");
+		cJSON *outputs = cJSON_GetObjectItemCaseSensitive(values, "outputs");
+		cJSON *video = cJSON_GetObjectItemCaseSensitive(values, "video");
+		if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(
+				cJSON_GetObjectItemCaseSensitive(outputs, "rtsp"), "enabled")) ||
+		    cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(
+				cJSON_GetObjectItemCaseSensitive(outputs, "uvc"), "enabled")) ||
+		    !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(
+				cJSON_GetObjectItemCaseSensitive(video, "sub"), "enabled")))
+			fail("output switches or desired sub stream did not round-trip");
+	}
+	cJSON_Delete(document);
+	fail_usb_reboot_calls = 1;
+	service_calls = 0;
+	usb_reboot_calls = 0;
+	stage_and_apply(60, 8800, 60, 1, 0, 1, 0, 1, 0, 0, 1);
+	if (service_calls != 0 || usb_reboot_calls != 1 ||
+	    !active_config_value_equals("output_config", "uvc_enable", "0"))
+		fail("failed UVC reboot scheduling changed the running service or config");
 
 	fail_service_calls = 0;
 	if (config_apply_defaults(message, sizeof(message), &rolled_back) != 0)

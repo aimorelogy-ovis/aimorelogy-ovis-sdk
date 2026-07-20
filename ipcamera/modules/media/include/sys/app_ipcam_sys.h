@@ -35,6 +35,7 @@ typedef struct APP_PARAM_VB_CFG_T {
 
 typedef struct APP_PARAM_SYS_CFG_T {
     APP_PARAM_VB_CFG_S vb_pool[APP_IPCAM_VB_POOL_MAX_NUM];
+    CVI_S32 vb_pool_id[APP_IPCAM_VB_POOL_MAX_NUM];
     uint32_t vb_pool_num;
     VI_VPSS_MODE_S stVIVPSSMode;
     CVI_U8 u8SbmCnt;
@@ -42,6 +43,7 @@ typedef struct APP_PARAM_SYS_CFG_T {
 } APP_PARAM_SYS_CFG_S;
 
 APP_PARAM_SYS_CFG_S *app_ipcam_Sys_Param_Get(void);
+CVI_S32 app_ipcam_Sys_VbPoolId_Get(CVI_U32 logical_pool);
 int app_ipcam_Sys_EnableFastBoot(void);
 int app_ipcam_Sys_Init(void);
 int app_ipcam_Sys_DeInit(void);
