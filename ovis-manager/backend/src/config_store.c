@@ -14,6 +14,8 @@
 #include <unistd.h>
 
 struct config_values {
+	int rtsp_enabled;
+	int uvc_enabled;
 	int main_fps;
 	int main_bitrate;
 	int sub_enabled;
@@ -191,9 +193,11 @@ static int load_values(const char *path, struct config_values *values)
 	int motion_threshold;
 
 	memset(values, 0, sizeof(*values));
-	if (read_int(path, "vencchn0", "dst_framerate", &values->main_fps) != 0 ||
+	if (read_int(path, "output_config", "rtsp_enable", &values->rtsp_enabled) != 0 ||
+	    read_int(path, "output_config", "uvc_enable", &values->uvc_enabled) != 0 ||
+	    read_int(path, "vencchn0", "dst_framerate", &values->main_fps) != 0 ||
 	    read_int(path, "vencchn0", "bit_rate", &values->main_bitrate) != 0 ||
-	    read_int(path, "vencchn1", "bEnable", &values->sub_enabled) != 0 ||
+	    read_int(path, "output_config", "sub_enable", &values->sub_enabled) != 0 ||
 	    read_int(path, "vencchn1", "dst_framerate", &values->sub_fps) != 0 ||
 	    read_int(path, "vencchn1", "bit_rate", &values->sub_bitrate) != 0 ||
 	    read_int(path, "osdc_config", "enable", &values->osd_enabled) != 0 ||
@@ -217,6 +221,21 @@ static int load_values(const char *path, struct config_values *values)
 		&values->object_tracking_score_threshold) != 0)
 		return -1;
 	values->motion_sensitivity = threshold_to_sensitivity(motion_threshold);
+	return 0;
+}
+
+int config_get_output_flags(int *rtsp_enabled, int *uvc_enabled)
+{
+	if (rtsp_enabled == NULL || uvc_enabled == NULL)
+		return -1;
+	if (read_int(OVIS_CONFIG_FILE, "output_config", "rtsp_enable",
+			rtsp_enabled) != 0 ||
+	    read_int(OVIS_CONFIG_FILE, "output_config", "uvc_enable",
+			uvc_enabled) != 0) {
+		*rtsp_enabled = 0;
+		*uvc_enabled = 0;
+		return -1;
+	}
 	return 0;
 }
 
@@ -255,6 +274,9 @@ static int json_print(cJSON *root, char *json, size_t size)
 static cJSON *values_to_json(const struct config_values *values)
 {
 	cJSON *root = cJSON_CreateObject();
+	cJSON *outputs;
+	cJSON *rtsp;
+	cJSON *uvc;
 	cJSON *video;
 	cJSON *main_stream;
 	cJSON *sub_stream;
@@ -268,6 +290,9 @@ static cJSON *values_to_json(const struct config_values *values)
 
 	if (root == NULL)
 		return NULL;
+	outputs = cJSON_AddObjectToObject(root, "outputs");
+	rtsp = cJSON_AddObjectToObject(outputs, "rtsp");
+	uvc = cJSON_AddObjectToObject(outputs, "uvc");
 	video = cJSON_AddObjectToObject(root, "video");
 	main_stream = cJSON_AddObjectToObject(video, "main");
 	sub_stream = cJSON_AddObjectToObject(video, "sub");
@@ -278,10 +303,12 @@ static cJSON *values_to_json(const struct config_values *values)
 	motion = cJSON_AddObjectToObject(detection, "motion");
 	human_pose = cJSON_AddObjectToObject(detection, "human_pose");
 	object_tracking = cJSON_AddObjectToObject(detection, "object_tracking");
-	if (object_tracking == NULL) {
+	if (uvc == NULL || object_tracking == NULL) {
 		cJSON_Delete(root);
 		return NULL;
 	}
+	cJSON_AddBoolToObject(rtsp, "enabled", values->rtsp_enabled);
+	cJSON_AddBoolToObject(uvc, "enabled", values->uvc_enabled);
 	cJSON_AddStringToObject(main_stream, "profile", "1080p");
 	cJSON_AddNumberToObject(main_stream, "fps", values->main_fps);
 	cJSON_AddNumberToObject(main_stream, "bitrate_kbps", values->main_bitrate);
@@ -311,7 +338,11 @@ static cJSON *values_to_json(const struct config_values *values)
 int config_capabilities_json(char *json, size_t size)
 {
 	static const char capabilities[] =
-		"{\"schema_version\":2,\"video\":{"
+		"{\"schema_version\":3,\"outputs\":{"
+		"\"rtsp\":{\"supported\":true,\"default_enabled\":true},"
+		"\"uvc\":{\"supported\":true,\"default_enabled\":true,"
+		"\"profile\":{\"codec\":\"mjpeg\",\"width\":1920,\"height\":1080,\"fps\":30}}},"
+		"\"video\":{"
 		"\"main\":{\"profiles\":[{\"id\":\"1080p\",\"width\":1920,\"height\":1080,"
 		"\"fps_options\":[15,25,30,60],\"bitrate_min\":512,\"bitrate_max\":15000}]},"
 		"\"sub\":{\"profiles\":[{\"id\":\"768x572\",\"width\":768,\"height\":572,"
@@ -404,6 +435,9 @@ static int parse_payload(const char *body, struct config_values *values,
 {
 	cJSON *root = cJSON_Parse(body);
 	cJSON *values_json;
+	cJSON *outputs;
+	cJSON *rtsp;
+	cJSON *uvc;
 	cJSON *video;
 	cJSON *main_stream;
 	cJSON *sub_stream;
@@ -424,6 +458,9 @@ static int parse_payload(const char *body, struct config_values *values,
 	if (!cJSON_IsObject(root))
 		goto done;
 	values_json = object_item(root, "values");
+	outputs = object_item(values_json, "outputs");
+	rtsp = object_item(outputs, "rtsp");
+	uvc = object_item(outputs, "uvc");
 	video = object_item(values_json, "video");
 	main_stream = object_item(video, "main");
 	sub_stream = object_item(video, "sub");
@@ -435,6 +472,8 @@ static int parse_payload(const char *body, struct config_values *values,
 	human_pose = object_item(detection, "human_pose");
 	object_tracking = object_item(detection, "object_tracking");
 	if (string_item(root, "revision", &revision_text) != 0 || strlen(revision_text) > 32 ||
+	    bool_item(rtsp, "enabled", &values->rtsp_enabled) != 0 ||
+	    bool_item(uvc, "enabled", &values->uvc_enabled) != 0 ||
 	    string_item(main_stream, "profile", &main_profile) != 0 ||
 	    int_item(main_stream, "fps", &values->main_fps) != 0 ||
 	    int_item(main_stream, "bitrate_kbps", &values->main_bitrate) != 0 ||
@@ -532,6 +571,7 @@ int config_validate_json(const char *body, char *json, size_t size,
 	char *error, size_t error_size)
 {
 	struct config_values values;
+	struct config_values active_values;
 	char requested_revision[33];
 	char active_revision[17];
 	cJSON *root;
@@ -543,7 +583,8 @@ int config_validate_json(const char *body, char *json, size_t size,
 	error[0] = '\0';
 	if (parse_payload(body, &values, requested_revision, error, error_size) != 0)
 		return -1;
-	if (revision_for_file(OVIS_CONFIG_FILE, active_revision) != 0) {
+	if (revision_for_file(OVIS_CONFIG_FILE, active_revision) != 0 ||
+	    load_values(OVIS_CONFIG_FILE, &active_values) != 0) {
 		snprintf(error, error_size, "无法读取当前配置版本");
 		return -3;
 	}
@@ -567,8 +608,13 @@ int config_validate_json(const char *body, char *json, size_t size,
 	cJSON_AddBoolToObject(root, "valid", valid);
 	cJSON_AddItemToObject(root, "errors", errors);
 	cJSON_AddItemToObject(root, "warnings", warnings);
-	if (valid)
+	if (valid) {
 		cJSON_AddItemToArray(requires, cJSON_CreateString("ipcamera_restart"));
+		if (values.uvc_enabled != active_values.uvc_enabled) {
+			cJSON_AddItemToArray(requires, cJSON_CreateString("usb_gadget_restart"));
+			cJSON_AddItemToArray(requires, cJSON_CreateString("management_reconnect"));
+		}
+	}
 	cJSON_AddItemToObject(root, "requires", requires);
 	if (json_print(root, json, size) != 0) {
 		snprintf(error, error_size, "校验响应过大");
@@ -646,6 +692,21 @@ done:
 	return result;
 }
 
+static int set_update_int(struct ini_update *updates, size_t update_count,
+	const char *section, const char *key, int value)
+{
+	size_t index;
+
+	for (index = 0; index < update_count; index++) {
+		if (strcmp(updates[index].section, section) == 0 &&
+		    strcmp(updates[index].key, key) == 0) {
+			snprintf(updates[index].value, sizeof(updates[index].value), "%d", value);
+			return 0;
+		}
+	}
+	return -1;
+}
+
 static int has_section(const char *path, const char *wanted_section)
 {
 	char line[1024];
@@ -669,6 +730,33 @@ static int has_section(const char *path, const char *wanted_section)
 	}
 	fclose(file);
 	return found;
+}
+
+static int append_missing_output_config(const char *path)
+{
+	int rtsp_enabled = 1;
+	int uvc_enabled = 1;
+	int sub_enabled = 0;
+	FILE *file;
+
+	if (has_section(path, "output_config"))
+		return 0;
+	read_int(path, "vencchn0", "bEnable", &rtsp_enabled);
+	read_int(path, "vencchn3", "bEnable", &uvc_enabled);
+	read_int(path, "vencchn1", "bEnable", &sub_enabled);
+	file = fopen(path, "a");
+	if (file == NULL)
+		return -1;
+	fprintf(file, "\n[output_config]\n"
+		"rtsp_enable      = %d\n"
+		"uvc_enable       = %d\n"
+		"sub_enable       = %d\n",
+		rtsp_enabled ? 1 : 0, uvc_enabled ? 1 : 0, sub_enabled ? 1 : 0);
+	if (fflush(file) != 0 || fsync(fileno(file)) != 0) {
+		fclose(file);
+		return -1;
+	}
+	return fclose(file);
 }
 
 static int append_missing_runtime_sections(const char *path)
@@ -928,6 +1016,12 @@ static int migrate_runtime_config(const char *path)
 		{ "vencchn3", "rc_mode", "VENC_RC_MODE_MJPEGCBR", 0 },
 		{ "vencchn3", "bit_rate", "50000", 0 },
 		{ "vencchn3", "max_bitrate", "50000", 0 },
+		{ "vb_pool_6", "bEnable", "", 0 },
+		{ "vpssgrp1", "grp_enable", "", 0 },
+		{ "vencchn0", "bEnable", "", 0 },
+		{ "vencchn1", "bEnable", "", 0 },
+		{ "vencchn3", "bEnable", "", 0 },
+		{ "rtsp_config", "rtsp_cnt", "", 0 },
 	};
 	char migrated[512];
 	char value[160];
@@ -935,6 +1029,8 @@ static int migrate_runtime_config(const char *path)
 	int motion_enabled = 0;
 	int group_enabled[4];
 	int sub_enabled = 0;
+	int rtsp_enabled = 1;
+	int uvc_enabled = 1;
 	int osd_enabled = 0;
 	int main_fps = 0;
 	int ai_source_enabled = 0;
@@ -958,22 +1054,45 @@ static int migrate_runtime_config(const char *path)
 
 	if (access(path, F_OK) != 0)
 		return -1;
-	needs_update = !has_section(path, "ai_human_keypoint_config") ||
+	needs_update = !has_section(path, "output_config") ||
+		!has_section(path, "ai_human_keypoint_config") ||
 		!has_section(path, "ai_object_track_config") ||
 		!has_section(path, "vb_pool_7") ||
 		!has_section(path, "vb_pool_8") ||
 		!has_section(path, "vpssgrp6") ||
 		!has_section(path, "vpssgrp6.chn0");
-	if (append_missing_runtime_sections(path) != 0)
+	if (append_missing_output_config(path) != 0 ||
+	    append_missing_runtime_sections(path) != 0)
 		return -1;
 	if (read_int(path, "ai_pd_config", "pd_enable", &enabled[0]) != 0 ||
 	    read_int(path, "ai_fd_config", "fd_enable", &enabled[1]) != 0 ||
 	    read_int(path, "ai_md_config", "md_enable", &motion_enabled) != 0 ||
 	    read_int(path, "ai_human_keypoint_config", "human_keypoint_enable", &enabled[2]) != 0 ||
 	    read_int(path, "ai_object_track_config", "object_track_enable", &enabled[3]) != 0 ||
+	    read_int(path, "output_config", "rtsp_enable", &rtsp_enabled) != 0 ||
+	    read_int(path, "output_config", "uvc_enable", &uvc_enabled) != 0 ||
+	    read_int(path, "output_config", "sub_enable", &sub_enabled) != 0 ||
 	    read_int(path, "vencchn0", "dst_framerate", &main_fps) != 0 ||
-	    read_int(path, "vencchn1", "bEnable", &sub_enabled) != 0 ||
 	    read_int(path, "osdc_config", "enable", &osd_enabled) != 0)
+		return -1;
+	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_6", "bEnable", rtsp_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp1", "grp_enable", rtsp_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn0", "bEnable", rtsp_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn1", "bEnable", rtsp_enabled && sub_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"rtsp_config", "rtsp_cnt", rtsp_enabled ? 2 : 0) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_8", "bEnable", uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp6", "grp_enable", uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp6.chn0", "chn_enable", uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn3", "bEnable", uvc_enabled) != 0)
 		return -1;
 	if (enabled[0] + enabled[1] + enabled[2] + enabled[3] > 1)
 		needs_update = 1;
@@ -1024,9 +1143,9 @@ static int migrate_runtime_config(const char *path)
 			break;
 		}
 	}
-	sub_dependent_enabled[0] = sub_enabled;
-	sub_dependent_enabled[1] = sub_enabled;
-	sub_dependent_enabled[2] = sub_enabled && osd_enabled;
+	sub_dependent_enabled[0] = rtsp_enabled && sub_enabled;
+	sub_dependent_enabled[1] = rtsp_enabled && sub_enabled;
+	sub_dependent_enabled[2] = rtsp_enabled && sub_enabled && osd_enabled;
 	for (index = 0; index < SUB_UPDATE_COUNT; index++) {
 		int current;
 
@@ -1107,6 +1226,17 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "osdc_config1", "bShow", "", 0 },
 		{ "vpssgrp0.chn2", "chn_enable", "", 0 },
 		{ "vpssgrp6.chn0", "src_framerate", "", 0 },
+		{ "output_config", "rtsp_enable", "", 0 },
+		{ "output_config", "uvc_enable", "", 0 },
+		{ "output_config", "sub_enable", "", 0 },
+		{ "vb_pool_6", "bEnable", "", 0 },
+		{ "vpssgrp1", "grp_enable", "", 0 },
+		{ "vencchn0", "bEnable", "", 0 },
+		{ "vb_pool_8", "bEnable", "", 0 },
+		{ "vpssgrp6", "grp_enable", "", 0 },
+		{ "vpssgrp6.chn0", "chn_enable", "", 0 },
+		{ "vencchn3", "bEnable", "", 0 },
+		{ "rtsp_config", "rtsp_cnt", "", 0 },
 	};
 	char validation_error[256];
 	enum {
@@ -1117,7 +1247,8 @@ static int stage_values(const struct config_values *values, char revision[17],
 	snprintf(updates[0].value, sizeof(updates[0].value), "%d", values->main_fps);
 	snprintf(updates[1].value, sizeof(updates[1].value), "%d", values->main_bitrate);
 	snprintf(updates[2].value, sizeof(updates[2].value), "%d", values->main_bitrate);
-	snprintf(updates[3].value, sizeof(updates[3].value), "%d", values->sub_enabled);
+	snprintf(updates[3].value, sizeof(updates[3].value), "%d",
+		values->rtsp_enabled && values->sub_enabled);
 	snprintf(updates[4].value, sizeof(updates[4].value), "%d", values->sub_fps);
 	snprintf(updates[5].value, sizeof(updates[5].value), "%d", values->sub_bitrate);
 	snprintf(updates[6].value, sizeof(updates[6].value), "%d", values->sub_bitrate);
@@ -1144,10 +1275,12 @@ static int stage_values(const struct config_values *values, char revision[17],
 	snprintf(updates[23].value, sizeof(updates[23].value), "%d", values->face_enabled);
 	snprintf(updates[24].value, sizeof(updates[24].value), "%d", values->motion_enabled);
 	snprintf(updates[25].value, sizeof(updates[25].value), "%d", 0);
-	snprintf(updates[26].value, sizeof(updates[26].value), "%d", values->sub_enabled);
-	snprintf(updates[27].value, sizeof(updates[27].value), "%d", values->sub_enabled);
+	snprintf(updates[26].value, sizeof(updates[26].value), "%d",
+		values->rtsp_enabled && values->sub_enabled);
+	snprintf(updates[27].value, sizeof(updates[27].value), "%d",
+		values->rtsp_enabled && values->sub_enabled);
 	snprintf(updates[28].value, sizeof(updates[28].value), "%d",
-		values->sub_enabled && values->osd_enabled);
+		values->rtsp_enabled && values->sub_enabled && values->osd_enabled);
 	snprintf(updates[STAGE_AI_SOURCE_UPDATE_INDEX].value,
 		sizeof(updates[STAGE_AI_SOURCE_UPDATE_INDEX].value), "%d",
 		values->person_enabled || values->face_enabled ||
@@ -1156,6 +1289,31 @@ static int stage_values(const struct config_values *values, char revision[17],
 	snprintf(updates[STAGE_UVC_SOURCE_FPS_UPDATE_INDEX].value,
 		sizeof(updates[STAGE_UVC_SOURCE_FPS_UPDATE_INDEX].value), "%d",
 		values->main_fps == 60 ? 60 : 30);
+	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"output_config", "rtsp_enable", values->rtsp_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"output_config", "uvc_enable", values->uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"output_config", "sub_enable", values->sub_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_6", "bEnable", values->rtsp_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp1", "grp_enable", values->rtsp_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn0", "bEnable", values->rtsp_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_8", "bEnable", values->uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp6", "grp_enable", values->uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp6.chn0", "chn_enable", values->uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn3", "bEnable", values->uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"rtsp_config", "rtsp_cnt", values->rtsp_enabled ? 2 : 0) != 0) {
+		snprintf(error, error_size, "无法生成输出服务配置");
+		return -1;
+	}
 	if (write_updates(OVIS_CONFIG_FILE, OVIS_CONFIG_PENDING, updates,
 			sizeof(updates) / sizeof(updates[0])) != 0) {
 		snprintf(error, error_size, "无法创建待应用配置");
@@ -1231,6 +1389,9 @@ static int apply_staged_locked(const char *revision, char *message,
 	char validation_error[256];
 	char service_output[512];
 	char rollback_output[512];
+	int old_uvc_enabled;
+	int new_uvc_enabled;
+	int uvc_changed;
 	int restart_result;
 	int rollback_result;
 
@@ -1245,6 +1406,14 @@ static int apply_staged_locked(const char *revision, char *message,
 		snprintf(message, message_size, "待应用配置版本不匹配");
 		return -1;
 	}
+	if (read_int(OVIS_CONFIG_FILE, "output_config", "uvc_enable",
+			&old_uvc_enabled) != 0 ||
+	    read_int(OVIS_CONFIG_PENDING, "output_config", "uvc_enable",
+			&new_uvc_enabled) != 0) {
+		snprintf(message, message_size, "无法读取 UVC 输出状态");
+		return -1;
+	}
+	uvc_changed = old_uvc_enabled != new_uvc_enabled;
 	if (atomic_copy(OVIS_CONFIG_FILE, OVIS_CONFIG_BACKUP) != 0) {
 		snprintf(message, message_size, "备份当前配置失败");
 		return -1;
@@ -1254,17 +1423,24 @@ static int apply_staged_locked(const char *revision, char *message,
 		return -1;
 	}
 	unlink(OVIS_CONFIG_PENDING);
-	restart_result = service_run_action(SERVICE_RESTART, service_output,
-		sizeof(service_output));
+	if (uvc_changed) {
+		restart_result = usb_schedule_output_reboot(service_output,
+			sizeof(service_output));
+	} else {
+		restart_result = service_run_action(SERVICE_RESTART, service_output,
+			sizeof(service_output));
+	}
 	if (restart_result == 0) {
-		snprintf(message, message_size, "配置应用成功");
+		snprintf(message, message_size, "%s",
+			uvc_changed ? "配置已保存，设备正在重启" : "配置应用成功");
 		audit_log("config.apply", "success");
 		return 0;
 	}
 	rollback_result = atomic_copy(OVIS_CONFIG_BACKUP, OVIS_CONFIG_FILE);
-	if (rollback_result == 0)
+	if (rollback_result == 0 && !uvc_changed) {
 		rollback_result = service_run_action(SERVICE_RESTART, rollback_output,
 			sizeof(rollback_output));
+	}
 	if (rollback_result == 0) {
 		*rolled_back = 1;
 		snprintf(message, message_size, "新配置启动失败，已恢复原配置");

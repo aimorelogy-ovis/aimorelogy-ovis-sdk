@@ -190,6 +190,7 @@ static CVI_S32 app_ipcam_Ai_Object_Track_Shared_Pipeline_Prepare(CVI_VOID)
     APP_PARAM_SYS_CFG_S *pstSysCfg = NULL;
     APP_PARAM_VPSS_CFG_T *pstVpssCfg = NULL;
     APP_VPSS_GRP_CFG_T *pstGrpCfg = NULL;
+    CVI_S32 s32SotPool = -1;
 
     if (g_bSharedPipelinePrepared) {
         return CVI_SUCCESS;
@@ -211,13 +212,14 @@ static CVI_S32 app_ipcam_Ai_Object_Track_Shared_Pipeline_Prepare(CVI_VOID)
             "ObjectTrack DET channel requires a dedicated VB pool\n");
         return CVI_FAILURE;
     }
-    if (pstSysCfg->vb_pool_num <= OBJECT_TRACK_SOT_POOL ||
-        !pstSysCfg->vb_pool[OBJECT_TRACK_SOT_POOL].bEnable ||
-        pstSysCfg->vb_pool[OBJECT_TRACK_SOT_POOL].width !=
-            g_pstObjTrackCfg->u32SotGrpWidth ||
-        pstSysCfg->vb_pool[OBJECT_TRACK_SOT_POOL].height !=
-            g_pstObjTrackCfg->u32SotGrpHeight ||
-        pstSysCfg->vb_pool[OBJECT_TRACK_SOT_POOL].fmt != PIXEL_FORMAT_NV12) {
+    s32SotPool = app_ipcam_Sys_VbPoolId_Get(OBJECT_TRACK_SOT_POOL);
+    if (s32SotPool < 0 || s32SotPool >= (CVI_S32)pstSysCfg->vb_pool_num ||
+	    !pstSysCfg->vb_pool[s32SotPool].bEnable ||
+	    pstSysCfg->vb_pool[s32SotPool].width !=
+	        g_pstObjTrackCfg->u32SotGrpWidth ||
+	    pstSysCfg->vb_pool[s32SotPool].height !=
+	        g_pstObjTrackCfg->u32SotGrpHeight ||
+	    pstSysCfg->vb_pool[s32SotPool].fmt != PIXEL_FORMAT_NV12) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR,
             "ObjectTrack SOT pool%d must be %ux%u NV12\n",
             OBJECT_TRACK_SOT_POOL, g_pstObjTrackCfg->u32SotGrpWidth,
@@ -240,7 +242,7 @@ static CVI_S32 app_ipcam_Ai_Object_Track_Shared_Pipeline_Prepare(CVI_VOID)
     g_stSotPipelineAttr.stAspectRatio.enMode = ASPECT_RATIO_NONE;
     memset(&g_stSotPipelineAttr.stNormalize, 0,
            sizeof(g_stSotPipelineAttr.stNormalize));
-    g_SotPipelinePool = OBJECT_TRACK_SOT_POOL;
+    g_SotPipelinePool = (VB_POOL)s32SotPool;
 
     g_bSharedPipelinePrepared = CVI_TRUE;
     APP_PROF_LOG_PRINT(LEVEL_INFO,

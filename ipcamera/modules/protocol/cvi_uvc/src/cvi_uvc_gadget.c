@@ -2036,11 +2036,21 @@ static int uvc_events_init(UVC_DEVICE_CTX_S *dev) {
     return 0;
 }
 
-static void uvc_close(UVC_DEVICE_CTX_S *dev) { close(dev->uvc_fd); }
+static void uvc_close(UVC_DEVICE_CTX_S *dev)
+{
+    if (dev->uvc_fd >= 0) {
+        close(dev->uvc_fd);
+        dev->uvc_fd = -1;
+    }
+}
 
 int32_t UVC_GADGET_DeviceCheck(void) {
     fd_set fdsu;
     int video_ret;
+    struct timeval timeout = {
+        .tv_sec = 0,
+        .tv_usec = 200 * 1000,
+    };
 
     FD_ZERO(&fdsu);
 
@@ -2051,14 +2061,13 @@ int32_t UVC_GADGET_DeviceCheck(void) {
     fd_set dfds = fdsu;
 
     int ret;
-    ret = select(s_stUVCDevCtx.uvc_fd + 1, NULL, &dfds, &efds, NULL);
+    ret = select(s_stUVCDevCtx.uvc_fd + 1, NULL, &dfds, &efds, &timeout);
     if (-1 == ret) {
         printf("select error %d, %s\n", errno, strerror(errno));
-        if (EINTR == errno) return ret;
+        return ret;
     }
 
     if (0 == ret) {
-        printf("select timeout\n");
         return ret;
     }
 

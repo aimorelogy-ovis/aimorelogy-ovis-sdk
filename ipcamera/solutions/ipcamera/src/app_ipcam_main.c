@@ -33,19 +33,12 @@ static CVI_BOOL g_bMisc;
  *               F U N C T I O N    D E C L A R A T I O N S               *
  **************************************************************************/
 static int app_ipcam_Exit(void);
+static volatile sig_atomic_t g_s32ExitSignal = 0;
 
 static CVI_VOID app_ipcam_ExitSig_handle(CVI_S32 signo)
 {
-    CVI_S32 s32Ret = CVI_SUCCESS;
-    signal(SIGINT, SIG_IGN);
-    signal(SIGTERM, SIG_IGN);
-
-    if ((SIGINT == signo) || (SIGTERM == signo)) {
-        app_ipcam_Exit();
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "ipcam receive a signal(%d) from terminate\n", signo);
-    }
-
-    exit(s32Ret);
+    if ((SIGINT == signo) || (SIGTERM == signo))
+        g_s32ExitSignal = signo;
 }
 
 static CVI_VOID app_ipcam_Usr1Sig_handle(CVI_S32 signo)
@@ -240,7 +233,13 @@ static int app_ipcam_Init(void)
     #endif
 
     #ifdef CVI_UVC_SUPPORT
-    app_uvc_init();
+    APP_VENC_CHN_CFG_S *pstUvcVencCfg =
+        app_ipcam_VencChnCfg_Get(CVI_UVC_VENC_CHN);
+    if (pstUvcVencCfg != NULL && pstUvcVencCfg->bEnable) {
+        APP_CHK_RET(app_uvc_init(), "init UVC gadget");
+    } else {
+        APP_PROF_LOG_PRINT(LEVEL_INFO, "UVC output not enable\n");
+    }
     #endif
 
     #ifdef CVI_UVC_HOST_SUPPORT
@@ -283,7 +282,11 @@ int main(int argc, char *argv[])
 
     #ifdef RTSP_SUPPORT
     /* create rtsp server */
-    APP_CHK_RET(app_ipcam_Rtsp_Server_Create(), "create rtsp server");
+    if (app_ipcam_Rtsp_Param_Get()->session_cnt > 0) {
+        APP_CHK_RET(app_ipcam_Rtsp_Server_Create(), "create rtsp server");
+    } else {
+        APP_PROF_LOG_PRINT(LEVEL_INFO, "RTSP output not enable\n");
+    }
     #endif
 
     #ifdef VDEC_SUPPORT
@@ -346,9 +349,15 @@ int main(int argc, char *argv[])
     /* enable receive a command form another progress for test ipcam */
     //APP_CHK_RET(app_ipcam_CmdTask_Create(), "running cmd test");
 
-    while (1) {
+    while (g_s32ExitSignal == 0) {
         sleep(1);
-    };
+    }
+
+    signal(SIGINT, SIG_IGN);
+    signal(SIGTERM, SIG_IGN);
+    app_ipcam_Exit();
+    APP_PROF_LOG_PRINT(LEVEL_INFO, "ipcam receive a signal(%d) from terminate\n",
+        g_s32ExitSignal);
 
     return CVI_SUCCESS;
 }

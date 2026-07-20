@@ -18,7 +18,10 @@ struct config_field {
 };
 
 static const struct config_field required_fields[] = {
-	{ "main_enabled", "vencchn0", "bEnable", VALUE_INTEGER, 1, 1 },
+	{ "rtsp_enabled", "output_config", "rtsp_enable", VALUE_INTEGER, 0, 1 },
+	{ "uvc_enabled", "output_config", "uvc_enable", VALUE_INTEGER, 0, 1 },
+	{ "desired_sub_enabled", "output_config", "sub_enable", VALUE_INTEGER, 0, 1 },
+	{ "main_enabled", "vencchn0", "bEnable", VALUE_INTEGER, 0, 1 },
 	{ "main_width", "vencchn0", "width", VALUE_INTEGER, 1920, 1920 },
 	{ "main_height", "vencchn0", "height", VALUE_INTEGER, 1080, 1080 },
 	{ "main_fps", "vencchn0", "dst_framerate", VALUE_INTEGER, 15, 60 },
@@ -72,18 +75,21 @@ static const struct config_field required_fields[] = {
 	{ "object_tracking_sot_pool_height", "vb_pool_7", "frame_height", VALUE_INTEGER, 1080, 1080 },
 	{ "object_tracking_sot_pool_blocks", "vb_pool_7", "blk_cnt", VALUE_INTEGER, 4, 4 },
 	{ "rtsp_pool_blocks", "vb_pool_6", "blk_cnt", VALUE_INTEGER, 4, 4 },
+	{ "rtsp_pool_enabled", "vb_pool_6", "bEnable", VALUE_INTEGER, 0, 1 },
 	{ "uvc_pool_width", "vb_pool_8", "frame_width", VALUE_INTEGER, 1920, 1920 },
 	{ "uvc_pool_height", "vb_pool_8", "frame_height", VALUE_INTEGER, 1080, 1080 },
 	{ "uvc_pool_blocks", "vb_pool_8", "blk_cnt", VALUE_INTEGER, 4, 4 },
 	{ "uvc_vpss_group_count", "vpss_config", "vpss_grp", VALUE_INTEGER, 7, 7 },
 	{ "rtsp_channel_count", "vpssgrp1", "chn_cnt", VALUE_INTEGER, 1, 1 },
-	{ "uvc_group_enabled", "vpssgrp6", "grp_enable", VALUE_INTEGER, 1, 1 },
+	{ "uvc_pool_enabled", "vb_pool_8", "bEnable", VALUE_INTEGER, 0, 1 },
+	{ "rtsp_group_enabled", "vpssgrp1", "grp_enable", VALUE_INTEGER, 0, 1 },
+	{ "uvc_group_enabled", "vpssgrp6", "grp_enable", VALUE_INTEGER, 0, 1 },
 	{ "uvc_group_device", "vpssgrp6", "vpss_dev", VALUE_INTEGER, 0, 0 },
 	{ "uvc_group_channel_count", "vpssgrp6", "chn_cnt", VALUE_INTEGER, 1, 1 },
 	{ "uvc_group_source_device", "vpssgrp6", "src_dev_id", VALUE_INTEGER, 0, 0 },
 	{ "uvc_group_source_channel", "vpssgrp6", "src_chn_id", VALUE_INTEGER, 0, 0 },
 	{ "uvc_group_destination", "vpssgrp6", "dst_dev_id", VALUE_INTEGER, 6, 6 },
-	{ "uvc_channel_enabled", "vpssgrp6.chn0", "chn_enable", VALUE_INTEGER, 1, 1 },
+	{ "uvc_channel_enabled", "vpssgrp6.chn0", "chn_enable", VALUE_INTEGER, 0, 1 },
 	{ "uvc_channel_width", "vpssgrp6.chn0", "width", VALUE_INTEGER, 1920, 1920 },
 	{ "uvc_channel_height", "vpssgrp6.chn0", "height", VALUE_INTEGER, 1080, 1080 },
 	{ "uvc_channel_src_fps", "vpssgrp6.chn0", "src_framerate", VALUE_INTEGER, 30, 60 },
@@ -99,6 +105,8 @@ static const struct config_field required_fields[] = {
 	{ "uvc_venc_dst_fps", "vencchn3", "dst_framerate", VALUE_INTEGER, 30, 30 },
 	{ "uvc_venc_bitrate", "vencchn3", "bit_rate", VALUE_INTEGER, 50000, 50000 },
 	{ "uvc_venc_max_bitrate", "vencchn3", "max_bitrate", VALUE_INTEGER, 50000, 50000 },
+	{ "uvc_venc_enabled", "vencchn3", "bEnable", VALUE_INTEGER, 0, 1 },
+	{ "rtsp_session_count", "rtsp_config", "rtsp_cnt", VALUE_INTEGER, 0, 2 },
 	{ "person_vpss_enabled", "vpssgrp2", "grp_enable", VALUE_INTEGER, 0, 1 },
 	{ "face_vpss_enabled", "vpssgrp3", "grp_enable", VALUE_INTEGER, 0, 1 },
 	{ "motion_vpss_enabled", "vpssgrp4", "grp_enable", VALUE_INTEGER, 0, 1 },
@@ -159,6 +167,10 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	long main_fps = 0;
 	long main_src_fps = 0;
 	long uvc_src_fps = 0;
+	long rtsp_enabled = 0;
+	long uvc_enabled = 0;
+	long desired_sub_enabled = 0;
+	long main_enabled = 0;
 	long sub_enabled = 0;
 	long osd_enabled = 0;
 	unsigned long sensor_type = 0;
@@ -175,6 +187,13 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	long sub_vpss_enabled = 0;
 	long jpeg_enabled = 0;
 	long sub_osd_enabled = 0;
+	long rtsp_pool_enabled = 0;
+	long uvc_pool_enabled = 0;
+	long rtsp_group_enabled = 0;
+	long uvc_group_enabled = 0;
+	long uvc_channel_enabled = 0;
+	long uvc_venc_enabled = 0;
+	long rtsp_session_count = 0;
 	FILE *file;
 	size_t i;
 	int active_tpu_features = 0;
@@ -227,7 +246,15 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					return -1;
 				}
 				found[i] = 1;
-				if (strcmp(required_fields[i].id, "main_fps") == 0)
+				if (strcmp(required_fields[i].id, "rtsp_enabled") == 0)
+					rtsp_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "uvc_enabled") == 0)
+					uvc_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "desired_sub_enabled") == 0)
+					desired_sub_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "main_enabled") == 0)
+					main_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "main_fps") == 0)
 					main_fps = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "main_src_fps") == 0)
 					main_src_fps = strtol(value, NULL, 10);
@@ -261,6 +288,20 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					jpeg_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "sub_osd_enabled") == 0)
 					sub_osd_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "rtsp_pool_enabled") == 0)
+					rtsp_pool_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "uvc_pool_enabled") == 0)
+					uvc_pool_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "rtsp_group_enabled") == 0)
+					rtsp_group_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "uvc_group_enabled") == 0)
+					uvc_group_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "uvc_channel_enabled") == 0)
+					uvc_channel_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "uvc_venc_enabled") == 0)
+					uvc_venc_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "rtsp_session_count") == 0)
+					rtsp_session_count = strtol(value, NULL, 10);
 				if ((strcmp(required_fields[i].id, "person_enabled") == 0 ||
 				     strcmp(required_fields[i].id, "face_enabled") == 0 ||
 				     strcmp(required_fields[i].id, "human_pose_enabled") == 0 ||
@@ -309,9 +350,21 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 		snprintf(error, error_size, "AI 功能与公共 VPSS 源通道开关不匹配");
 		return -1;
 	}
-	if (sub_vpss_enabled != sub_enabled || jpeg_enabled != sub_enabled ||
+	if (main_enabled != rtsp_enabled || rtsp_pool_enabled != rtsp_enabled ||
+	    rtsp_group_enabled != rtsp_enabled ||
+	    rtsp_session_count != (rtsp_enabled ? 2 : 0)) {
+		snprintf(error, error_size, "RTSP 开关与处理资源状态不匹配");
+		return -1;
+	}
+	if (sub_enabled != (rtsp_enabled && desired_sub_enabled) ||
+	    sub_vpss_enabled != sub_enabled || jpeg_enabled != sub_enabled ||
 	    sub_osd_enabled != (sub_enabled && osd_enabled)) {
 		snprintf(error, error_size, "子码流与依赖处理通道开关不匹配");
+		return -1;
+	}
+	if (uvc_pool_enabled != uvc_enabled || uvc_group_enabled != uvc_enabled ||
+	    uvc_channel_enabled != uvc_enabled || uvc_venc_enabled != uvc_enabled) {
+		snprintf(error, error_size, "UVC 开关与处理资源状态不匹配");
 		return -1;
 	}
 	return 0;

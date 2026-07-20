@@ -231,7 +231,15 @@ int Load_Param_Vpss(const char *file)
 
             Vpss->astVpssGrpCfg[grp_idx].aAttachEn[chn_idx] = ini_getl(tmp_section, "attach_en", 0, file);
             if (Vpss->astVpssGrpCfg[grp_idx].aAttachEn[chn_idx]) {
-                Vpss->astVpssGrpCfg[grp_idx].aAttachPool[chn_idx] = ini_getl(tmp_section, "attach_pool", 0, file);
+                CVI_S32 logical_pool = ini_getl(tmp_section, "attach_pool", 0, file);
+                CVI_S32 actual_pool = app_ipcam_Sys_VbPoolId_Get(logical_pool);
+
+                if (actual_pool < 0) {
+                    APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                        "[%s] logical VB pool %d is disabled\n", tmp_section, logical_pool);
+                    return CVI_FAILURE;
+                }
+                Vpss->astVpssGrpCfg[grp_idx].aAttachPool[chn_idx] = actual_pool;
             }
             APP_PROF_LOG_PRINT(LEVEL_INFO, "Chn_ID_%d config: sft=%2d dfr=%2d W=%4d H=%4d Depth=%d Mirror=%d Flip=%d V_fmt=%2d P_fmt=%2d\n",
                 chn_idx, pastVpssChnAttr->stFrameRate.s32SrcFrameRate, pastVpssChnAttr->stFrameRate.s32DstFrameRate,

@@ -12,6 +12,7 @@ int Load_Param_Sys(const char *file)
 {
     CVI_U32 i = 0;
     CVI_U32 vbpoolnum = 0;
+    CVI_U32 configured_pool_num = 0;
     CVI_S32 enum_num = 0;
     CVI_S32 ret = 0;
     char tmp_section[16] = {0};
@@ -38,16 +39,28 @@ int Load_Param_Sys(const char *file)
         }
     }
 
-    Sys->vb_pool_num = ini_getl("vb_config", "vb_pool_cnt", 0, file);
+    configured_pool_num = ini_getl("vb_config", "vb_pool_cnt", 0, file);
+    if (configured_pool_num > APP_IPCAM_VB_POOL_MAX_NUM) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "vb_pool_cnt:%u exceeds maximum:%u\n",
+            configured_pool_num, (CVI_U32)APP_IPCAM_VB_POOL_MAX_NUM);
+        return CVI_FAILURE;
+    }
+    memset(Sys->vb_pool, 0, sizeof(Sys->vb_pool));
+    for (i = 0; i < APP_IPCAM_VB_POOL_MAX_NUM; i++)
+        Sys->vb_pool_id[i] = -1;
 
-    for (i = 0; i < Sys->vb_pool_num; i++) {
+    for (i = 0; i < configured_pool_num; i++) {
+        CVI_BOOL bEnable;
+
         memset(tmp_section, 0, sizeof(tmp_section));
         sprintf(tmp_section, "vb_pool_%d", i);
 
-        Sys->vb_pool[i].bEnable = ini_getl(tmp_section, "bEnable", 1, file);
-        if (!Sys->vb_pool[i].bEnable)
+        bEnable = ini_getl(tmp_section, "bEnable", 1, file);
+        if (!bEnable)
             continue;
 
+        Sys->vb_pool[vbpoolnum].bEnable = CVI_TRUE;
+        Sys->vb_pool_id[i] = (CVI_S32)vbpoolnum;
         Sys->vb_pool[vbpoolnum].width = ini_getl(tmp_section, "frame_width", 0, file);
         Sys->vb_pool[vbpoolnum].height = ini_getl(tmp_section, "frame_height", 0, file);
         ini_gets(tmp_section, "frame_fmt", " ", str_name, PARAM_STRING_NAME_LEN, file);
@@ -105,5 +118,12 @@ int Load_Param_Sys(const char *file)
     return CVI_SUCCESS;
 }
 
+CVI_S32 app_ipcam_Sys_VbPoolId_Get(CVI_U32 logical_pool)
+{
+    APP_PARAM_SYS_CFG_S *Sys = app_ipcam_Sys_Param_Get();
 
+    if (logical_pool >= APP_IPCAM_VB_POOL_MAX_NUM)
+        return -1;
+    return Sys->vb_pool_id[logical_pool];
+}
 
