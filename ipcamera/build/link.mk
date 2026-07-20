@@ -161,6 +161,9 @@ LIBS-$(CONFIG_MULTI_PROCESS_SUPPORT) += -lnanomsg
 LIBS-$(CONFIG_MODULE_RTSP) += -L$(RTSP_DIR)/lib -lcomp_rtsp
 LIBS-$(CONFIG_MODULE_RTSP) += -L$(RINGBUFFER_DIR)/lib -lcomp_ringbuffer
 LIBS-$(CONFIG_MODULE_RTSP) += -L$(OSAL_DIR)/lib -lcomp_osal
+ifeq ($(CONFIG_MODULE_RTSP), y)
+LIBS += -Wl,--wrap=RBUF_ShowLog
+endif
 
 ## RECORD
 LIBS-$(CONFIG_MODULE_RECORD) += -L$(FFMPEG_LIB_DIR) -lavformat -lavcodec -lavutil -lswresample

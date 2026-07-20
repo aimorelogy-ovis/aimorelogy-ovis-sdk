@@ -22,6 +22,7 @@
 
 #define     VI_FPS                      25
 #define     SLOW_FPS                    15
+#define     UVC_DIAG_FRAME_COUNT        120
 
 static bool s_uvc_init = false;
 /** UVC Stream Context */
@@ -41,6 +42,55 @@ static UVC_STREAM_CONTEXT_S s_stUVCStreamCtx;
 static UVC_CONTEXT_S s_stUVCCtx = {.bRun = false, .bPCConnect = false, .TskId = (pthread_t)-1, .Tsk2Id = (pthread_t)-1};
 static bool g_bPushVencData = false;
 static pthread_mutex_t g_stUVCStreamMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static unsigned int uvc_debug_checksum(const unsigned char *data, size_t length)
+{
+    unsigned int checksum = 2166136261U;
+
+    for (size_t i = 0; i < length; ++i) {
+        checksum ^= data[i];
+        checksum *= 16777619U;
+    }
+
+    return checksum;
+}
+
+static bool uvc_debug_jpeg_valid(const unsigned char *data, size_t length)
+{
+    size_t start;
+
+    if (length < 4 || data[0] != 0xff || data[1] != 0xd8) {
+        return false;
+    }
+
+    start = length > 64 ? length - 64 : 2;
+    for (size_t i = length - 1; i > start; --i) {
+        if (data[i - 1] == 0xff && data[i] == 0xd9) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void uvc_debug_dump_frame(const frame_node_t *node)
+{
+    char path[64];
+    FILE *file;
+
+    snprintf(path, sizeof(path), "/tmp/uvc-diag-%u.jpg",
+        node->debug_sequence % UVC_DIAG_FRAME_COUNT);
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        printf("UVC DIAG unable to open %s: %s\n", path, strerror(errno));
+        return;
+    }
+
+    if (fwrite(node->mem, 1, node->used, file) != node->used) {
+        printf("UVC DIAG unable to write %s: %s\n", path, strerror(errno));
+    }
+    fclose(file);
+}
 
 void cvi_uvc_stream_set_enabled(bool enabled)
 {
@@ -168,6 +218,23 @@ int cvi_uvc_stream_send_data(void *data)
         data_len = pstData->u32Len - pstData->u32Offset;
         memcpy(fnode->mem + fnode->used, s, data_len);
         fnode->used += data_len;
+    }
+
+    if (access("/tmp/uvc-diag", F_OK) == 0) {
+        fnode->debug_sequence = pstStream->u32Seq;
+        fnode->debug_checksum = uvc_debug_checksum(fnode->mem, fnode->used);
+        fnode->debug_jpeg_valid = uvc_debug_jpeg_valid(fnode->mem, fnode->used);
+
+        if (!fnode->debug_jpeg_valid || (pstStream->u32Seq % 30) == 0) {
+            printf("UVC DIAG producer seq=%u size=%u packs=%u jpeg=%u checksum=%08x\n",
+                fnode->debug_sequence, fnode->used, pstStream->u32PackCount,
+                fnode->debug_jpeg_valid, fnode->debug_checksum);
+        }
+        uvc_debug_dump_frame(fnode);
+    } else {
+        fnode->debug_checksum = 0;
+        fnode->debug_sequence = pstStream->u32Seq;
+        fnode->debug_jpeg_valid = 0;
     }
     // printf("fnode->used = %d\n", fnode->used);
 

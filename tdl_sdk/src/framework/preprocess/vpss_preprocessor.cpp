@@ -192,7 +192,11 @@ std::shared_ptr<BaseImage> VpssPreprocessor::preprocess(
   }
   LOGI("setup output image done");
 
-  preprocessToImage(image, params, vpss_image);
+  ret = preprocessToImage(image, params, vpss_image);
+  if (ret != CVI_SUCCESS) {
+    LOGE("preprocessToImage failed with %#x\n", ret);
+    return nullptr;
+  }
   LOGI("CVI_VPSS_GetChnFrame done");
   return vpss_image;
 }
@@ -392,6 +396,7 @@ int32_t VpssPreprocessor::preprocessToImage(
       static_cast<const VIDEO_FRAME_INFO_S*>(src_image->getInternalData());
   VPSSImage* vpss_image = static_cast<VPSSImage*>(image.get());
   vpss_image->checkToSwapRGB();
+  bool output_frame_sent = false;
 
   // prepare output frame
   LOGI("to CVI_VPSS_SendChnFrame");
@@ -400,10 +405,14 @@ int32_t VpssPreprocessor::preprocessToImage(
     LOGE("CVI_VPSS_SendChnFrame failed with %#x\n", ret);
     return ret;
   }
+  output_frame_sent = true;
   LOGI("to CVI_VPSS_SendFrame");
   ret = CVI_VPSS_SendFrame(group_id_, input_frame, -1);
   if (ret != CVI_SUCCESS) {
     LOGE("CVI_VPSS_SendFrame failed with %#x\n", ret);
+    if (output_frame_sent) {
+      CVI_VPSS_ReleaseChnFrame(group_id_, 0, output_frame);
+    }
     return ret;
   }
   LOGI("to CVI_VPSS_GetChnFrame");
@@ -411,6 +420,9 @@ int32_t VpssPreprocessor::preprocessToImage(
   ret = CVI_VPSS_GetChnFrame(group_id_, 0, output_frame, -1);
   if (ret != CVI_SUCCESS) {
     LOGE("CVI_VPSS_GetChnFrame failed with %#x\n", ret);
+    if (output_frame_sent) {
+      CVI_VPSS_ReleaseChnFrame(group_id_, 0, output_frame);
+    }
     return ret;
   }
 
@@ -418,6 +430,12 @@ int32_t VpssPreprocessor::preprocessToImage(
   // FrameDump::saveFrame("./output_frame.bin", output_frame);
 
   vpss_image->restoreVirtualAddress(true);
+
+  ret = CVI_VPSS_ReleaseChnFrame(group_id_, 0, output_frame);
+  if (ret != CVI_SUCCESS) {
+    LOGE("CVI_VPSS_ReleaseChnFrame failed with %#x\n", ret);
+    return ret;
+  }
 
   return ret;
 }

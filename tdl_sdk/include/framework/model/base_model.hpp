@@ -73,6 +73,7 @@ class BaseModel {
 
   virtual int32_t onModelOpened() { return 0; }
   virtual int32_t onModelClosed() { return 0; }
+  virtual void invalidateInputCache() {}
 
   ModelType getModelType() const { return model_type_; }
   void setModelType(ModelType model_type) { model_type_ = model_type; }

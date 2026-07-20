@@ -1,0 +1,29 @@
+#!/bin/sh
+
+STATE_DIR=/mnt/cfg/ovis-manager
+DEVICE_ID_FILE="$STATE_DIR/device-id"
+
+read_device_id() {
+	device_id=$(sed -n '1p' "$DEVICE_ID_FILE" 2>/dev/null)
+	case "$device_id" in
+		OVIS-1842-????????????????)
+			device_suffix=${device_id##*-}
+			case "$device_suffix" in
+				*[!0-9A-Fa-f]*) device_id= ;;
+			esac
+			;;
+		*) device_id= ;;
+	esac
+}
+
+mkdir -p "$STATE_DIR" || exit 1
+read_device_id
+if [ -z "$device_id" ]; then
+	device_suffix=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+	[ "${#device_suffix}" -eq 16 ] || exit 1
+	device_id="OVIS-1842-$device_suffix"
+	umask 077
+	printf '%s\n' "$device_id" > "$DEVICE_ID_FILE" || exit 1
+fi
+chmod 600 "$DEVICE_ID_FILE" || exit 1
+printf '%s\n' "$device_id"

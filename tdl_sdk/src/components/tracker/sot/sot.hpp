@@ -50,10 +50,14 @@ class SOT : public Tracker {
   int32_t initBBox(const std::shared_ptr<BaseImage>& image,
                    const ObjectBoxInfo& init_bbox);
 
-  std::shared_ptr<BaseImage> preprocess(const std::shared_ptr<BaseImage>& image,
-                                        const std::vector<float>& bbox,
-                                        float offset, int crop_size,
-                                        std::vector<int>& context);
+  std::shared_ptr<BaseImage> preprocessReuse(
+      const std::shared_ptr<BaseImage>& image, const std::vector<float>& bbox,
+      float offset, int crop_size, std::vector<int>& context,
+      std::shared_ptr<BaseImage>& reuse_image);
+
+  bool calculateContext(const std::shared_ptr<BaseImage>& image,
+                        const std::vector<float>& bbox, float offset,
+                        std::vector<int>& context) const;
 
   void updateScoreLst(float score);
 

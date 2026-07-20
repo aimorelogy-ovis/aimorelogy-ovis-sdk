@@ -247,6 +247,9 @@ static int create_cache_node_list(frame_queue_t *q, unsigned int buffer_size, in
         n->used = 0;
         n->next = NULL;
         n->index = i;
+        n->debug_checksum = 0;
+        n->debug_sequence = 0;
+        n->debug_jpeg_valid = 0;
 
         put_node_to_queue(q, n);
     }

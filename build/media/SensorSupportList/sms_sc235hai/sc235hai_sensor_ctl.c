@@ -7,7 +7,7 @@
 static void sc235hai_1l_linear_1080p15_init(VI_PIPE ViPipe);
 static void sc235hai_1l_slave_linear_1080p15_init(VI_PIPE ViPipe);
 static void sc235hai_2l_linear_1080p15_init(VI_PIPE ViPipe);
-static void sc235hai_2l_linear_1080p30_init(VI_PIPE ViPipe);
+static void sc235hai_2l_linear_1080p_init(VI_PIPE ViPipe, CVI_U16 u16Vts, CVI_U8 u8Fps);
 static void sc235hai_2l_slave_linear_1080p15_init(VI_PIPE ViPipe);
 
 const CVI_U8 sc235hai_i2c_addr   = 0x32;        /* I2C Address of SC235HAI */
@@ -147,7 +147,9 @@ void sc235hai_init(VI_PIPE ViPipe)
 			} else if (u8ImgMode == SC235HAI_MODE_1080P15_1L_SLAVE) {
 				sc235hai_1l_slave_linear_1080p15_init(ViPipe);
 			} else if (u8ImgMode == SC235HAI_MODE_1080P30_2L) {
-				sc235hai_2l_linear_1080p30_init(ViPipe);
+				sc235hai_2l_linear_1080p_init(ViPipe, 2250, 30);
+			} else if (u8ImgMode == SC235HAI_MODE_1080P60_2L) {
+				sc235hai_2l_linear_1080p_init(ViPipe, 1125, 60);
 			}
 		}else if (enWDRMode == WDR_MODE_2To1_LINE) {
 			CVI_TRACE_SNS(CVI_DBG_ERR, "not support wdr mode\n");
@@ -599,7 +601,7 @@ static void sc235hai_2l_linear_1080p15_init(VI_PIPE ViPipe)
 
 }
 
-static void sc235hai_2l_linear_1080p30_init(VI_PIPE ViPipe)
+static void sc235hai_2l_linear_1080p_init(VI_PIPE ViPipe, CVI_U16 u16Vts, CVI_U8 u8Fps)
 {
 	sc235hai_write_register(ViPipe, 0x0103,0x01);
 	sc235hai_write_register(ViPipe, 0x36e9,0x80);
@@ -610,8 +612,8 @@ static void sc235hai_2l_linear_1080p30_init(VI_PIPE ViPipe)
 	sc235hai_write_register(ViPipe, 0x305a,0x40);
 	sc235hai_write_register(ViPipe, 0x320c,0x08);//2200
 	sc235hai_write_register(ViPipe, 0x320d,0x98);
-	sc235hai_write_register(ViPipe, 0x320e,0x08);//2250
-	sc235hai_write_register(ViPipe, 0x320f,0xca);
+	sc235hai_write_register(ViPipe, 0x320e,(u16Vts >> 8) & 0x7f);
+	sc235hai_write_register(ViPipe, 0x320f,u16Vts & 0xff);
 	sc235hai_write_register(ViPipe, 0x3250,0x00);
 	sc235hai_write_register(ViPipe, 0x3301,0x0a);
 	sc235hai_write_register(ViPipe, 0x3302,0x20);
@@ -733,7 +735,25 @@ static void sc235hai_2l_linear_1080p30_init(VI_PIPE ViPipe)
 	sc235hai_default_reg_init(ViPipe);
 	sc235hai_write_register(ViPipe, 0x0100, 0x01);
 	delay_ms(50);
-	printf("ViPipe:%d,===sc235hai 1080P 30fps 10bit 2LINE Init OK!===\n", ViPipe);
+	printf("SC235HAI timing: pll=%02x hts=%02x%02x vts=%02x%02x\n",
+	       sc235hai_read_register(ViPipe, 0x301f),
+	       sc235hai_read_register(ViPipe, 0x320c),
+	       sc235hai_read_register(ViPipe, 0x320d),
+	       sc235hai_read_register(ViPipe, 0x320e),
+	       sc235hai_read_register(ViPipe, 0x320f));
+	printf("SC235HAI MIPI: lane=%02x raw=%02x phy=%02x clk=%02x enable=%02x "
+	       "drive=%02x/%02x delay=%02x/%02x timing=%02x\n",
+	       sc235hai_read_register(ViPipe, 0x3018),
+	       sc235hai_read_register(ViPipe, 0x3031),
+	       sc235hai_read_register(ViPipe, 0x3037),
+	       sc235hai_read_register(ViPipe, 0x303f),
+	       sc235hai_read_register(ViPipe, 0x4603),
+	       sc235hai_read_register(ViPipe, 0x3650),
+	       sc235hai_read_register(ViPipe, 0x3651),
+	       sc235hai_read_register(ViPipe, 0x3652),
+	       sc235hai_read_register(ViPipe, 0x3654),
+	       sc235hai_read_register(ViPipe, 0x4837));
+	printf("ViPipe:%d,===sc235hai 1080P %dfps 10bit 2LINE Init OK!===\n", ViPipe, u8Fps);
 
 }
 
@@ -887,6 +907,3 @@ static void sc235hai_2l_slave_linear_1080p15_init(VI_PIPE ViPipe)
 	printf("ViPipe:%d,===sc235hai 1080P 15fps 10bit 2LINE SLAVE Init OK!===\n", ViPipe);
 
 }
-
-
-

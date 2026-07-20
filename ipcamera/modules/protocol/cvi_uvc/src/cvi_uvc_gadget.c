@@ -85,6 +85,7 @@
 #define UVC_STREAMING_CONTROL_SIZE 26
 
 #define MAX_BITSTREAM_BUFFER_SIZE CACHE_MEM_SIZE
+#define UVC_BULK_PAYLOAD_SIZE 16383
 #define UVC_CONFIGFS_GADGET_PATH "/tmp/usb/usb_gadget/cvitek"
 #define UVC_VIDEO_CLASS_PATH "/sys/class/video4linux"
 
@@ -531,10 +532,13 @@ static int uvc_video_set_format(UVC_DEVICE_CTX_S *dev) {
     fmt.fmt.pix.pixelformat = dev->fcc;
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
-	if (s_stUVCDevCtx.io == IO_METHOD_MMAP)
-		fmt.fmt.pix.sizeimage = dev->width * dev->height * 3 / 2;
-    else if (dev->fcc == V4L2_PIX_FMT_MJPEG || dev->fcc == V4L2_PIX_FMT_H264 || dev->fcc == V4L2_PIX_FMT_HEVC || dev->fcc == V4L2_PIX_FMT_YUYV)
+    if (dev->fcc == V4L2_PIX_FMT_MJPEG || dev->fcc == V4L2_PIX_FMT_H264 ||
+        dev->fcc == V4L2_PIX_FMT_HEVC)
         fmt.fmt.pix.sizeimage = dev->imgsize;
+    else if (dev->fcc == V4L2_PIX_FMT_YUYV)
+        fmt.fmt.pix.sizeimage = dev->width * dev->height * 2;
+    else
+        fmt.fmt.pix.sizeimage = dev->width * dev->height * 3 / 2;
 
     printf("[%s] fmt.fmt.pix.sizeimage: %u, dev->imgsize: %u\n", __func__, fmt.fmt.pix.sizeimage,
             dev->imgsize);
@@ -801,6 +805,18 @@ static void UVC_VideoEnable(UVC_DEVICE_CTX_S *dev) {
  * UVC streaming related
  */
 
+static unsigned int uvc_debug_checksum(const unsigned char *data, size_t length)
+{
+    unsigned int checksum = 2166136261U;
+
+    for (size_t i = 0; i < length; ++i) {
+        checksum ^= data[i];
+        checksum *= 16777619U;
+    }
+
+    return checksum;
+}
+
 static int uvc_video_fill_buffer(UVC_DEVICE_CTX_S *dev, struct v4l2_buffer *buf,
                                  unsigned int timeout_ms)
 {
@@ -876,14 +892,32 @@ static int uvc_video_fill_buffer(UVC_DEVICE_CTX_S *dev, struct v4l2_buffer *buf,
                 put_node_to_queue(fq, old_node);
             }
         } else {
+            unsigned int cache_checksum = 0;
+            unsigned int mmap_checksum = 0;
+            int debug_enabled = access("/tmp/uvc-diag", F_OK) == 0;
+
             if ((dev->mem == NULL) || (dev->mem[buf->index].start == NULL) ||
                 (node->used > dev->mem[buf->index].length)) {
                 node->used = 0;
                 put_node_to_queue(fq, node);
                 return -EINVAL;
             }
+            if (debug_enabled) {
+                cache_checksum = uvc_debug_checksum(node->mem, node->used);
+            }
             memcpy(dev->mem[buf->index].start, node->mem, node->used);
             buf->bytesused = node->used;
+            if (debug_enabled) {
+                mmap_checksum = uvc_debug_checksum(dev->mem[buf->index].start,
+                    node->used);
+                if (cache_checksum != node->debug_checksum ||
+                    mmap_checksum != cache_checksum ||
+                    (node->debug_sequence % 30) == 0) {
+                    printf("UVC DIAG consumer seq=%u size=%u jpeg=%u producer=%08x cache=%08x mmap=%08x\n",
+                        node->debug_sequence, node->used, node->debug_jpeg_valid,
+                        node->debug_checksum, cache_checksum, mmap_checksum);
+                }
+            }
             node->used = 0;
             put_node_to_queue(fq, node);
         }
@@ -1372,7 +1406,7 @@ static void uvc_fill_streaming_control(UVC_DEVICE_CTX_S *dev, struct uvc_streami
     if (!dev->bulk)
         ctrl->dwMaxPayloadTransferSize = (dev->maxpkt) * (dev->mult + 1) * (dev->burst + 1);
     else
-        ctrl->dwMaxPayloadTransferSize = ctrl->dwMaxVideoFrameSize;
+        ctrl->dwMaxPayloadTransferSize = UVC_BULK_PAYLOAD_SIZE;
 
     ctrl->dwClockFrequency = 48000000;
     ctrl->bmFramingInfo = 3;
@@ -1873,7 +1907,13 @@ static int uvc_events_process_data(UVC_DEVICE_CTX_S *dev, struct uvc_request_dat
         dev->height = frame->height;
         dev->fps = 10000000 / target->dwFrameInterval;
         uvc_video_set_format(dev);
-        UVC_VideoEnable(dev);
+        if (dev->bulk && !dev->is_streaming) {
+            ret = uvc_handle_streamon_event(dev);
+            if (ret < 0)
+                goto err;
+        } else {
+            UVC_VideoEnable(dev);
+        }
     }
 
     return 0;
@@ -1975,25 +2015,12 @@ static int uvc_events_init(UVC_DEVICE_CTX_S *dev) {
         UVC_EVENT_CONNECT,
         UVC_EVENT_DISCONNECT,
     };
-    uint32_t payload_size = 0;
-
-    switch (dev->fcc) {
-        case V4L2_PIX_FMT_YUYV:
-            // payload_size = dev->width * dev->height * 2;
-            // break;
-        case V4L2_PIX_FMT_MJPEG:
-        case V4L2_PIX_FMT_H264:
-        case V4L2_PIX_FMT_HEVC:
-            payload_size = dev->imgsize;
-            break;
-    }
-
     uvc_fill_streaming_control(dev, &dev->probe, 0, 0);
     uvc_fill_streaming_control(dev, &dev->commit, 0, 0);
 
     if (dev->bulk) {
-        /* FIXME Crude hack, must be negotiated with the driver. */
-        dev->probe.dwMaxPayloadTransferSize = dev->commit.dwMaxPayloadTransferSize = payload_size;
+        dev->probe.dwMaxPayloadTransferSize =
+            dev->commit.dwMaxPayloadTransferSize = UVC_BULK_PAYLOAD_SIZE;
     }
 
     memset(&sub, 0, sizeof sub);
@@ -2069,16 +2096,16 @@ int32_t UVC_GADGET_DeviceCheck(void) {
 }
 
 int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32MaxFrameSize) {
-    int bulk_mode = 0;
+    int bulk_mode = 1;
 
     int nbufs = WAITED_NODE_SIZE;              /* Ping-Pong buffers */
     /* USB speed related params */
-    int mult = 2;
+    int mult = 0;
     int burst = 0;
-    int maxp = 1024;
+    int maxp = 512;
 
-    enum usb_device_speed speed = USB_SPEED_SUPER; /* High-Speed */
-    enum io_method uvc_io_method = IO_METHOD_USERPTR;
+    enum usb_device_speed speed = USB_SPEED_HIGH;
+    enum io_method uvc_io_method = IO_METHOD_MMAP;
 
     (void)pstDevCaps;
     (void)u32MaxFrameSize;
@@ -2129,6 +2156,9 @@ int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32Max
     }
 
     if (maxp) s_stUVCDevCtx.maxpkt = maxp;
+
+    printf("UVC transport: high-speed bulk payload=%u bytes\n",
+        UVC_BULK_PAYLOAD_SIZE);
 
     s_stUVCDevCtx.uvc_fd = -1;
 

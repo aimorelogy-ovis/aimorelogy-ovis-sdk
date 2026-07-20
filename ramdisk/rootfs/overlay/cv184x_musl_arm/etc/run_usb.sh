@@ -17,6 +17,7 @@ PRODUCT_RNDIS="RNDIS"
 PRODUCT_UVC="UVC"
 PRODUCT_UAC="UAC"
 PRODUCT_ADB="ADB"
+PRODUCT_WEBUSB="OVIS WebUSB Control"
 ADBD_PATH=/usr/bin/
 UMTPRD_PATH=/usr/bin/
 SERIAL="0123456789"
@@ -71,9 +72,13 @@ case "$2" in
   mtp)
 	CLASS=ffs.mtp
 	;;
+  webusb)
+	CLASS=ffs.ovis
+	PRODUCT=$PRODUCT_WEBUSB
+	;;
   *)
 	if [ "$1" = "probe" ] ; then
-	  echo "Usage: $0 probe {acm|msc|cvg|ncm|rndis|uvc|uac1|adb}"
+	  echo "Usage: $0 probe {acm|msc|cvg|ncm|rndis|uvc|uac1|adb|webusb}"
 	  exit 1
 	fi
 esac
@@ -126,6 +131,10 @@ res_check() {
       EP_OUT=$(($EP_OUT + 1)) # Bulk OUT
       INTF_NUM=$(($INTF_NUM + 1))
   fi
+  TMP_NUM=$(find $CVI_GADGET/functions/ -name ffs.ovis | wc -l)
+  EP_IN=$(($EP_IN+$TMP_NUM))
+  EP_OUT=$(($EP_OUT+$TMP_NUM))
+  INTF_NUM=$(($INTF_NUM+$TMP_NUM))
 
   if [ "$CLASS" = "acm" ] ; then
     EP_IN=$(($EP_IN+2))
@@ -160,6 +169,10 @@ res_check() {
   fi
   if [ "$CLASS" = "ffs.mtp" ] ; then
     EP_IN=$(($EP_IN+2))
+    EP_OUT=$(($EP_OUT+1))
+  fi
+  if [ "$CLASS" = "ffs.ovis" ] ; then
+    EP_IN=$(($EP_IN+1))
     EP_OUT=$(($EP_OUT+1))
   fi
   echo "$EP_IN in ep"
@@ -209,7 +222,8 @@ probe() {
   # resource check
   res_check
   # create the desired function
-  if [ "$CLASS" = "ffs.adb" ] || [ "$CLASS" = "ffs.mtp" ]; then
+  if [ "$CLASS" = "ffs.adb" ] || [ "$CLASS" = "ffs.mtp" ] || \
+     [ "$CLASS" = "ffs.ovis" ]; then
     if [ "$CLASS" = "ffs.adb" ]; then
         echo $VID >$CVI_GADGET/idVendor
         echo $PID >$CVI_GADGET/idProduct
@@ -245,6 +259,13 @@ probe() {
     echo 1 >$CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/Label/type
     echo "XYZ Device" >$CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/Label/data
   fi
+  if [ "$CLASS" = "ffs.ovis" ] ; then
+    echo 1 >$CVI_GADGET/os_desc/use
+    echo 0xcd >$CVI_GADGET/os_desc/b_vendor_code
+    echo MSFT100 >$CVI_GADGET/os_desc/qw_sign
+    [ -e $CVI_GADGET/os_desc/c.1 ] || \
+      ln -s $CVI_GADGET/configs/c.1 $CVI_GADGET/os_desc
+  fi
 
 }
 
@@ -262,6 +283,10 @@ start() {
   do
     find $CVI_GADGET/functions/ -name "*.usb$i" | xargs -I % ln -s % $CVI_GADGET/configs/c.1
   done
+
+  if [ -d $CVI_GADGET/functions/ffs.ovis ]; then
+    ln -s $CVI_GADGET/functions/ffs.ovis $CVI_GADGET/configs/c.1
+  fi
 
   if [ -d $CVI_GADGET/functions/ffs.mtp ]; then
     ln -s $CVI_GADGET/functions/ffs.mtp $CVI_GADGET/configs/c.1
@@ -323,16 +348,18 @@ stop() {
       echo "" >$CVI_GADGET/UDC
     fi
   fi
+  if [ -L $CVI_GADGET/configs/c.1/ffs.ovis ]; then
+    rm -f $CVI_GADGET/configs/c.1/ffs.ovis
+  fi
   find $CVI_GADGET/configs/ -name "*.usb*" | xargs rm -f
   if [ -f /etc/ConfigUVC.sh ]; then
     CVI_GADGET="$CVI_GADGET" sh /etc/ConfigUVC.sh cleanup || return 1
   fi
 
   rmdir $CVI_GADGET/configs/c.*/strings/0x409/
-  tmp_dirs=$(find $CVI_GADGET/os_desc/c.* -type d 2>/dev/null)
-  if [ -n "$tmp_dirs" ]; then
+  if [ -e $CVI_GADGET/os_desc/c.1 ]; then
     echo "remove os_desc!"
-    rm -rf $CVI_GADGET/os_desc/c.*/
+    rm -f $CVI_GADGET/os_desc/c.1
     find $CVI_GADGET/functions/ -name Icons | xargs -r rmdir
     find $CVI_GADGET/functions/ -name Label | xargs -r rmdir
   fi
@@ -360,7 +387,7 @@ case "$1" in
   echo ${UDC} >$CVI_GADGET/UDC   
 	;;
   *)
-	echo "Usage: $0 probe {acm|msc|cvg|ncm|rndis|uvc|uac1|adb} {file (msc)}"
+	echo "Usage: $0 probe {acm|msc|cvg|ncm|rndis|uvc|uac1|adb|webusb} {file (msc)}"
 	echo "Usage: $0 start"
 	echo "Usage: $0 stop"
 	exit 1

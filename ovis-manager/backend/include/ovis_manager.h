@@ -12,8 +12,11 @@
 #ifndef OVIS_BIND_ADDRESS
 #define OVIS_BIND_ADDRESS "192.168.42.1"
 #endif
+#ifndef OVIS_BIND_ADDRESS_FILE
+#define OVIS_BIND_ADDRESS_FILE "/var/run/ovis-ncm-address"
+#endif
 #ifndef OVIS_ALLOWED_ORIGIN
-#define OVIS_ALLOWED_ORIGIN "https://jeff010726.github.io"
+#define OVIS_ALLOWED_ORIGIN "https://ovis.aimorelogy.com"
 #endif
 #ifndef OVIS_DEV_ORIGIN
 #define OVIS_DEV_ORIGIN "http://localhost:5173"
@@ -52,7 +55,14 @@
 #endif
 #define OVIS_ACCOUNT_FILE "/mnt/cfg/ovis-manager/ovis.account"
 #define OVIS_DEVICE_ID_FILE "/mnt/cfg/ovis-manager/device-id"
+#define OVIS_NCM_SUBNET_FILE "/mnt/cfg/ovis-manager/ncm-subnet"
+#define OVIS_NCM_PENDING_SUBNET_FILE "/mnt/cfg/ovis-manager/ncm-subnet.pending"
+#define OVIS_NCM_ACTIVE_FILE "/var/run/ovis-ncm-address"
+#define OVIS_WEBUSB_EP0 "/dev/usb-ffs/ovis/ep0"
+#define OVIS_WEBUSB_READY_FILE "/var/run/ovis-webusb-ready"
 #define OVIS_AUDIT_LOG "/mnt/cfg/ovis-manager/audit.log"
+#define OVIS_SC235HAI_30FPS_SNS_TYPE "0X20B83320"
+#define OVIS_SC235HAI_60FPS_SNS_TYPE "0X20B83420"
 
 enum service_action {
 	SERVICE_START,
@@ -72,6 +82,7 @@ struct http_request {
 };
 
 int http_server_run(unsigned short port);
+int usb_provision_run(void);
 int service_get_status(char *json, size_t size);
 int service_run_action(enum service_action action, char *output, size_t size);
 unsigned long task_submit(enum service_action action);

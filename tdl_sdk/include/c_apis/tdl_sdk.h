@@ -123,6 +123,26 @@ int32_t TDL_OpenModel(TDLHandle handle, const TDLModel model_id,
                       const int vpss_dev);
 
 /**
+ * @brief 加载模型，并允许模型输入直接使用外部预处理帧
+ *
+ * skip_input_alloc 为 true 时，模型不预先分配输入 tensor，推理时由
+ * TDL_WrapFrame(frame, own_memory, true) 包装的预处理帧直接提供输入内存。
+ *
+ * @param handle 已初始化的 TDLHandle 对象
+ * @param model_id 要加载的模型类型
+ * @param model_path 模型文件路径，传入 NULL 时使用模型配置中的路径
+ * @param model_config_json 模型配置文件路径
+ * @param vpss_dev 模型内部预处理使用的 VPSS 设备 ID
+ * @param skip_input_alloc 是否跳过输入 tensor 内存分配
+ * @return 成功返回 0，失败返回-1
+ */
+int32_t TDL_OpenModelSkipInputAlloc(TDLHandle handle, const TDLModel model_id,
+                                    const char *model_path,
+                                    const char *model_config_json,
+                                    const int vpss_dev,
+                                    bool skip_input_alloc);
+
+/**
  * @brief 加载指定模型到 TDLHandle 对象
  *
  * @param handle 已初始化的 TDLHandle 对象，通过 TDL_CreateHandle 创建

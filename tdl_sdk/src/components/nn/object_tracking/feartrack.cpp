@@ -64,6 +64,8 @@ FearTrack::FearTrack() {
 
 FearTrack::~FearTrack() {}
 
+void FearTrack::invalidateInputCache() { template_input_cached_ = false; }
+
 int32_t FearTrack::onModelOpened() {
   // 获取输入输出层信息
   const auto& input_layers = net_->getInputNames();
@@ -74,6 +76,98 @@ int32_t FearTrack::onModelOpened() {
          input_layers.size(), output_layers.size());
     return -1;
   }
+  invalidateInputCache();
+  return 0;
+}
+
+int32_t FearTrack::inference(
+    const std::vector<std::vector<std::shared_ptr<BaseImage>>>& images,
+    std::vector<std::shared_ptr<ModelOutputInfo>>& out_datas,
+    const std::map<std::string, float>& parameters) {
+  if (images.size() != 1 || images[0].size() != 2 || !images[0][0] ||
+      !images[0][1]) {
+    LOGE("FearTrack expects one template/search image pair");
+    return -1;
+  }
+  if (!preprocessor_ || !net_) {
+    LOGE("FearTrack model is not ready");
+    return -1;
+  }
+
+  const std::vector<std::string>& input_names = net_->getInputNames();
+  if (input_names.size() != 2) {
+    LOGE("FearTrack input count mismatch: %zu", input_names.size());
+    return -1;
+  }
+
+  std::shared_ptr<BaseTensor> template_tensor =
+      net_->getInputTensor(input_names[0]);
+  std::shared_ptr<BaseTensor> search_tensor =
+      net_->getInputTensor(input_names[1]);
+  if (!template_tensor || !search_tensor) {
+    LOGE("FearTrack input tensor is null");
+    return -1;
+  }
+
+  model_timer_.TicToc("runstart");
+  if (!template_input_cached_) {
+    int32_t ret = preprocessor_->preprocessToTensor(
+        images[0][0], preprocess_params_[input_names[0]], 0,
+        template_tensor);
+    if (ret != 0) {
+      LOGE("FearTrack template preprocess failed with %#x", ret);
+      return ret;
+    }
+    template_input_cached_ = true;
+  }
+
+  PreprocessParams search_params = preprocess_params_[input_names[1]];
+  const auto crop_x = parameters.find("search_crop_x");
+  const auto crop_y = parameters.find("search_crop_y");
+  const auto crop_width = parameters.find("search_crop_width");
+  const auto crop_height = parameters.find("search_crop_height");
+  if (crop_x != parameters.end() && crop_y != parameters.end() &&
+      crop_width != parameters.end() && crop_height != parameters.end()) {
+    search_params.crop_x = static_cast<int>(crop_x->second);
+    search_params.crop_y = static_cast<int>(crop_y->second);
+    search_params.crop_width = static_cast<int>(crop_width->second);
+    search_params.crop_height = static_cast<int>(crop_height->second);
+    search_params.keep_aspect_ratio = false;
+  }
+
+  int32_t ret = preprocessor_->preprocessToTensor(
+      images[0][1], search_params, 0, search_tensor);
+  if (ret != 0) {
+    LOGE("FearTrack search preprocess failed with %#x", ret);
+    return ret;
+  }
+  model_timer_.TicToc("preprocess");
+
+  ret = net_->updateInputTensors();
+  if (ret != 0) {
+    LOGE("FearTrack update input tensors failed with %#x", ret);
+    return ret;
+  }
+  ret = net_->forward();
+  if (ret != 0) {
+    LOGE("FearTrack inference failed with %#x", ret);
+    return ret;
+  }
+  model_timer_.TicToc("tpu");
+
+  ret = net_->updateOutputTensors();
+  if (ret != 0) {
+    LOGE("FearTrack update output tensors failed with %#x", ret);
+    return ret;
+  }
+  std::vector<std::shared_ptr<ModelOutputInfo>> results;
+  ret = outputParse(images, results);
+  if (ret != 0) {
+    LOGE("FearTrack output parse failed with %#x", ret);
+    return ret;
+  }
+  model_timer_.TicToc("post");
+  out_datas.insert(out_datas.end(), results.begin(), results.end());
   return 0;
 }
 
@@ -116,14 +210,11 @@ int32_t FearTrack::outputParse(
 
   // 遍历批次
   for (uint32_t b = 0; b < images.size(); b++) {
-    uint32_t search_image_width = images[b][1]->getWidth();
-    uint32_t search_image_height = images[b][1]->getHeight();
-
     // 创建输出结构
     std::shared_ptr<ModelBoxInfo> track_result =
         std::make_shared<ModelBoxInfo>();
-    track_result->image_width = search_image_width;
-    track_result->image_height = search_image_height;
+    track_result->image_width = instance_size_;
+    track_result->image_height = instance_size_;
 
     // 找到最高得分位置
     float max_score = -1;
@@ -180,10 +271,6 @@ int32_t FearTrack::outputParse(
       // 添加到结果中
       track_result->bboxes.push_back(bbox);
 
-      LOGI("跟踪结果：[%f, %f, %f, %f]，得分：%f", bbox.x1, bbox.y1, bbox.x2,
-           bbox.y2, bbox.score);
-    } else {
-      LOGI("未找到有效的跟踪目标");
     }
 
     out_datas.push_back(track_result);

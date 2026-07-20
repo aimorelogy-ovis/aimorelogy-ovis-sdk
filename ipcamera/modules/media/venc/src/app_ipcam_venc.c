@@ -45,6 +45,8 @@ APP_PARAM_VENC_CTX_S g_stVencCtx, *g_pstVencCtx = &g_stVencCtx;
 
 static pthread_t g_Venc_pthread[VENC_CHN_MAX];
 static RUN_THREAD_PARAM mStreamTaskThd;
+static volatile CVI_BOOL g_bVencFirstStreamReady = CVI_FALSE;
+static volatile CVI_BOOL g_abVencStreamReady[VENC_CHN_MAX] = {CVI_FALSE};
 
 static CVI_BOOL bJpgCapFlag = CVI_FALSE;
 pthread_cond_t JpgCapCond = PTHREAD_COND_INITIALIZER;
@@ -63,6 +65,38 @@ CVI_S32 g_s32SwitchSizeiTime;
 APP_PARAM_VENC_CTX_S *app_ipcam_Venc_Param_Get(void)
 {
     return g_pstVencCtx;
+}
+
+CVI_BOOL app_ipcam_Venc_First_Stream_Ready(void)
+{
+    return g_bVencFirstStreamReady;
+}
+
+CVI_BOOL app_ipcam_Venc_Chn_Stream_Ready(VENC_CHN VencChn)
+{
+    if (VencChn < 0 || VencChn >= VENC_CHN_MAX) {
+        return CVI_FALSE;
+    }
+
+    return g_abVencStreamReady[VencChn];
+}
+
+CVI_BOOL app_ipcam_Venc_All_Stream_Ready(void)
+{
+    for (CVI_S32 i = 0; i < g_pstVencCtx->s32VencChnCnt; i++) {
+        APP_VENC_CHN_CFG_S *pstVencChnCfg = &g_pstVencCtx->astVencChnCfg[i];
+        VENC_CHN VencChn = pstVencChnCfg->VencChn;
+
+        if (!pstVencChnCfg->bEnable || pstVencChnCfg->enType == PT_JPEG) {
+            continue;
+        }
+        if (VencChn < 0 || VencChn >= VENC_CHN_MAX ||
+            !g_abVencStreamReady[VencChn]) {
+            return CVI_FALSE;
+        }
+    }
+
+    return CVI_TRUE;
 }
 
 APP_VENC_CHN_CFG_S *app_ipcam_VencChnCfg_Get(VENC_CHN VencChn)
@@ -1263,6 +1297,13 @@ static void *Thread_Streaming_Proc(void *pArgs)
         s32VencCount ++ ;
         if(bVencSuccessFlag == CVI_FALSE && s32VencCount > 10){
             bVencSuccessFlag = CVI_TRUE;
+            if (VencChn >= 0 && VencChn < VENC_CHN_MAX) {
+                g_abVencStreamReady[VencChn] = CVI_TRUE;
+            }
+            if (g_bVencFirstStreamReady == CVI_FALSE) {
+                g_bVencFirstStreamReady = CVI_TRUE;
+            }
+            APP_PROF_LOG_PRINT(LEVEL_INFO, "VENC stream stable, chn=%d\n", VencChn);
             int fd = open("/tmp/auto_test_success", O_RDWR | O_CREAT | O_TRUNC, 0644);
             if (fd == -1) {
                 perror("open");
@@ -1679,6 +1720,8 @@ int app_ipcam_Venc_Stop(APP_VENC_CHN_E VencIdx)
 int app_ipcam_Venc_Start(APP_VENC_CHN_E VencIdx)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
+    g_bVencFirstStreamReady = CVI_FALSE;
+    memset((void *)g_abVencStreamReady, 0, sizeof(g_abVencStreamReady));
 
     for (VENC_CHN s32ChnIdx = 0; s32ChnIdx < g_pstVencCtx->s32VencChnCnt; s32ChnIdx++) {
         APP_VENC_CHN_CFG_S *pstVencChnCfg = &g_pstVencCtx->astVencChnCfg[s32ChnIdx];

@@ -1,12 +1,13 @@
 #!/bin/sh
 
 DAEMON=/usr/sbin/ovis-managerd
+IDENTITY_HELPER=/usr/sbin/ovis-device-identity
 PIDFILE=/var/run/ovis-manager.pid
 STATE_DIR=/mnt/cfg/ovis-manager
 ACCOUNT_FILE="$STATE_DIR/ovis.account"
-DEVICE_ID_FILE="$STATE_DIR/device-id"
 OLD_CREDENTIALS="$STATE_DIR/credentials"
 LOGFILE=/var/log/ovis-manager.log
+NCM_ADDRESS_FILE=/var/run/ovis-ncm-address
 
 is_running() {
 	[ -r "$PIDFILE" ] || return 1
@@ -14,37 +15,21 @@ is_running() {
 	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
-ensure_device_id() {
-	device_id=$(sed -n '1p' "$DEVICE_ID_FILE" 2>/dev/null)
-	case "$device_id" in
-		OVIS-*)
-			case "$device_id" in
-				*[!A-Za-z0-9-]*) device_id= ;;
-			esac
-			;;
-		*) device_id= ;;
-	esac
-	[ "${#device_id}" -ge 13 ] 2>/dev/null || device_id=
-	if [ -z "$device_id" ]; then
-		device_suffix=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
-		[ "${#device_suffix}" -eq 16 ] || return 1
-		device_id="OVIS-1842-$device_suffix"
-		umask 077
-		printf '%s\n' "$device_id" > "$DEVICE_ID_FILE" || return 1
-		echo "OVIS device ID created: $device_id"
-	fi
-	chmod 600 "$DEVICE_ID_FILE"
-}
-
 start() {
 	[ -x "$DAEMON" ] || return 0
+	if [ ! -s "$NCM_ADDRESS_FILE" ]; then
+		echo "ovis-manager start deferred until the NCM subnet is configured"
+		return 0
+	fi
 	if is_running; then
 		echo "ovis-manager is already running (PID $pid)"
 		return 0
 	fi
 	rm -f "$PIDFILE"
 	mkdir -p "$STATE_DIR" || return 1
-	ensure_device_id || return 1
+	[ -x "$IDENTITY_HELPER" ] || return 1
+	device_id=$("$IDENTITY_HELPER") || return 1
+	echo "OVIS device ID: $device_id"
 	account_username=$(sed -n 's/^username=//p' "$ACCOUNT_FILE" 2>/dev/null)
 	account_password=$(sed -n 's/^password=//p' "$ACCOUNT_FILE" 2>/dev/null)
 	if [ "$account_username" != "admin" ] || [ -z "$account_password" ]; then

@@ -1,6 +1,10 @@
 #include "object_detection/yolov8.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <vector>
@@ -33,6 +37,142 @@ inline std::vector<float> get_box_vals(T *p_box_ptr, int num_anchor,
     box_vals.push_back(p_box_ptr[c * num_anchor + anchor_idx] * qscale);
   }
   return box_vals;
+}
+
+inline int exp_lut_index(int8_t value) { return static_cast<int>(value) + 128; }
+
+inline int exp_lut_index(uint8_t value) { return static_cast<int>(value); }
+
+template <typename T>
+inline void parse_dfl_box(const T *box_ptr, int num_anchor, int anchor_idx,
+                          int feat_w, int stride, float qscale, float *x1,
+                          float *y1, float *x2, float *y2) {
+  constexpr int kBoxValueCount = 4;
+  constexpr int kRegMax = 16;
+  float box_values[kBoxValueCount];
+
+  for (int i = 0; i < kBoxValueCount; i++) {
+    float sum_softmax = 0.0f;
+    float sum_value = 0.0f;
+    const int channel_offset = i * kRegMax;
+    for (int j = 0; j < kRegMax; j++) {
+      float logit =
+          box_ptr[(channel_offset + j) * num_anchor + anchor_idx] * qscale;
+      float exp_value = std::exp(logit);
+      sum_softmax += exp_value;
+      sum_value += exp_value * j;
+    }
+    box_values[i] = sum_value / sum_softmax;
+  }
+
+  int anchor_y = anchor_idx / feat_w;
+  int anchor_x = anchor_idx % feat_w;
+  float grid_y = anchor_y + 0.5f;
+  float grid_x = anchor_x + 0.5f;
+  *x1 = (grid_x - box_values[0]) * stride;
+  *y1 = (grid_y - box_values[1]) * stride;
+  *x2 = (grid_x + box_values[2]) * stride;
+  *y2 = (grid_y + box_values[3]) * stride;
+}
+
+template <typename T>
+inline void parse_dfl_box_lut(const T *box_ptr, int num_anchor,
+                              int anchor_idx, int feat_w, int stride,
+                              const std::array<float, 256> &exp_lut,
+                              float *x1, float *y1, float *x2, float *y2) {
+  constexpr int kBoxValueCount = 4;
+  constexpr int kRegMax = 16;
+  float box_values[kBoxValueCount];
+
+  for (int i = 0; i < kBoxValueCount; i++) {
+    float sum_softmax = 0.0f;
+    float sum_value = 0.0f;
+    const int channel_offset = i * kRegMax;
+    for (int j = 0; j < kRegMax; j++) {
+      int lut_index = exp_lut_index(
+          box_ptr[(channel_offset + j) * num_anchor + anchor_idx]);
+      float exp_value = exp_lut[lut_index];
+      sum_softmax += exp_value;
+      sum_value += exp_value * j;
+    }
+    box_values[i] = sum_value / sum_softmax;
+  }
+
+  int anchor_y = anchor_idx / feat_w;
+  int anchor_x = anchor_idx % feat_w;
+  float grid_y = anchor_y + 0.5f;
+  float grid_x = anchor_x + 0.5f;
+  *x1 = (grid_x - box_values[0]) * stride;
+  *y1 = (grid_y - box_values[1]) * stride;
+  *x2 = (grid_x + box_values[2]) * stride;
+  *y2 = (grid_y + box_values[3]) * stride;
+}
+
+inline std::array<float, 256> make_int8_exp_lut(float qscale) {
+  std::array<float, 256> lut;
+  for (int i = 0; i < 256; i++) {
+    lut[i] = std::exp((i - 128) * qscale);
+  }
+  return lut;
+}
+
+inline std::array<float, 256> make_uint8_exp_lut(float qscale) {
+  std::array<float, 256> lut;
+  for (int i = 0; i < 256; i++) {
+    lut[i] = std::exp(i * qscale);
+  }
+  return lut;
+}
+
+template <typename T>
+inline void collect_passing_cls(const T *cls_ptr, int num_anchor, int num_cls,
+                                int cls_offset, float qscale,
+                                float inverse_threshold,
+                                std::vector<int> &anchor_indices,
+                                std::vector<int> &class_indices,
+                                std::vector<float> &logits) {
+  if (num_cls <= 4) {
+    for (int anchor = 0; anchor < num_anchor; anchor++) {
+      T max_raw = std::numeric_limits<T>::lowest();
+      int max_cls = -1;
+      for (int cls = 0; cls < num_cls; cls++) {
+        T raw = cls_ptr[(cls + cls_offset) * num_anchor + anchor];
+        if (raw > max_raw) {
+          max_raw = raw;
+          max_cls = cls;
+        }
+      }
+      float max_logit = max_raw * qscale;
+      if (max_logit >= inverse_threshold) {
+        anchor_indices.push_back(anchor);
+        class_indices.push_back(max_cls);
+        logits.push_back(max_logit);
+      }
+    }
+    return;
+  }
+
+  std::vector<T> max_raw(num_anchor, std::numeric_limits<T>::lowest());
+  std::vector<int> max_cls(num_anchor, -1);
+  for (int cls = 0; cls < num_cls; cls++) {
+    const T *class_ptr = cls_ptr + (cls + cls_offset) * num_anchor;
+    for (int anchor = 0; anchor < num_anchor; anchor++) {
+      T raw = class_ptr[anchor];
+      if (raw > max_raw[anchor]) {
+        max_raw[anchor] = raw;
+        max_cls[anchor] = cls;
+      }
+    }
+  }
+
+  for (int anchor = 0; anchor < num_anchor; anchor++) {
+    float max_logit = max_raw[anchor] * qscale;
+    if (max_logit >= inverse_threshold) {
+      anchor_indices.push_back(anchor);
+      class_indices.push_back(max_cls[anchor]);
+      logits.push_back(max_logit);
+    }
+  }
 }
 
 YoloV8Detection::YoloV8Detection(const int num_cls)
@@ -239,15 +379,20 @@ int32_t YoloV8Detection::outputParse(
     for (size_t i = 0; i < strides.size(); i++) {
       int stride = strides[i];
       std::string cls_name;
+      std::string box_name;
       int cls_offset = 0;
       if (class_out_names.count(stride)) {
         cls_name = class_out_names[stride];
+        box_name = bbox_out_names[stride];
       } else if (bbox_class_out_names.count(stride)) {
         cls_name = bbox_class_out_names[stride];
+        box_name = bbox_class_out_names[stride];
         cls_offset = num_box_channel_;
       }
       TensorInfo classinfo = net_->getTensorInfo(cls_name);
       std::shared_ptr<BaseTensor> cls_tensor = net_->getOutputTensor(cls_name);
+      TensorInfo boxinfo = net_->getTensorInfo(box_name);
+      std::shared_ptr<BaseTensor> box_tensor = net_->getOutputTensor(box_name);
 
       int num_per_pixel = classinfo.tensor_size / classinfo.tensor_elem;
 
@@ -258,38 +403,96 @@ int32_t YoloV8Detection::outputParse(
            classinfo.tensor_size / classinfo.tensor_elem, num_cls,
            classinfo.qscale);
       float cls_qscale = num_per_pixel == 1 ? classinfo.qscale : 1;
-      for (int j = 0; j < num_anchor; j++) {
-        int max_logit_c = -1;
-        float max_logit = -1000;
-        if (classinfo.data_type == TDLDataType::INT8) {
-          parse_cls_info<int8_t>(cls_tensor->getBatchPtr<int8_t>(b), num_anchor,
-                                 num_cls, j, cls_offset, cls_qscale, &max_logit,
-                                 &max_logit_c);
-        } else if (classinfo.data_type == TDLDataType::UINT8) {
-          parse_cls_info<uint8_t>(cls_tensor->getBatchPtr<uint8_t>(b),
-                                  num_anchor, num_cls, j, cls_offset,
-                                  cls_qscale, &max_logit, &max_logit_c);
-        } else if (classinfo.data_type == TDLDataType::FP32) {
-          parse_cls_info<float>(cls_tensor->getBatchPtr<float>(b), num_anchor,
-                                num_cls, j, cls_offset, cls_qscale, &max_logit,
-                                &max_logit_c);
-        } else {
-          LOGE("unsupported data type:%d\n",
-               static_cast<int>(classinfo.data_type));
-          assert(0);
-        }
-        if (max_logit < inverse_th) {
-          continue;
-        }
+      int box_num_anchor = boxinfo.shape[2] * boxinfo.shape[3];
+      int box_feat_w = boxinfo.shape[3];
+      float box_qscale = boxinfo.qscale;
+
+      std::array<float, 256> int8_exp_lut;
+      std::array<float, 256> uint8_exp_lut;
+      if (boxinfo.data_type == TDLDataType::INT8) {
+        int8_exp_lut = make_int8_exp_lut(box_qscale);
+      } else if (boxinfo.data_type == TDLDataType::UINT8) {
+        uint8_exp_lut = make_uint8_exp_lut(box_qscale);
+      }
+
+      int8_t *cls_int8 = nullptr;
+      uint8_t *cls_uint8 = nullptr;
+      float *cls_float = nullptr;
+      if (classinfo.data_type == TDLDataType::INT8) {
+        cls_int8 = cls_tensor->getBatchPtr<int8_t>(b);
+      } else if (classinfo.data_type == TDLDataType::UINT8) {
+        cls_uint8 = cls_tensor->getBatchPtr<uint8_t>(b);
+      } else if (classinfo.data_type == TDLDataType::FP32) {
+        cls_float = cls_tensor->getBatchPtr<float>(b);
+      } else {
+        LOGE("unsupported class data type:%d\n",
+             static_cast<int>(classinfo.data_type));
+        return -1;
+      }
+
+      int8_t *box_int8 = nullptr;
+      uint8_t *box_uint8 = nullptr;
+      float *box_float = nullptr;
+      if (boxinfo.data_type == TDLDataType::INT8) {
+        box_int8 = box_tensor->getBatchPtr<int8_t>(b);
+      } else if (boxinfo.data_type == TDLDataType::UINT8) {
+        box_uint8 = box_tensor->getBatchPtr<uint8_t>(b);
+      } else if (boxinfo.data_type == TDLDataType::FP32) {
+        box_float = box_tensor->getBatchPtr<float>(b);
+      } else {
+        LOGE("unsupported box data type:%d\n",
+             static_cast<int>(boxinfo.data_type));
+        return -1;
+      }
+
+      std::vector<int> passing_anchor_indices;
+      std::vector<int> passing_class_indices;
+      std::vector<float> passing_logits;
+      passing_anchor_indices.reserve(128);
+      passing_class_indices.reserve(128);
+      passing_logits.reserve(128);
+      if (cls_int8 != nullptr) {
+        collect_passing_cls(cls_int8, num_anchor, num_cls, cls_offset,
+                            cls_qscale, inverse_th, passing_anchor_indices,
+                            passing_class_indices, passing_logits);
+      } else if (cls_uint8 != nullptr) {
+        collect_passing_cls(cls_uint8, num_anchor, num_cls, cls_offset,
+                            cls_qscale, inverse_th, passing_anchor_indices,
+                            passing_class_indices, passing_logits);
+      } else {
+        collect_passing_cls(cls_float, num_anchor, num_cls, cls_offset,
+                            cls_qscale, inverse_th, passing_anchor_indices,
+                            passing_class_indices, passing_logits);
+      }
+
+      for (size_t candidate = 0; candidate < passing_anchor_indices.size();
+           candidate++) {
+        int anchor = passing_anchor_indices[candidate];
+        int max_logit_c = passing_class_indices[candidate];
+        float max_logit = passing_logits[candidate];
         float score = 1 / (1 + exp(-max_logit));
-        std::vector<float> box;
-        decodeBboxFeatureMap(b, stride, j, box);
+        float box_x1 = 0.0f;
+        float box_y1 = 0.0f;
+        float box_x2 = 0.0f;
+        float box_y2 = 0.0f;
+        if (box_int8 != nullptr) {
+          parse_dfl_box_lut(box_int8, box_num_anchor, anchor, box_feat_w,
+                            stride, int8_exp_lut, &box_x1, &box_y1, &box_x2,
+                            &box_y2);
+        } else if (box_uint8 != nullptr) {
+          parse_dfl_box_lut(box_uint8, box_num_anchor, anchor, box_feat_w,
+                            stride, uint8_exp_lut, &box_x1, &box_y1, &box_x2,
+                            &box_y2);
+        } else {
+          parse_dfl_box(box_float, box_num_anchor, anchor, box_feat_w, stride,
+                        box_qscale, &box_x1, &box_y1, &box_x2, &box_y2);
+        }
         ObjectBoxInfo bbox;
         bbox.score = score;
-        bbox.x1 = std::max(0.0f, std::min(box[0], input_width_f));
-        bbox.y1 = std::max(0.0f, std::min(box[1], input_height_f));
-        bbox.x2 = std::max(0.0f, std::min(box[2], input_width_f));
-        bbox.y2 = std::max(0.0f, std::min(box[3], input_height_f));
+        bbox.x1 = std::max(0.0f, std::min(box_x1, input_width_f));
+        bbox.y1 = std::max(0.0f, std::min(box_y1, input_height_f));
+        bbox.x2 = std::max(0.0f, std::min(box_x2, input_width_f));
+        bbox.y2 = std::max(0.0f, std::min(box_y2, input_height_f));
         bbox.class_id = max_logit_c;
         // LOGI("bbox:[%f,%f,%f,%f],score:%f,label:%d,logit:%f\n", bbox.x1,
         //      bbox.y1, bbox.x2, bbox.y2, bbox.score, max_logit_c, max_logit);

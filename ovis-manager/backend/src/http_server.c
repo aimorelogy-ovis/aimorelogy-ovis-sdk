@@ -4,12 +4,20 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
+
+#define OVIS_NETWORK_RESET_COMMAND "/etc/init.d/S77ncm network-reset"
+#define OVIS_NETWORK_RESET_GRACE_MS 1000
+
+static pthread_mutex_t network_reset_lock = PTHREAD_MUTEX_INITIALIZER;
+static int network_reset_scheduled;
 
 static char *find_header(char *buffer, const char *name)
 {
@@ -34,6 +42,45 @@ static int send_all(int fd, const void *data, size_t size)
 		buffer += sent;
 		size -= (size_t)sent;
 	}
+	return 0;
+}
+
+static void *network_reset_worker(void *arg)
+{
+	struct timespec remaining = {
+		.tv_sec = OVIS_NETWORK_RESET_GRACE_MS / 1000,
+		.tv_nsec = (OVIS_NETWORK_RESET_GRACE_MS % 1000) * 1000000L,
+	};
+	int result;
+
+	(void)arg;
+	while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR)
+		;
+	result = system(OVIS_NETWORK_RESET_COMMAND);
+	audit_log("device.network.reset", result == 0 ? "success" : "failed");
+	pthread_mutex_lock(&network_reset_lock);
+	network_reset_scheduled = 0;
+	pthread_mutex_unlock(&network_reset_lock);
+	return NULL;
+}
+
+static int schedule_network_reset(void)
+{
+	pthread_t thread;
+
+	pthread_mutex_lock(&network_reset_lock);
+	if (network_reset_scheduled) {
+		pthread_mutex_unlock(&network_reset_lock);
+		return 1;
+	}
+	network_reset_scheduled = 1;
+	if (pthread_create(&thread, NULL, network_reset_worker, NULL) != 0) {
+		network_reset_scheduled = 0;
+		pthread_mutex_unlock(&network_reset_lock);
+		return -1;
+	}
+	pthread_detach(thread);
+	pthread_mutex_unlock(&network_reset_lock);
 	return 0;
 }
 
@@ -205,6 +252,19 @@ static void route_request(int fd, const struct http_request *request)
 			send_response(fd, 200, "application/json; charset=utf-8", json, request);
 		return;
 	}
+	if (strcmp(request->method, "POST") == 0 &&
+	    strcmp(request->path, "/api/v1/device/network/reset") == 0) {
+		rc = schedule_network_reset();
+		if (rc == 1)
+			send_json_error(fd, 409, "设备网络重置已在执行", request);
+		else if (rc != 0)
+			send_json_error(fd, 500, "无法创建设备网络重置任务", request);
+		else {
+			audit_log("device.network.reset", "accepted");
+			send_response(fd, 202, "text/plain; charset=utf-8", "", request);
+		}
+		return;
+	}
 	if (strcmp(request->method, "GET") == 0 &&
 	    strcmp(request->path, "/api/v1/config/capabilities") == 0) {
 		if (config_capabilities_json(json, sizeof(json)) != 0)
@@ -334,9 +394,29 @@ static void handle_client(int fd)
 		route_request(fd, &request);
 }
 
+static void get_bind_address(char *value, size_t size)
+{
+	struct in_addr parsed;
+	FILE *file;
+
+	snprintf(value, size, "%s", OVIS_BIND_ADDRESS);
+	file = fopen(OVIS_BIND_ADDRESS_FILE, "r");
+	if (file == NULL)
+		return;
+	if (fgets(value, (int)size, file) == NULL) {
+		snprintf(value, size, "%s", OVIS_BIND_ADDRESS);
+	} else {
+		value[strcspn(value, "\r\n")] = '\0';
+		if (inet_pton(AF_INET, value, &parsed) != 1)
+			snprintf(value, size, "%s", OVIS_BIND_ADDRESS);
+	}
+	fclose(file);
+}
+
 int http_server_run(unsigned short port)
 {
 	struct sockaddr_in address = {0};
+	char bind_address[INET_ADDRSTRLEN];
 	int server;
 	int option = 1;
 
@@ -344,8 +424,9 @@ int http_server_run(unsigned short port)
 	if (server < 0) return 1;
 	setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
 	address.sin_family = AF_INET;
-	if (inet_pton(AF_INET, OVIS_BIND_ADDRESS, &address.sin_addr) != 1) {
-		fprintf(stderr, "invalid bind address: %s\n", OVIS_BIND_ADDRESS);
+	get_bind_address(bind_address, sizeof(bind_address));
+	if (inet_pton(AF_INET, bind_address, &address.sin_addr) != 1) {
+		fprintf(stderr, "invalid bind address: %s\n", bind_address);
 		close(server);
 		return 1;
 	}
@@ -353,7 +434,7 @@ int http_server_run(unsigned short port)
 	if (bind(server, (struct sockaddr *)&address, sizeof(address)) != 0 || listen(server, 8) != 0) {
 		perror("ovis-manager listen"); close(server); return 1;
 	}
-	printf("ovis-managerd listening on port %u\n", port);
+	printf("ovis-managerd listening on %s:%u\n", bind_address, port);
 	for (;;) {
 		int client = accept(server, NULL, NULL);
 		if (client < 0) { if (errno == EINTR) continue; break; }

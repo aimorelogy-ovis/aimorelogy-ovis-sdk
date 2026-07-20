@@ -177,6 +177,47 @@ static const SC235HAI_MODE_S g_astSC235HAI_mode[SC235HAI_MODE_NUM] = {
 			.u32Step = 1,
 		},
 	},
+	[SC235HAI_MODE_1080P60_2L] = {
+		.name = "1080p60_2L",
+		.astImg[0] = {
+			.stSnsSize = {
+				.u32Width = 1920,
+				.u32Height = 1080,
+			},
+			.stWndRect = {
+				.s32X = 0,
+				.s32Y = 0,
+				.u32Width = 1920,
+				.u32Height = 1080,
+			},
+			.stMaxSize = {
+				.u32Width = 1920,
+				.u32Height = 1080,
+			},
+		},
+		.f32MaxFps = 60,
+		.f32MinFps = 2.06, 		/* u32VtsDef * f32MaxFps / 0x7FFF*/
+		.u32HtsDef = 2200,
+		.u32VtsDef = 1125,
+		.stExp[0] = {
+			.u16Min = 1,
+			.u16Max = 1125 - 11,		/**u32VtsDef - 11*/
+			.u16Def = 1125 - 11,
+			.u16Step = 1,
+		},
+		.stAgain[0] = {
+			.u32Min = 1024,
+			.u32Max = 119348,	/* 1024 * max total Again*/
+			.u32Def = 1024,
+			.u32Step = 1,
+		},
+		.stDgain[0] = {
+			.u32Min = 1024,
+			.u32Max = 16128,	/* 1024 * max total Dgain*/
+			.u32Def = 1024,
+			.u32Step = 1,
+		},
+	},
 	[SC235HAI_MODE_1080P15_2L_SLAVE] = {
 		.name = "1080p15_2L_SLAVE",
 		.astImg[0] = {

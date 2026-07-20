@@ -12,6 +12,7 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 #include <linux/usb/video.h>
+#include <linux/workqueue.h>
 #if IS_ENABLED(CONFIG_USB_UVCG_SG_TRANSFER)
 #include <linux/scatterlist.h>
 #endif
@@ -81,7 +82,6 @@ uvc_video_encode_bulk(struct usb_request *req, struct uvc_video *video,
 	len -= ret;
 
 	req->length = video->req_size - len;
-	req->zero = video->payload_size == video->max_payload_size;
 
 	if (buf->bytesused == video->queue.buf_used) {
 		video->queue.buf_used = 0;
@@ -95,6 +95,9 @@ uvc_video_encode_bulk(struct usb_request *req, struct uvc_video *video,
 	if (video->payload_size == video->max_payload_size ||
 	    buf->bytesused == video->queue.buf_used)
 		video->payload_size = 0;
+
+	req->zero = req->length &&
+		(req->length % video->ep->maxpacket) == 0;
 }
 
 #if !IS_ENABLED(CONFIG_USB_UVCG_SG_TRANSFER)
@@ -194,6 +197,9 @@ uvc_video_complete(struct usb_ep *ep, struct usb_request *req)
 	case 0:
 		break;
 
+	case -EXDEV:		/* Missed isochronous transaction. */
+		break;
+
 	case -ESHUTDOWN:	/* disconnect from host. */
 		uvcg_dbg(&video->uvc->func, "VS request cancelled.\n");
 		uvcg_queue_cancel(queue, 1);
@@ -210,7 +216,7 @@ uvc_video_complete(struct usb_ep *ep, struct usb_request *req)
 	list_add_tail(&req->list, &video->req_free);
 	spin_unlock_irqrestore(&video->req_lock, flags);
 
-	schedule_work(&video->pump);
+	uvcg_video_pump_schedule(video);
 }
 
 static int
@@ -247,9 +253,12 @@ uvc_video_alloc_requests(struct uvc_video *video)
 
 	BUG_ON(video->req_size);
 
-	req_size = video->ep->maxpacket
-		 * max_t(unsigned int, video->ep->maxburst, 1)
-		 * (video->ep->mult);
+	if (usb_endpoint_xfer_bulk(video->ep->desc))
+		req_size = UVC_BULK_REQUEST_SIZE;
+	else
+		req_size = video->ep->maxpacket
+			 * max_t(unsigned int, video->ep->maxburst, 1)
+			 * video->ep->mult;
 #if !IS_ENABLED(CONFIG_USB_UVCG_SG_TRANSFER)
 	for (i = 0; i < UVC_NUM_REQUESTS; ++i) {
 		video->req_buffer[i] = kmalloc(req_size, GFP_KERNEL);
@@ -369,6 +378,11 @@ static void uvcg_video_pump(struct work_struct *work)
 	return;
 }
 
+void uvcg_video_pump_schedule(struct uvc_video *video)
+{
+	queue_work(system_highpri_wq, &video->pump);
+}
+
 /*
  * Enable or disable the video stream.
  */
@@ -402,13 +416,16 @@ int uvcg_video_enable(struct uvc_video *video, int enable)
 	if ((ret = uvc_video_alloc_requests(video)) < 0)
 		return ret;
 
-	if (video->max_payload_size) {
+	if (usb_endpoint_xfer_bulk(video->ep->desc)) {
+		video->max_payload_size = UVC_BULK_REQUEST_SIZE;
 		video->encode = uvc_video_encode_bulk;
 		video->payload_size = 0;
-	} else
+	} else {
+		video->max_payload_size = 0;
 		video->encode = uvc_video_encode_isoc;
+	}
 
-	schedule_work(&video->pump);
+	uvcg_video_pump_schedule(video);
 
 	return ret;
 }
@@ -434,4 +451,3 @@ int uvcg_video_init(struct uvc_video *video, struct uvc_device *uvc)
 			&video->mutex);
 	return 0;
 }
-

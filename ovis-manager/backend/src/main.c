@@ -13,8 +13,14 @@ int main(int argc, char **argv)
 	unsigned short port = OVIS_DEFAULT_PORT;
 	char error[256];
 
-	if (argc == 2 && strcmp(argv[1], "--prepare-config") == 0)
-		return config_ensure_runtime(error, sizeof(error)) == 0 ? 0 : 1;
+	if (argc == 2 && strcmp(argv[1], "--prepare-config") == 0) {
+		if (config_ensure_runtime(error, sizeof(error)) == 0)
+			return 0;
+		fprintf(stderr, "runtime config unavailable: %s\n", error);
+		return 1;
+	}
+	if (argc == 2 && strcmp(argv[1], "--usb-provision") == 0)
+		return usb_provision_run();
 	if (argc == 3 && strcmp(argv[1], "-p") == 0) {
 		errno = 0;
 		value = strtoul(argv[2], &end, 10);
@@ -24,7 +30,8 @@ int main(int argc, char **argv)
 		}
 		port = (unsigned short)value;
 	} else if (argc != 1) {
-		fprintf(stderr, "Usage: %s [-p port | --prepare-config]\n", argv[0]);
+		fprintf(stderr, "Usage: %s [-p port | --prepare-config | --usb-provision]\n",
+			argv[0]);
 		return 2;
 	}
 

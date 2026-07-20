@@ -13,6 +13,7 @@ class YoloV8Segmentation final : public BaseModel {
       const std::vector<std::shared_ptr<BaseImage>> &images,
       std::vector<std::shared_ptr<ModelOutputInfo>> &out_datas) override;
   virtual int32_t onModelOpened() override;
+  void setNmsThreshold(float threshold) { nms_threshold_ = threshold; }
 
  private:
   void decodeBboxFeatureMap(int batch_idx, int stride, int anchor_idx,

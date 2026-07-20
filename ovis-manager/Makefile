@@ -35,6 +35,7 @@ build/cJSON.o: $(CJSON_ROOT)/cjson/src/cJSON.c $(CJSON_ROOT)/include/cJSON.h
 install: all
 	rm -rf install
 	install -D -m 0755 $(TARGET) install/usr/sbin/ovis-managerd
+	install -D -m 0755 scripts/ovis-device-identity install/usr/sbin/ovis-device-identity
 	install -D -m 0755 scripts/S98ovis-manager install/etc/init.d/S98ovis-manager
 
 test: build/config_transaction_test

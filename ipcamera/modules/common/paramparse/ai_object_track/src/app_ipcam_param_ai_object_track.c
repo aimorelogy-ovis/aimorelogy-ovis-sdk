@@ -26,9 +26,15 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
     Ai->VpssChn                 = ini_getl(tmp_section, "vpss_chn", 0, file);
     Ai->u32GrpWidth             = ini_getl(tmp_section, "grp_width", 0, file);
     Ai->u32GrpHeight            = ini_getl(tmp_section, "grp_height", 0, file);
+    Ai->SotVpssGrp              = ini_getl(tmp_section, "sot_vpss_grp", Ai->VpssGrp, file);
+    Ai->SotVpssChn              = ini_getl(tmp_section, "sot_vpss_chn", Ai->VpssChn, file);
+    Ai->u32SotGrpWidth          = ini_getl(tmp_section, "sot_grp_width", Ai->u32GrpWidth, file);
+    Ai->u32SotGrpHeight         = ini_getl(tmp_section, "sot_grp_height", Ai->u32GrpHeight, file);
+    Ai->bDetInputPreprocessed   = ini_getl(tmp_section, "det_input_preprocessed", 0, file);
+    Ai->bSotRefineSelectedDet   = ini_getl(tmp_section, "sot_refine_selected_det", 0, file);
     Ai->threshold_occluded      = ini_getf(tmp_section, "threshold_occluded", 0.1, file);
     Ai->threshold_reappear      = ini_getf(tmp_section, "threshold_reappear", 2.0, file);
-    Ai->search_type             = ini_getl(tmp_section, "search_type", 2, file);
+    Ai->search_type             = ini_getl(tmp_section, "search_type", 3, file);
     Ai->use_kalman              = ini_getl(tmp_section, "use_kalman", 1, file);
     Ai->tracking_score_threshold = ini_getf(tmp_section, "tracking_score_threshold", 0.5, file);
     Ai->debug_log_enable        = ini_getl(tmp_section, "debug_log_enable", 0, file);
