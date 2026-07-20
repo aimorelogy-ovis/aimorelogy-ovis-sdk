@@ -77,8 +77,9 @@ setup_uvc() {
 	add_link "$header" "$streaming/class/hs/h"
 	add_link "$header" "$streaming/class/ss/h"
 
-	# 125 us at high speed provides the full isochronous bandwidth needed by
-	# 1080p30 MJPEG when moving scenes temporarily produce larger frames.
+	# Reserve three 1024-byte transactions per 125 us microframe. Combined with
+	# the deeper gadget request queue this shortens each MJPEG frame's transfer
+	# window and reduces DWC2/host scheduling pressure.
 	echo 1 > "$UVC_FUNCTION/streaming_interval"
 	echo 3072 > "$UVC_FUNCTION/streaming_maxpacket"
 	echo 0 > "$UVC_FUNCTION/streaming_maxburst"

@@ -60,8 +60,9 @@ int app_ipcam_Vpss_Bind(VPSS_GRP VpssGrp);
 int app_ipcam_Vpss_Unbind(VPSS_GRP VpssGrp);
 int app_ipcam_Vpss_Chn_SetEnabled(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
                                   CVI_BOOL bEnable);
-int app_ipcam_Vpss_Chn_SetDepth(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
-                                CVI_U32 u32Depth);
+int app_ipcam_Vpss_Chn_Reconfigure(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
+                                   const VPSS_CHN_ATTR_S *pstChnAttr,
+                                   CVI_BOOL bAttach, VB_POOL VbPool);
 int app_ipcam_CmdTask_Rotate_Switch(CVI_MQ_MSG_t *msg, CVI_VOID *userdate);
 
 #ifdef __cplusplus

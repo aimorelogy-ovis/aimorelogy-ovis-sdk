@@ -23,6 +23,9 @@ typedef struct frame_node_t
     unsigned int used;
     unsigned int index;
     unsigned int offset;
+    unsigned int debug_checksum;
+    unsigned int debug_sequence;
+    unsigned int debug_jpeg_valid;
     struct frame_node_t *next;
 } frame_node_t;
 

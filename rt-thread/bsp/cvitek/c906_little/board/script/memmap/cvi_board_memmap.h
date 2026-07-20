@@ -1,5 +1,5 @@
-#ifndef __BOARD_MMAP__dcdc365d__
-#define __BOARD_MMAP__dcdc365d__
+#ifndef __BOARD_MMAP__875103ca__
+#define __BOARD_MMAP__875103ca__
 
 #define CONFIG_SYS_TEXT_BASE 0x83800000  /* offset 56.0MiB */
 #define CVIMMAP_ATF_SIZE 0xa0000  /* 640.0KiB */
@@ -16,13 +16,13 @@
 #define CVIMMAP_FSBL_C906L_START_ADDR 0x800a0000  /* offset 640.0KiB */
 #define CVIMMAP_FSBL_UNZIP_ADDR 0x81400000  /* offset 20.0MiB */
 #define CVIMMAP_FSBL_UNZIP_SIZE 0x400000  /* 4.0MiB */
-#define CVIMMAP_H26X_BITSTREAM_ADDR 0x8b500000  /* offset 181.0MiB */
+#define CVIMMAP_H26X_BITSTREAM_ADDR 0x89a00000  /* offset 154.0MiB */
 #define CVIMMAP_H26X_BITSTREAM_SIZE 0x0  /* 0.0KiB */
-#define CVIMMAP_H26X_ENC_BUFF_ADDR 0x8b500000  /* offset 181.0MiB */
+#define CVIMMAP_H26X_ENC_BUFF_ADDR 0x89a00000  /* offset 154.0MiB */
 #define CVIMMAP_H26X_ENC_BUFF_SIZE 0x0  /* 0.0KiB */
-#define CVIMMAP_ION_ADDR 0x8b500000  /* offset 181.0MiB */
-#define CVIMMAP_ION_SIZE 0x4b00000  /* 75.0MiB */
-#define CVIMMAP_ISP_MEM_BASE_ADDR 0x8b500000  /* offset 181.0MiB */
+#define CVIMMAP_ION_ADDR 0x89a00000  /* offset 154.0MiB */
+#define CVIMMAP_ION_SIZE 0x6600000  /* 102.0MiB */
+#define CVIMMAP_ISP_MEM_BASE_ADDR 0x89a00000  /* offset 154.0MiB */
 #define CVIMMAP_ISP_MEM_BASE_SIZE 0x0  /* 0.0KiB */
 #define CVIMMAP_KERNEL_MEMORY_ADDR 0x80000000  /* offset 0.0KiB */
 #define CVIMMAP_KERNEL_MEMORY_SIZE 0x10000000  /* 256.0MiB */
@@ -52,4 +52,4 @@
 #define CVIMMAP_UIMAG_ADDR 0x81400000  /* offset 20.0MiB */
 #define CVIMMAP_UIMAG_SIZE 0x400000  /* 4.0MiB */
 
-#endif /* __BOARD_MMAP__dcdc365d__ */
+#endif /* __BOARD_MMAP__875103ca__ */

@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <sys/prctl.h>
 #include "app_ipcam_ai.h"
+#include "app_ipcam_sys.h"
 #include "tdl_sdk.h"
 #include <pthread.h>
 #include <stdio.h>
@@ -20,6 +21,8 @@
 #define TRACK_FPS_STATUS_TMP_PATH "/tmp/object_track_fps.tmp"
 #define TRACK_PERF_WINDOW_US (1000ULL * 1000ULL)
 #define DEFAULT_SELECTION_BOX_SIZE 120
+#define OBJECT_TRACK_REFERENCE_CHN 0
+#define OBJECT_TRACK_SOT_POOL 7
 
 /**************************************************************************
  *                           C O N S T A N T S                            *
@@ -77,7 +80,12 @@ SMT_MUTEXAUTOLOCK_INIT(g_Mutex);
 static pthread_mutex_t g_StatusMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_ModeMutex = PTHREAD_MUTEX_INITIALIZER;
 static CVI_BOOL g_bPipelineInitialized = CVI_FALSE;
+static CVI_BOOL g_bSharedPipelinePrepared = CVI_FALSE;
 static APP_PARAM_OBJECT_TRACK_MODE g_PipelineMode = DETECTION;
+static VPSS_CHN_ATTR_S g_stDetPipelineAttr = {0};
+static VPSS_CHN_ATTR_S g_stSotPipelineAttr = {0};
+static VB_POOL g_DetPipelinePool = VB_INVALID_POOLID;
+static VB_POOL g_SotPipelinePool = VB_INVALID_POOLID;
 const int LOST_TIMEOUT_SECONDS = 5;  // Timeout for object lost
 
 typedef struct APP_OBJECT_TRACK_PERF_T {
@@ -177,30 +185,107 @@ static CVI_VOID app_ipcam_Ai_Object_Track_Perf_Write(
     app_ipcam_Ai_Object_Track_Perf_Reset(pstPerf, pstPerf->mode, now_us);
 }
 
+static CVI_S32 app_ipcam_Ai_Object_Track_Shared_Pipeline_Prepare(CVI_VOID)
+{
+    APP_PARAM_SYS_CFG_S *pstSysCfg = NULL;
+    APP_PARAM_VPSS_CFG_T *pstVpssCfg = NULL;
+    APP_VPSS_GRP_CFG_T *pstGrpCfg = NULL;
+
+    if (g_bSharedPipelinePrepared) {
+        return CVI_SUCCESS;
+    }
+
+    pstSysCfg = app_ipcam_Sys_Param_Get();
+    pstVpssCfg = app_ipcam_Vpss_Param_Get();
+    if (pstSysCfg == NULL || pstVpssCfg == NULL ||
+        g_pstObjTrackCfg->VpssGrp < 0 ||
+        g_pstObjTrackCfg->VpssGrp >= CVI_MAX_VPSS_GRP ||
+        g_pstObjTrackCfg->VpssChn < 0 ||
+        g_pstObjTrackCfg->VpssChn >= VPSS_MAX_PHY_CHN_NUM) {
+        return CVI_FAILURE;
+    }
+
+    pstGrpCfg = &pstVpssCfg->astVpssGrpCfg[g_pstObjTrackCfg->VpssGrp];
+    if (!pstGrpCfg->aAttachEn[g_pstObjTrackCfg->VpssChn]) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "ObjectTrack DET channel requires a dedicated VB pool\n");
+        return CVI_FAILURE;
+    }
+    if (pstSysCfg->vb_pool_num <= OBJECT_TRACK_SOT_POOL ||
+        !pstSysCfg->vb_pool[OBJECT_TRACK_SOT_POOL].bEnable ||
+        pstSysCfg->vb_pool[OBJECT_TRACK_SOT_POOL].width !=
+            g_pstObjTrackCfg->u32SotGrpWidth ||
+        pstSysCfg->vb_pool[OBJECT_TRACK_SOT_POOL].height !=
+            g_pstObjTrackCfg->u32SotGrpHeight ||
+        pstSysCfg->vb_pool[OBJECT_TRACK_SOT_POOL].fmt != PIXEL_FORMAT_NV12) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "ObjectTrack SOT pool%d must be %ux%u NV12\n",
+            OBJECT_TRACK_SOT_POOL, g_pstObjTrackCfg->u32SotGrpWidth,
+            g_pstObjTrackCfg->u32SotGrpHeight);
+        return CVI_FAILURE;
+    }
+
+    g_stDetPipelineAttr =
+        pstGrpCfg->astVpssChnAttr[g_pstObjTrackCfg->VpssChn];
+    g_DetPipelinePool =
+        pstGrpCfg->aAttachPool[g_pstObjTrackCfg->VpssChn];
+
+    g_stSotPipelineAttr =
+        pstGrpCfg->astVpssChnAttr[OBJECT_TRACK_REFERENCE_CHN];
+    g_stSotPipelineAttr.u32Width = g_pstObjTrackCfg->u32SotGrpWidth;
+    g_stSotPipelineAttr.u32Height = g_pstObjTrackCfg->u32SotGrpHeight;
+    g_stSotPipelineAttr.enVideoFormat = VIDEO_FORMAT_LINEAR;
+    g_stSotPipelineAttr.enPixelFormat = PIXEL_FORMAT_NV12;
+    g_stSotPipelineAttr.u32Depth = 1;
+    g_stSotPipelineAttr.stAspectRatio.enMode = ASPECT_RATIO_NONE;
+    memset(&g_stSotPipelineAttr.stNormalize, 0,
+           sizeof(g_stSotPipelineAttr.stNormalize));
+    g_SotPipelinePool = OBJECT_TRACK_SOT_POOL;
+
+    g_bSharedPipelinePrepared = CVI_TRUE;
+    APP_PROF_LOG_PRINT(LEVEL_INFO,
+        "ObjectTrack AI VPSS channel: grp=%d chn=%d, DET pool=%u, SOT pool=%u\n",
+        g_pstObjTrackCfg->VpssGrp, g_pstObjTrackCfg->VpssChn,
+        g_DetPipelinePool, g_SotPipelinePool);
+    return CVI_SUCCESS;
+}
+
 static CVI_S32 app_ipcam_Ai_Object_Track_Pipeline_Set(
     APP_PARAM_OBJECT_TRACK_MODE mode)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
-    CVI_BOOL bSharedSotSource =
+    CVI_BOOL bSameGroup =
         g_pstObjTrackCfg->SotVpssGrp == g_pstObjTrackCfg->VpssGrp;
+    CVI_BOOL bSharedSotChannel = bSameGroup &&
+        g_pstObjTrackCfg->SotVpssChn == g_pstObjTrackCfg->VpssChn;
 
     if (g_bPipelineInitialized && g_PipelineMode == mode) {
         return CVI_SUCCESS;
     }
 
-    if (mode == TRACKING) {
-        if (bSharedSotSource) {
-            s32Ret = app_ipcam_Vpss_Chn_SetDepth(
-                g_pstObjTrackCfg->SotVpssGrp,
-                g_pstObjTrackCfg->SotVpssChn, 1);
-        }
+    if (bSharedSotChannel) {
+        const VPSS_CHN_ATTR_S *pstChnAttr = NULL;
+        VB_POOL VbPool = VB_INVALID_POOLID;
+
+        s32Ret = app_ipcam_Ai_Object_Track_Shared_Pipeline_Prepare();
         if (s32Ret != CVI_SUCCESS) {
             goto pipeline_failed;
         }
+        if (mode == TRACKING) {
+            pstChnAttr = &g_stSotPipelineAttr;
+            VbPool = g_SotPipelinePool;
+        } else {
+            pstChnAttr = &g_stDetPipelineAttr;
+            VbPool = g_DetPipelinePool;
+        }
+        s32Ret = app_ipcam_Vpss_Chn_Reconfigure(
+            g_pstObjTrackCfg->VpssGrp, g_pstObjTrackCfg->VpssChn,
+            pstChnAttr, CVI_TRUE, VbPool);
+    } else if (mode == TRACKING) {
         s32Ret = app_ipcam_Vpss_Chn_SetEnabled(
             g_pstObjTrackCfg->SotVpssGrp, g_pstObjTrackCfg->SotVpssChn,
             CVI_TRUE);
-        if (s32Ret == CVI_SUCCESS && !bSharedSotSource) {
+        if (s32Ret == CVI_SUCCESS && !bSameGroup) {
             s32Ret = app_ipcam_Vpss_Bind(g_pstObjTrackCfg->SotVpssGrp);
         }
         if (s32Ret == CVI_SUCCESS) {
@@ -208,17 +293,10 @@ static CVI_S32 app_ipcam_Ai_Object_Track_Pipeline_Set(
                 g_pstObjTrackCfg->VpssGrp, g_pstObjTrackCfg->VpssChn,
                 CVI_FALSE);
         }
-    } else if (bSharedSotSource) {
-        s32Ret = app_ipcam_Vpss_Chn_SetEnabled(
-            g_pstObjTrackCfg->VpssGrp, g_pstObjTrackCfg->VpssChn,
-            CVI_TRUE);
-        if (s32Ret == CVI_SUCCESS) {
-            s32Ret = app_ipcam_Vpss_Chn_SetDepth(
-                g_pstObjTrackCfg->SotVpssGrp,
-                g_pstObjTrackCfg->SotVpssChn, 0);
-        }
     } else {
-        s32Ret = app_ipcam_Vpss_Unbind(g_pstObjTrackCfg->SotVpssGrp);
+        if (!bSameGroup) {
+            s32Ret = app_ipcam_Vpss_Unbind(g_pstObjTrackCfg->SotVpssGrp);
+        }
         if (s32Ret == CVI_SUCCESS) {
             s32Ret = app_ipcam_Vpss_Chn_SetEnabled(
                 g_pstObjTrackCfg->SotVpssGrp,
@@ -239,6 +317,10 @@ pipeline_failed:
         return s32Ret;
     }
 
+    if (mode == TRACKING) {
+        SMT_MutexAutoLock(g_Mutex, lock);
+        g_stObjDraw.size = 0;
+    }
     g_PipelineMode = mode;
     g_bPipelineInitialized = CVI_TRUE;
     APP_PROF_LOG_PRINT(LEVEL_INFO, "ObjectTrack VPSS pipeline: %s\n",
@@ -614,6 +696,7 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
 
     (void)pArgs;
     g_bPipelineInitialized = CVI_FALSE;
+    g_bSharedPipelinePrepared = CVI_FALSE;
     unlink(TRACK_FPS_STATUS_PATH);
     unlink(TRACK_FPS_STATUS_TMP_PATH);
     app_ipcam_Ai_Object_Track_Perf_Reset(
@@ -1000,6 +1083,10 @@ loop_cleanup:
             &stPerf, app_ipcam_Ai_Object_Track_TimeUs());
     }
 
+    if (app_ipcam_Ai_Object_Track_Pipeline_Set(DETECTION) != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "restore ObjectTrack detection pipeline failed\n");
+    }
     TDL_ReleaseObjectMeta(&det_obj_meta);
     unlink(TRACK_FPS_STATUS_TMP_PATH);
     pthread_exit(NULL);
@@ -1157,6 +1244,8 @@ init_failed:
     g_ObjectTrackTDLHandle = NULL;
     g_u32DetInputWidth = 0;
     g_u32DetInputHeight = 0;
+    g_bPipelineInitialized = CVI_FALSE;
+    g_bSharedPipelinePrepared = CVI_FALSE;
     return s32Ret;
 }
 
@@ -1170,6 +1259,7 @@ int app_ipcam_Ai_Object_Track_Stop(void)
         return CVI_SUCCESS;
     }
 
+    app_ipcam_Ai_Object_Track_Mode_Set(DETECTION);
     app_ipcam_Ai_Object_Track_ProcStatus_Set(CVI_FALSE);
     pthread_join(g_ObjectTrackHandle, NULL);
     g_ObjectTrackHandle = 0;
@@ -1196,6 +1286,8 @@ int app_ipcam_Ai_Object_Track_Stop(void)
     g_ObjectTrackTDLHandle = NULL;
     g_u32DetInputWidth = 0;
     g_u32DetInputHeight = 0;
+    g_bPipelineInitialized = CVI_FALSE;
+    g_bSharedPipelinePrepared = CVI_FALSE;
 
     return s32Ret;
 }

@@ -1740,8 +1740,8 @@ static void dwc2_gadget_start_next_request(struct dwc2_hsotg_ep *hs_ep)
 		return;
 
 	if (dir_in) {
-		dev_dbg(hsotg->dev, "%s: No more ISOC-IN requests\n",
-			__func__);
+		dev_warn_ratelimited(hsotg->dev,
+			"%s: ISOC-IN request queue underrun\n", __func__);
 	} else {
 		dev_dbg(hsotg->dev, "%s: No more ISOC-OUT requests\n",
 			__func__);
@@ -2175,6 +2175,7 @@ static void dwc2_gadget_complete_isoc_request_ddma(struct dwc2_hsotg_ep *hs_ep)
 	struct dwc2_hsotg *hsotg = hs_ep->parent;
 	struct dwc2_hsotg_req *hs_req;
 	struct usb_request *ureq;
+	u32 transfer_sts;
 	u32 desc_sts;
 	u32 mask;
 
@@ -2190,10 +2191,11 @@ static void dwc2_gadget_complete_isoc_request_ddma(struct dwc2_hsotg_ep *hs_ep)
 			return;
 		}
 		ureq = &hs_req->req;
+		transfer_sts = (desc_sts & DEV_DMA_STS_MASK) >>
+			DEV_DMA_STS_SHIFT;
 
 		/* Check completion status */
-		if ((desc_sts & DEV_DMA_STS_MASK) >> DEV_DMA_STS_SHIFT ==
-			DEV_DMA_STS_SUCC) {
+		if (transfer_sts == DEV_DMA_STS_SUCC) {
 			mask = hs_ep->dir_in ? DEV_DMA_ISOC_TX_NBYTES_MASK :
 				DEV_DMA_ISOC_RX_NBYTES_MASK;
 			ureq->actual = ureq->length - ((desc_sts & mask) >>
@@ -2209,9 +2211,15 @@ static void dwc2_gadget_complete_isoc_request_ddma(struct dwc2_hsotg_ep *hs_ep)
 			ureq->frame_number =
 				(desc_sts & DEV_DMA_ISOC_FRNUM_MASK) >>
 				DEV_DMA_ISOC_FRNUM_SHIFT;
+		} else {
+			dev_warn_ratelimited(hsotg->dev,
+				"ep%d%s: ISOC DDMA descriptor %u failed, status=%u raw=%#x\n",
+				hs_ep->index, hs_ep->dir_in ? "in" : "out",
+				hs_ep->compl_desc, transfer_sts, desc_sts);
 		}
 
-		dwc2_hsotg_complete_request(hsotg, hs_ep, hs_req, 0);
+		dwc2_hsotg_complete_request(hsotg, hs_ep, hs_req,
+			transfer_sts == DEV_DMA_STS_SUCC ? 0 : -EXDEV);
 
 		hs_ep->compl_desc++;
 		if (hs_ep->compl_desc > (MAX_DMA_DESC_NUM_HS_ISOC - 1))
@@ -2233,9 +2241,14 @@ static void dwc2_gadget_handle_isoc_bna(struct dwc2_hsotg_ep *hs_ep)
 {
 	struct dwc2_hsotg *hsotg = hs_ep->parent;
 
+	dev_warn_ratelimited(hsotg->dev,
+		"ep%d%s: ISOC descriptor unavailable (BNA)\n",
+		hs_ep->index, hs_ep->dir_in ? "in" : "out");
+
 	if (!hs_ep->dir_in)
 		dwc2_flush_rx_fifo(hsotg);
-	dwc2_hsotg_complete_request(hsotg, hs_ep, get_ep_head(hs_ep), 0);
+	dwc2_hsotg_complete_request(hsotg, hs_ep, get_ep_head(hs_ep),
+				    -EXDEV);
 
 	hs_ep->target_frame = TARGET_FRAME_INITIAL;
 	hs_ep->next_desc = 0;
@@ -3096,7 +3109,9 @@ static void dwc2_hsotg_epint(struct dwc2_hsotg *hsotg, unsigned int idx,
 		dwc2_gadget_handle_nak(hs_ep);
 
 	if (ints & DXEPINT_AHBERR)
-		dev_dbg(hsotg->dev, "%s: AHBErr\n", __func__);
+		dev_warn_ratelimited(hsotg->dev,
+			"ep%d%s: endpoint AHB error, interrupt=%#x\n",
+			idx, dir_in ? "in" : "out", ints);
 
 	if (ints & DXEPINT_SETUP) {  /* Setup or Timeout */
 		dev_dbg(hsotg->dev, "%s: Setup/Timeout\n",  __func__);
@@ -3144,9 +3159,12 @@ static void dwc2_hsotg_epint(struct dwc2_hsotg *hsotg, unsigned int idx,
 		dev_dbg(hsotg->dev, "%s: B2BSetup/INEPNakEff\n", __func__);
 
 	if (ints & DXEPINT_BNAINTR) {
-		dev_dbg(hsotg->dev, "%s: BNA interrupt\n", __func__);
 		if (hs_ep->isochronous)
 			dwc2_gadget_handle_isoc_bna(hs_ep);
+		else
+			dev_warn_ratelimited(hsotg->dev,
+				"ep%d%s: descriptor unavailable (BNA)\n",
+				idx, dir_in ? "in" : "out");
 	}
 
 	if (dir_in && !hs_ep->isochronous) {
@@ -3603,7 +3621,8 @@ static void dwc2_gadget_handle_incomplete_isoc_in(struct dwc2_hsotg *hsotg)
 	u32 daintmsk;
 	u32 idx;
 
-	dev_dbg(hsotg->dev, "Incomplete isoc in interrupt received:\n");
+	dev_warn_ratelimited(hsotg->dev,
+			     "incomplete ISOC-IN transaction\n");
 
 	daintmsk = dwc2_readl(hsotg, DAINTMSK);
 

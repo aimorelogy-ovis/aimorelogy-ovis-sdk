@@ -142,7 +142,10 @@ activate_network() {
 	start_dhcp || return 1
 	echo "OVIS NCM address: $ncm_address"
 	/etc/init.d/S98ovis-manager start || return 1
-	/etc/init.d/S99z_ipcamera start
+	if ! /etc/init.d/S99z_ipcamera start; then
+		echo "WARNING: ipcamera failed to start; OVIS USB network remains available" >&2
+	fi
+	return 0
 }
 
 setup_provisioning_gadget() {

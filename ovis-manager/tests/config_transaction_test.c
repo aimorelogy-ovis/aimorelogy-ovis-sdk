@@ -237,12 +237,50 @@ int main(void)
 	if (config_ensure_runtime(error, sizeof(error)) != 0)
 		fail(error);
 	if (!active_config_value_equals("ai_object_track_config", "sot_vpss_grp", "0") ||
+	    !active_config_value_equals("ai_object_track_config", "sot_vpss_chn", "2") ||
 	    !active_config_value_equals("ai_object_track_config",
 		    "sot_refine_selected_det", "0") ||
 	    !active_config_value_equals("vpssgrp0.chn0", "depth", "0") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "width", "640") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "height", "384") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "chn_pixel_fmt",
+		    "PIXEL_FORMAT_UINT8_C3_PLANAR") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "0") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "depth", "1") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "attach_en", "1") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "attach_pool", "1") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "dst_framerate", "-1") ||
-	    !active_config_value_equals("vb_config", "vb_pool_cnt", "7") ||
-	    !active_config_value_equals("vb_pool_5", "blk_cnt", "8") ||
+	    !active_config_value_equals("vb_config", "vb_pool_cnt", "9") ||
+	    !active_config_value_equals("vb_pool_1", "frame_width", "640") ||
+	    !active_config_value_equals("vb_pool_1", "frame_height", "384") ||
+	    !active_config_value_equals("vb_pool_1", "frame_fmt",
+		    "PIXEL_FORMAT_UINT8_C3_PLANAR") ||
+	    !active_config_value_equals("vb_pool_5", "frame_width", "1920") ||
+	    !active_config_value_equals("vb_pool_5", "frame_height", "1080") ||
+	    !active_config_value_equals("vb_pool_5", "frame_fmt", "PIXEL_FORMAT_NV12") ||
+	    !active_config_value_equals("vb_pool_5", "blk_cnt", "4") ||
+	    !active_config_value_equals("vb_pool_7", "frame_width", "1920") ||
+	    !active_config_value_equals("vb_pool_7", "frame_height", "1080") ||
+	    !active_config_value_equals("vb_pool_7", "frame_fmt", "PIXEL_FORMAT_NV12") ||
+	    !active_config_value_equals("vb_pool_7", "blk_cnt", "4") ||
+	    !active_config_value_equals("vb_pool_6", "blk_cnt", "4") ||
+	    !active_config_value_equals("vb_pool_8", "frame_width", "1920") ||
+	    !active_config_value_equals("vb_pool_8", "frame_height", "1080") ||
+	    !active_config_value_equals("vb_pool_8", "blk_cnt", "4") ||
+	    !active_config_value_equals("vpss_config", "vpss_grp", "7") ||
+	    !active_config_value_equals("vpssgrp1", "chn_cnt", "1") ||
+	    !active_config_value_equals("vpssgrp6", "grp_enable", "1") ||
+	    !active_config_value_equals("vpssgrp6", "src_dev_id", "0") ||
+	    !active_config_value_equals("vpssgrp6", "dst_dev_id", "6") ||
+	    !active_config_value_equals("vpssgrp6.chn0", "src_framerate", "30") ||
+	    !active_config_value_equals("vpssgrp6.chn0", "dst_framerate", "30") ||
+	    !active_config_value_equals("vpssgrp6.chn0", "attach_pool", "8") ||
+	    !active_config_value_equals("vencchn3", "src_dev_id", "6") ||
+	    !active_config_value_equals("vencchn3", "src_chn_id", "0") ||
+	    !active_config_value_equals("vencchn3", "vpss_grp", "6") ||
+	    !active_config_value_equals("vencchn3", "vpss_chn", "0") ||
+	    !active_config_value_equals("vencchn3", "src_framerate", "30") ||
+	    !active_config_value_equals("vencchn3", "dst_framerate", "30") ||
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
 		fail("ObjectTrack VPSS topology migration failed");
 
@@ -250,7 +288,8 @@ int main(void)
 	if (!active_config_value_equals("vpssgrp2", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp3", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp4", "grp_enable", "1") ||
-	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
+	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "1"))
 		fail("VPSS feature groups did not follow the AI switches");
 	if (!active_config_value_equals("vpssgrp0.chn1", "chn_enable", "0") ||
 	    !active_config_value_equals("vencchn2", "bEnable", "0") ||
@@ -292,7 +331,8 @@ int main(void)
 	cJSON_Delete(document);
 
 	stage_and_apply(60, 8800, 60, 1, 0, 0, 0, 1, 0);
-	if (!active_config_value_equals("vpssgrp4", "grp_enable", "0"))
+	if (!active_config_value_equals("vpssgrp4", "grp_enable", "0") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "0"))
 		fail("disabled motion detection left its VPSS group enabled");
 	if (!active_config_value_equals("vpssgrp0.chn1", "chn_enable", "1") ||
 	    !active_config_value_equals("vencchn2", "bEnable", "1") ||
@@ -311,11 +351,14 @@ int main(void)
 	}
 	if (!active_config_contains(OVIS_SC235HAI_60FPS_SNS_TYPE))
 		fail("60 fps sensor type was not persisted");
+	if (!active_config_value_equals("vpssgrp6.chn0", "src_framerate", "60"))
+		fail("60 fps did not update the UVC VPSS source frame rate");
 	cJSON_Delete(document);
 	stage_and_apply(60, 8800, 60, 1, 0, 1, 0, 1, 0);
 	if (!active_config_value_equals("ai_object_track_config",
 			"object_track_enable", "1") ||
-	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
+	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "1"))
 		fail("ObjectTrack enabled the retired VPSS group");
 
 	fail_service_calls = 0;
@@ -333,10 +376,13 @@ int main(void)
 	}
 	if (!active_config_contains(OVIS_SC235HAI_30FPS_SNS_TYPE))
 		fail("reset did not restore the 30 fps sensor type");
+	if (!active_config_value_equals("vpssgrp6.chn0", "src_framerate", "30"))
+		fail("reset did not restore the UVC VPSS source frame rate");
 	if (!active_config_value_equals("vpssgrp2", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp3", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp4", "grp_enable", "0") ||
-	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
+	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
+	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "0"))
 		fail("reset did not disable unused VPSS feature groups");
 	if (!active_config_value_equals("vpssgrp0.chn1", "chn_enable", "1") ||
 	    !active_config_value_equals("vencchn2", "bEnable", "1") ||

@@ -671,13 +671,18 @@ static int has_section(const char *path, const char *wanted_section)
 	return found;
 }
 
-static int append_missing_ai_sections(const char *path)
+static int append_missing_runtime_sections(const char *path)
 {
 	int need_human_pose = !has_section(path, "ai_human_keypoint_config");
 	int need_object_tracking = !has_section(path, "ai_object_track_config");
+	int need_sot_pool = !has_section(path, "vb_pool_7");
+	int need_uvc_pool = !has_section(path, "vb_pool_8");
+	int need_uvc_group = !has_section(path, "vpssgrp6");
+	int need_uvc_channel = !has_section(path, "vpssgrp6.chn0");
 	FILE *file;
 
-	if (!need_human_pose && !need_object_tracking)
+	if (!need_human_pose && !need_object_tracking && !need_sot_pool &&
+	    !need_uvc_pool && !need_uvc_group && !need_uvc_channel)
 		return 0;
 	file = fopen(path, "a");
 	if (file == NULL)
@@ -702,7 +707,7 @@ static int append_missing_ai_sections(const char *path)
 			"grp_width         = 640\n"
 			"grp_height        = 384\n"
 			"sot_vpss_grp      = 0\n"
-			"sot_vpss_chn      = 0\n"
+			"sot_vpss_chn      = 2\n"
 			"sot_grp_width     = 1920\n"
 			"sot_grp_height    = 1080\n"
 			"det_input_preprocessed = 1\n"
@@ -719,6 +724,82 @@ static int append_missing_ai_sections(const char *path)
 			"use_kalman        = 1\n"
 			"tracking_score_threshold = 0.5\n"
 			"debug_log_enable  = 0\n", file);
+	}
+	if (need_sot_pool) {
+		fputs("\n[vb_pool_7]\n"
+			"bEnable         = 1\n"
+			"frame_width     = 1920\n"
+			"frame_height    = 1080\n"
+			"frame_fmt       = PIXEL_FORMAT_NV12\n"
+			"data_bitwidth   = DATA_BITWIDTH_8\n"
+			"compress_mode   = COMPRESS_MODE_NONE\n"
+			"blk_cnt         = 4\n"
+			"mem_size        = 0\n", file);
+	}
+	if (need_uvc_pool) {
+		fputs("\n[vb_pool_8]\n"
+			"bEnable         = 1\n"
+			"frame_width     = 1920\n"
+			"frame_height    = 1080\n"
+			"frame_fmt       = PIXEL_FORMAT_NV12\n"
+			"data_bitwidth   = DATA_BITWIDTH_8\n"
+			"compress_mode   = COMPRESS_MODE_NONE\n"
+			"blk_cnt         = 4\n"
+			"mem_size        = 0\n", file);
+	}
+	if (need_uvc_group) {
+		fputs("\n[vpssgrp6]\n"
+			"group_id        = 6\n"
+			"grp_enable      = 1\n"
+			"pixel_fmt       = PIXEL_FORMAT_NV12\n"
+			"src_framerate   = -1\n"
+			"dst_framerate   = -1\n"
+			"vpss_dev        = 0\n"
+			"max_w           = 1920\n"
+			"max_h           = 1080\n"
+			"chn_cnt         = 1\n"
+			"crop_en         = 0\n"
+			"crop_coor       = VPSS_CROP_RATIO_COOR\n"
+			"crop_rect_x     = 0\n"
+			"crop_rect_y     = 0\n"
+			"crop_rect_w     = 0\n"
+			"crop_rect_h     = 0\n"
+			"bind_mode       = 1\n"
+			"src_mod_id      = CVI_ID_VPSS\n"
+			"src_dev_id      = 0\n"
+			"src_chn_id      = 0\n"
+			"dst_mod_id      = CVI_ID_VPSS\n"
+			"dst_dev_id      = 6\n"
+			"dst_chn_id      = 0\n", file);
+	}
+	if (need_uvc_channel) {
+		fputs("\n[vpssgrp6.chn0]\n"
+			"chn_enable      = 1\n"
+			"width           = 1920\n"
+			"height          = 1080\n"
+			"video_fmt       = VIDEO_FORMAT_LINEAR\n"
+			"chn_pixel_fmt   = PIXEL_FORMAT_NV12\n"
+			"src_framerate   = 30\n"
+			"dst_framerate   = 30\n"
+			"depth           = 0\n"
+			"mirror          = 0\n"
+			"filp            = 0\n"
+			"aspectratio     = ASPECT_RATIO_NONE\n"
+			"s32x            = 0\n"
+			"s32y            = 0\n"
+			"rec_width       = 0\n"
+			"rec_heigh       = 0\n"
+			"en_color        = 1\n"
+			"color           = 0\n"
+			"normalize       = 0\n"
+			"crop_en         = 0\n"
+			"crop_coor       = VPSS_CROP_RATIO_COOR\n"
+			"crop_rect_x     = 0\n"
+			"crop_rect_y     = 0\n"
+			"crop_rect_w     = 0\n"
+			"crop_rect_h     = 0\n"
+			"attach_en       = 1\n"
+			"attach_pool     = 8\n", file);
 	}
 	if (fflush(file) != 0 || fsync(fileno(file)) != 0) {
 		fclose(file);
@@ -744,7 +825,7 @@ static int migrate_runtime_config(const char *path)
 		{ "ai_object_track_config", "grp_width", "640", 0 },
 		{ "ai_object_track_config", "grp_height", "384", 0 },
 		{ "ai_object_track_config", "sot_vpss_grp", "0", 0 },
-		{ "ai_object_track_config", "sot_vpss_chn", "0", 0 },
+		{ "ai_object_track_config", "sot_vpss_chn", "2", 0 },
 		{ "ai_object_track_config", "sot_grp_width", "1920", 0 },
 		{ "ai_object_track_config", "sot_grp_height", "1080", 0 },
 		{ "ai_object_track_config", "det_input_preprocessed", "1", 0 },
@@ -752,8 +833,8 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp0.chn0", "depth", "0", 0 },
 		{ "vpssgrp0.chn2", "src_framerate", "-1", 0 },
 		{ "vpssgrp0.chn2", "dst_framerate", "-1", 0 },
-		{ "vb_config", "vb_pool_cnt", "7", 0 },
-		{ "vb_pool_5", "blk_cnt", "8", 0 },
+		{ "vb_config", "vb_pool_cnt", "9", 0 },
+		{ "vb_pool_5", "blk_cnt", "4", 0 },
 		{ "vpssgrp2", "grp_enable", "", 0 },
 		{ "vpssgrp3", "grp_enable", "", 0 },
 		{ "vpssgrp4", "grp_enable", "", 0 },
@@ -761,6 +842,89 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp0.chn1", "chn_enable", "", 0 },
 		{ "vencchn2", "bEnable", "", 0 },
 		{ "osdc_config1", "bShow", "", 0 },
+		{ "vpssgrp0.chn2", "chn_enable", "", 0 },
+		{ "vpssgrp6.chn0", "src_framerate", "", 0 },
+		{ "vpssgrp0.chn2", "width", "640", 0 },
+		{ "vpssgrp0.chn2", "height", "384", 0 },
+		{ "vpssgrp0.chn2", "chn_pixel_fmt", "PIXEL_FORMAT_UINT8_C3_PLANAR", 0 },
+		{ "vpssgrp0.chn2", "depth", "1", 0 },
+		{ "vpssgrp0.chn2", "attach_en", "1", 0 },
+		{ "vpssgrp0.chn2", "attach_pool", "1", 0 },
+		{ "vb_pool_5", "frame_width", "1920", 0 },
+		{ "vb_pool_5", "frame_height", "1080", 0 },
+		{ "vb_pool_5", "frame_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vb_pool_1", "frame_width", "640", 0 },
+		{ "vb_pool_1", "frame_height", "384", 0 },
+		{ "vb_pool_1", "frame_fmt", "PIXEL_FORMAT_UINT8_C3_PLANAR", 0 },
+		{ "vb_pool_1", "blk_cnt", "4", 0 },
+		{ "vb_pool_7", "frame_width", "1920", 0 },
+		{ "vb_pool_7", "frame_height", "1080", 0 },
+		{ "vb_pool_7", "frame_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vb_pool_7", "blk_cnt", "4", 0 },
+		{ "vb_pool_6", "blk_cnt", "4", 0 },
+		{ "vb_pool_8", "bEnable", "1", 0 },
+		{ "vb_pool_8", "frame_width", "1920", 0 },
+		{ "vb_pool_8", "frame_height", "1080", 0 },
+		{ "vb_pool_8", "frame_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vb_pool_8", "data_bitwidth", "DATA_BITWIDTH_8", 0 },
+		{ "vb_pool_8", "compress_mode", "COMPRESS_MODE_NONE", 0 },
+		{ "vb_pool_8", "blk_cnt", "4", 0 },
+		{ "vb_pool_8", "mem_size", "0", 0 },
+		{ "vpss_config", "vpss_grp", "7", 0 },
+		{ "vpssgrp1", "chn_cnt", "1", 0 },
+		{ "vpssgrp6", "group_id", "6", 0 },
+		{ "vpssgrp6", "grp_enable", "1", 0 },
+		{ "vpssgrp6", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vpssgrp6", "src_framerate", "-1", 0 },
+		{ "vpssgrp6", "dst_framerate", "-1", 0 },
+		{ "vpssgrp6", "vpss_dev", "0", 0 },
+		{ "vpssgrp6", "max_w", "1920", 0 },
+		{ "vpssgrp6", "max_h", "1080", 0 },
+		{ "vpssgrp6", "chn_cnt", "1", 0 },
+		{ "vpssgrp6", "crop_en", "0", 0 },
+		{ "vpssgrp6", "crop_coor", "VPSS_CROP_RATIO_COOR", 0 },
+		{ "vpssgrp6", "crop_rect_x", "0", 0 },
+		{ "vpssgrp6", "crop_rect_y", "0", 0 },
+		{ "vpssgrp6", "crop_rect_w", "0", 0 },
+		{ "vpssgrp6", "crop_rect_h", "0", 0 },
+		{ "vpssgrp6", "bind_mode", "1", 0 },
+		{ "vpssgrp6", "src_mod_id", "CVI_ID_VPSS", 0 },
+		{ "vpssgrp6", "src_dev_id", "0", 0 },
+		{ "vpssgrp6", "src_chn_id", "0", 0 },
+		{ "vpssgrp6", "dst_mod_id", "CVI_ID_VPSS", 0 },
+		{ "vpssgrp6", "dst_dev_id", "6", 0 },
+		{ "vpssgrp6", "dst_chn_id", "0", 0 },
+		{ "vpssgrp6.chn0", "chn_enable", "1", 0 },
+		{ "vpssgrp6.chn0", "width", "1920", 0 },
+		{ "vpssgrp6.chn0", "height", "1080", 0 },
+		{ "vpssgrp6.chn0", "video_fmt", "VIDEO_FORMAT_LINEAR", 0 },
+		{ "vpssgrp6.chn0", "chn_pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vpssgrp6.chn0", "dst_framerate", "30", 0 },
+		{ "vpssgrp6.chn0", "depth", "0", 0 },
+		{ "vpssgrp6.chn0", "mirror", "0", 0 },
+		{ "vpssgrp6.chn0", "filp", "0", 0 },
+		{ "vpssgrp6.chn0", "aspectratio", "ASPECT_RATIO_NONE", 0 },
+		{ "vpssgrp6.chn0", "s32x", "0", 0 },
+		{ "vpssgrp6.chn0", "s32y", "0", 0 },
+		{ "vpssgrp6.chn0", "rec_width", "0", 0 },
+		{ "vpssgrp6.chn0", "rec_heigh", "0", 0 },
+		{ "vpssgrp6.chn0", "en_color", "1", 0 },
+		{ "vpssgrp6.chn0", "color", "0", 0 },
+		{ "vpssgrp6.chn0", "normalize", "0", 0 },
+		{ "vpssgrp6.chn0", "crop_en", "0", 0 },
+		{ "vpssgrp6.chn0", "crop_coor", "VPSS_CROP_RATIO_COOR", 0 },
+		{ "vpssgrp6.chn0", "crop_rect_x", "0", 0 },
+		{ "vpssgrp6.chn0", "crop_rect_y", "0", 0 },
+		{ "vpssgrp6.chn0", "crop_rect_w", "0", 0 },
+		{ "vpssgrp6.chn0", "crop_rect_h", "0", 0 },
+		{ "vpssgrp6.chn0", "attach_en", "1", 0 },
+		{ "vpssgrp6.chn0", "attach_pool", "8", 0 },
+		{ "vencchn3", "src_dev_id", "6", 0 },
+		{ "vencchn3", "src_chn_id", "0", 0 },
+		{ "vencchn3", "vpss_grp", "6", 0 },
+		{ "vencchn3", "vpss_chn", "0", 0 },
+		{ "vencchn3", "src_framerate", "30", 0 },
+		{ "vencchn3", "dst_framerate", "30", 0 },
 	};
 	char migrated[512];
 	char value[160];
@@ -769,37 +933,50 @@ static int migrate_runtime_config(const char *path)
 	int group_enabled[4];
 	int sub_enabled = 0;
 	int osd_enabled = 0;
+	int main_fps = 0;
+	int ai_source_enabled = 0;
 	int sub_dependent_enabled[3];
 	int keep = -1;
 	int index;
 	int needs_update;
-	static const int fixed_update_indexes[] = {
-		1, 3, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-		18, 19, 20, 21, 22, 23
-	};
 	enum {
 		AI_GROUP_UPDATE_BASE = 24,
 		AI_GROUP_UPDATE_COUNT = 4,
 		SUB_UPDATE_BASE = 28,
 		SUB_UPDATE_COUNT = 3,
+		AI_SOURCE_UPDATE_INDEX = 31,
+		FIXED_TOPOLOGY_UPDATE_BASE = 32,
+		UVC_SOURCE_FPS_UPDATE_INDEX = 32,
+	};
+	static const int fixed_update_indexes[] = {
+		1, 3, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+		18, 19, 20, 21, 22, 23
 	};
 
 	if (access(path, F_OK) != 0)
 		return -1;
 	needs_update = !has_section(path, "ai_human_keypoint_config") ||
-		!has_section(path, "ai_object_track_config");
-	if (append_missing_ai_sections(path) != 0)
+		!has_section(path, "ai_object_track_config") ||
+		!has_section(path, "vb_pool_7") ||
+		!has_section(path, "vb_pool_8") ||
+		!has_section(path, "vpssgrp6") ||
+		!has_section(path, "vpssgrp6.chn0");
+	if (append_missing_runtime_sections(path) != 0)
 		return -1;
 	if (read_int(path, "ai_pd_config", "pd_enable", &enabled[0]) != 0 ||
 	    read_int(path, "ai_fd_config", "fd_enable", &enabled[1]) != 0 ||
 	    read_int(path, "ai_md_config", "md_enable", &motion_enabled) != 0 ||
 	    read_int(path, "ai_human_keypoint_config", "human_keypoint_enable", &enabled[2]) != 0 ||
 	    read_int(path, "ai_object_track_config", "object_track_enable", &enabled[3]) != 0 ||
+	    read_int(path, "vencchn0", "dst_framerate", &main_fps) != 0 ||
 	    read_int(path, "vencchn1", "bEnable", &sub_enabled) != 0 ||
 	    read_int(path, "osdc_config", "enable", &osd_enabled) != 0)
 		return -1;
 	if (enabled[0] + enabled[1] + enabled[2] + enabled[3] > 1)
 		needs_update = 1;
+	snprintf(updates[UVC_SOURCE_FPS_UPDATE_INDEX].value,
+		sizeof(updates[UVC_SOURCE_FPS_UPDATE_INDEX].value), "%d",
+		main_fps == 60 ? 60 : 30);
 	for (index = 0;
 	     index < (int)(sizeof(fixed_update_indexes) /
 		     sizeof(fixed_update_indexes[0]));
@@ -807,6 +984,18 @@ static int migrate_runtime_config(const char *path)
 		const struct ini_update *update = &updates[fixed_update_indexes[index]];
 		if (read_ini_value(path, update->section, update->key,
 				value, sizeof(value)) != 0 || strcmp(value, update->value) != 0) {
+			needs_update = 1;
+			break;
+		}
+	}
+	for (index = FIXED_TOPOLOGY_UPDATE_BASE;
+	     index < (int)(sizeof(updates) / sizeof(updates[0])); index++) {
+		const struct ini_update *update =
+			&updates[index];
+
+		if (read_ini_value(path, update->section, update->key,
+				value, sizeof(value)) != 0 ||
+		    strcmp(value, update->value) != 0) {
 			needs_update = 1;
 			break;
 		}
@@ -820,6 +1009,8 @@ static int migrate_runtime_config(const char *path)
 	group_enabled[1] = enabled[1];
 	group_enabled[2] = motion_enabled;
 	group_enabled[3] = 0;
+	ai_source_enabled = enabled[0] || enabled[1] || motion_enabled ||
+		enabled[2] || enabled[3];
 	for (index = 0; index < AI_GROUP_UPDATE_COUNT; index++) {
 		int current;
 
@@ -843,6 +1034,14 @@ static int migrate_runtime_config(const char *path)
 			break;
 		}
 	}
+	{
+		int current;
+
+		if (read_int(path, updates[AI_SOURCE_UPDATE_INDEX].section,
+				updates[AI_SOURCE_UPDATE_INDEX].key, &current) != 0 ||
+		    current != ai_source_enabled)
+			needs_update = 1;
+	}
 	if (!needs_update)
 		return 0;
 	snprintf(updates[0].value, sizeof(updates[0].value), "%d", enabled[0]);
@@ -857,6 +1056,9 @@ static int migrate_runtime_config(const char *path)
 		snprintf(updates[SUB_UPDATE_BASE + index].value,
 			sizeof(updates[SUB_UPDATE_BASE + index].value),
 			"%d", sub_dependent_enabled[index]);
+	snprintf(updates[AI_SOURCE_UPDATE_INDEX].value,
+		sizeof(updates[AI_SOURCE_UPDATE_INDEX].value), "%d",
+		ai_source_enabled);
 	snprintf(migrated, sizeof(migrated), "%s.migrated", path);
 	if (write_updates(path, migrated, updates, sizeof(updates) / sizeof(updates[0])) != 0)
 		return -1;
@@ -900,8 +1102,14 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "vpssgrp0.chn1", "chn_enable", "", 0 },
 		{ "vencchn2", "bEnable", "", 0 },
 		{ "osdc_config1", "bShow", "", 0 },
+		{ "vpssgrp0.chn2", "chn_enable", "", 0 },
+		{ "vpssgrp6.chn0", "src_framerate", "", 0 },
 	};
 	char validation_error[256];
+	enum {
+		STAGE_AI_SOURCE_UPDATE_INDEX = 29,
+		STAGE_UVC_SOURCE_FPS_UPDATE_INDEX = 30,
+	};
 
 	snprintf(updates[0].value, sizeof(updates[0].value), "%d", values->main_fps);
 	snprintf(updates[1].value, sizeof(updates[1].value), "%d", values->main_bitrate);
@@ -937,6 +1145,14 @@ static int stage_values(const struct config_values *values, char revision[17],
 	snprintf(updates[27].value, sizeof(updates[27].value), "%d", values->sub_enabled);
 	snprintf(updates[28].value, sizeof(updates[28].value), "%d",
 		values->sub_enabled && values->osd_enabled);
+	snprintf(updates[STAGE_AI_SOURCE_UPDATE_INDEX].value,
+		sizeof(updates[STAGE_AI_SOURCE_UPDATE_INDEX].value), "%d",
+		values->person_enabled || values->face_enabled ||
+		values->motion_enabled || values->human_pose_enabled ||
+		values->object_tracking_enabled);
+	snprintf(updates[STAGE_UVC_SOURCE_FPS_UPDATE_INDEX].value,
+		sizeof(updates[STAGE_UVC_SOURCE_FPS_UPDATE_INDEX].value), "%d",
+		values->main_fps == 60 ? 60 : 30);
 	if (write_updates(OVIS_CONFIG_FILE, OVIS_CONFIG_PENDING, updates,
 			sizeof(updates) / sizeof(updates[0])) != 0) {
 		snprintf(error, error_size, "无法创建待应用配置");

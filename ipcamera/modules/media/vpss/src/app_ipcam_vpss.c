@@ -332,46 +332,128 @@ int app_ipcam_Vpss_Chn_SetEnabled(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
     return CVI_SUCCESS;
 }
 
-int app_ipcam_Vpss_Chn_SetDepth(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
-                                CVI_U32 u32Depth)
+int app_ipcam_Vpss_Chn_Reconfigure(VPSS_GRP VpssGrp, VPSS_CHN VpssChn,
+                                   const VPSS_CHN_ATTR_S *pstChnAttr,
+                                   CVI_BOOL bAttach, VB_POOL VbPool)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
-    VPSS_CHN_ATTR_S stChnAttr = {0};
+    CVI_S32 s32OriginalRet = CVI_SUCCESS;
+    CVI_BOOL bOldAttach = CVI_FALSE;
+    CVI_BOOL bNewPoolAttached = CVI_FALSE;
+    VB_POOL OldVbPool = VB_INVALID_POOLID;
+    VPSS_CHN_ATTR_S stOldChnAttr = {0};
     APP_VPSS_GRP_CFG_T *pstVpssGrpCfg = NULL;
 
     if (VpssGrp < 0 || VpssGrp >= CVI_MAX_VPSS_GRP ||
-        VpssChn < 0 || VpssChn >= VPSS_MAX_PHY_CHN_NUM || u32Depth > 8) {
+        VpssChn < 0 || VpssChn >= VPSS_MAX_PHY_CHN_NUM ||
+        pstChnAttr == NULL || (bAttach && VbPool == VB_INVALID_POOLID)) {
         return CVI_FAILURE;
     }
 
     pstVpssGrpCfg = &g_pstVpssCfg->astVpssGrpCfg[VpssGrp];
     if (!pstVpssGrpCfg->bCreate ||
+        !pstVpssGrpCfg->abChnEnable[VpssChn] ||
         !pstVpssGrpCfg->abChnCreate[VpssChn]) {
         return CVI_FAILURE;
     }
 
-    s32Ret = CVI_VPSS_GetChnAttr(VpssGrp, VpssChn, &stChnAttr);
+    stOldChnAttr = pstVpssGrpCfg->astVpssChnAttr[VpssChn];
+    bOldAttach = pstVpssGrpCfg->aAttachEn[VpssChn] ? CVI_TRUE : CVI_FALSE;
+    if (bOldAttach) {
+        OldVbPool = pstVpssGrpCfg->aAttachPool[VpssChn];
+    }
+
+    s32Ret = CVI_VPSS_DisableChn(VpssGrp, VpssChn);
     if (s32Ret != CVI_SUCCESS) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR,
-            "CVI_VPSS_GetChnAttr(%d, %d) failed with %#x\n",
+            "CVI_VPSS_DisableChn(%d, %d) failed with %#x\n",
             VpssGrp, VpssChn, s32Ret);
         return s32Ret;
     }
-    if (stChnAttr.u32Depth == u32Depth) {
-        return CVI_SUCCESS;
+    pstVpssGrpCfg->abChnCreate[VpssChn] = CVI_FALSE;
+
+    if (bOldAttach) {
+        s32Ret = CVI_VPSS_DetachVbPool(VpssGrp, VpssChn);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "CVI_VPSS_DetachVbPool(%d, %d) failed with %#x\n",
+                VpssGrp, VpssChn, s32Ret);
+            s32OriginalRet = s32Ret;
+            goto restore_enabled_channel;
+        }
     }
 
-    stChnAttr.u32Depth = u32Depth;
-    s32Ret = CVI_VPSS_SetChnAttr(VpssGrp, VpssChn, &stChnAttr);
+    s32Ret = CVI_VPSS_SetChnAttr(VpssGrp, VpssChn, pstChnAttr);
     if (s32Ret != CVI_SUCCESS) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR,
-            "CVI_VPSS_SetChnAttr(%d, %d) depth(%u) failed with %#x\n",
-            VpssGrp, VpssChn, u32Depth, s32Ret);
-        return s32Ret;
+            "CVI_VPSS_SetChnAttr(%d, %d) failed with %#x\n",
+            VpssGrp, VpssChn, s32Ret);
+        s32OriginalRet = s32Ret;
+        goto restore_old_channel;
     }
 
-    pstVpssGrpCfg->astVpssChnAttr[VpssChn].u32Depth = u32Depth;
+    if (bAttach) {
+        s32Ret = CVI_VPSS_AttachVbPool(VpssGrp, VpssChn, VbPool);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "CVI_VPSS_AttachVbPool(%d, %d, %u) failed with %#x\n",
+                VpssGrp, VpssChn, VbPool, s32Ret);
+            s32OriginalRet = s32Ret;
+            goto restore_old_channel;
+        }
+        bNewPoolAttached = CVI_TRUE;
+    }
+
+    s32Ret = CVI_VPSS_EnableChn(VpssGrp, VpssChn);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "CVI_VPSS_EnableChn(%d, %d) failed with %#x\n",
+            VpssGrp, VpssChn, s32Ret);
+        s32OriginalRet = s32Ret;
+        goto restore_old_channel;
+    }
+
+    pstVpssGrpCfg->astVpssChnAttr[VpssChn] = *pstChnAttr;
+    pstVpssGrpCfg->aAttachEn[VpssChn] = bAttach;
+    pstVpssGrpCfg->aAttachPool[VpssChn] =
+        bAttach ? VbPool : VB_INVALID_POOLID;
+    pstVpssGrpCfg->abChnCreate[VpssChn] = CVI_TRUE;
     return CVI_SUCCESS;
+
+restore_old_channel:
+    if (bNewPoolAttached) {
+        s32Ret = CVI_VPSS_DetachVbPool(VpssGrp, VpssChn);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "rollback CVI_VPSS_DetachVbPool(%d, %d) failed with %#x\n",
+                VpssGrp, VpssChn, s32Ret);
+        }
+    }
+    s32Ret = CVI_VPSS_SetChnAttr(VpssGrp, VpssChn, &stOldChnAttr);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "rollback CVI_VPSS_SetChnAttr(%d, %d) failed with %#x\n",
+            VpssGrp, VpssChn, s32Ret);
+    }
+    if (bOldAttach) {
+        s32Ret = CVI_VPSS_AttachVbPool(VpssGrp, VpssChn, OldVbPool);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "rollback CVI_VPSS_AttachVbPool(%d, %d, %u) failed with %#x\n",
+                VpssGrp, VpssChn, OldVbPool, s32Ret);
+        }
+    }
+
+restore_enabled_channel:
+    s32Ret = CVI_VPSS_EnableChn(VpssGrp, VpssChn);
+    if (s32Ret == CVI_SUCCESS) {
+        pstVpssGrpCfg->abChnCreate[VpssChn] = CVI_TRUE;
+    } else {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "rollback CVI_VPSS_EnableChn(%d, %d) failed with %#x\n",
+            VpssGrp, VpssChn, s32Ret);
+    }
+    return s32OriginalRet;
 }
 
 int app_ipcam_Vpss_DeInit(void)

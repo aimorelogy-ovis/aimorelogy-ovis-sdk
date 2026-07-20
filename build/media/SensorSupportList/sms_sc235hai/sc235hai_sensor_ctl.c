@@ -735,6 +735,24 @@ static void sc235hai_2l_linear_1080p_init(VI_PIPE ViPipe, CVI_U16 u16Vts, CVI_U8
 	sc235hai_default_reg_init(ViPipe);
 	sc235hai_write_register(ViPipe, 0x0100, 0x01);
 	delay_ms(50);
+	printf("SC235HAI timing: pll=%02x hts=%02x%02x vts=%02x%02x\n",
+	       sc235hai_read_register(ViPipe, 0x301f),
+	       sc235hai_read_register(ViPipe, 0x320c),
+	       sc235hai_read_register(ViPipe, 0x320d),
+	       sc235hai_read_register(ViPipe, 0x320e),
+	       sc235hai_read_register(ViPipe, 0x320f));
+	printf("SC235HAI MIPI: lane=%02x raw=%02x phy=%02x clk=%02x enable=%02x "
+	       "drive=%02x/%02x delay=%02x/%02x timing=%02x\n",
+	       sc235hai_read_register(ViPipe, 0x3018),
+	       sc235hai_read_register(ViPipe, 0x3031),
+	       sc235hai_read_register(ViPipe, 0x3037),
+	       sc235hai_read_register(ViPipe, 0x303f),
+	       sc235hai_read_register(ViPipe, 0x4603),
+	       sc235hai_read_register(ViPipe, 0x3650),
+	       sc235hai_read_register(ViPipe, 0x3651),
+	       sc235hai_read_register(ViPipe, 0x3652),
+	       sc235hai_read_register(ViPipe, 0x3654),
+	       sc235hai_read_register(ViPipe, 0x4837));
 	printf("ViPipe:%d,===sc235hai 1080P %dfps 10bit 2LINE Init OK!===\n", ViPipe, u8Fps);
 
 }
@@ -889,4 +907,3 @@ static void sc235hai_2l_slave_linear_1080p15_init(VI_PIPE ViPipe)
 	printf("ViPipe:%d,===sc235hai 1080P 15fps 10bit 2LINE SLAVE Init OK!===\n", ViPipe);
 
 }
-
