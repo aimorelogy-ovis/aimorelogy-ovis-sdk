@@ -38,8 +38,9 @@ install: all
 	install -D -m 0755 scripts/ovis-device-identity install/usr/sbin/ovis-device-identity
 	install -D -m 0755 scripts/S98ovis-manager install/etc/init.d/S98ovis-manager
 
-test: build/config_transaction_test
+test: build/config_transaction_test build/model_store_test
 	./build/config_transaction_test
+	./build/model_store_test
 
 build/config_transaction_test: tests/config_transaction_test.c backend/src/config_store.c \
 		backend/src/config_validate.c $(CJSON_ROOT)/cjson/src/cJSON.c
@@ -50,6 +51,14 @@ build/config_transaction_test: tests/config_transaction_test.c backend/src/confi
 		-DOVIS_CONFIG_PENDING=\"/tmp/ovis-manager-config-test/pending.ini\" \
 		-DOVIS_CONFIG_BACKUP=\"/tmp/ovis-manager-config-test/backup.ini\" \
 		-DOVIS_DEFAULT_CONFIG=\"$(CURDIR)/../ipcamera/resource/parameter/sbm/cv1842hp_ovis_sc235hai.ini\" \
+		$^ -pthread -lm -o $@
+
+build/model_store_test: tests/model_store_test.c backend/src/model_store.c \
+		$(CJSON_ROOT)/cjson/src/cJSON.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) \
+		-DOVIS_MODEL_DIR=\"/tmp/ovis-manager-model-test\" \
+		-DOVIS_CONFIG_FILE=\"/tmp/ovis-manager-model-test/active.ini\" \
 		$^ -pthread -lm -o $@
 
 clean:

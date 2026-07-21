@@ -31,6 +31,9 @@ int Load_Param_Ai_PD(const char * file)
     Ai->threshold         = ini_getf(tmp_section, "threshold", 0, file);
     ini_gets(tmp_section, "model_path", " ", tmp_buff, 128, file);
     app_ipcam_Param_CopyString(Ai->model_path, sizeof(Ai->model_path), tmp_buff);
+    ini_gets(tmp_section, "model_path_cfg", "/usr/share/ipcamera/model_factory.json",
+        tmp_buff, 128, file);
+    app_ipcam_Param_CopyString(Ai->model_path_cfg, sizeof(Ai->model_path_cfg), tmp_buff);
 
     ini_gets(tmp_section, "model_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
@@ -43,7 +46,8 @@ int Load_Param_Ai_PD(const char * file)
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "pd_enable=%d vpss_grp=%d vpss_chn=%d GrpW=%d GrpH=%d threshold=%f\n", \
         Ai->bEnable, Ai->VpssGrp, Ai->VpssChn, Ai->u32GrpWidth, Ai->u32GrpHeight, Ai->threshold);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id=%d model_path=%s \n", Ai->model_id, Ai->model_path);
+    APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id=%d model_path=%s model_path_cfg=%s \n",
+        Ai->model_id, Ai->model_path, Ai->model_path_cfg);
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading AI PD config ------------------> done \n\n");
 

@@ -4,8 +4,29 @@ set -e
 UVC_MIN_BIT_RATE=20000000
 UVC_MAX_BIT_RATE=50000000
 MAX_FRAME_SIZE=2097152
+PARAM_CONFIG=${PARAM_CONFIG:-/mnt/cfg/ipcamera/param_config.ini}
+UVC_INTERVAL_FILE=/var/run/ovis-uvc-frame-interval
 
 CVI_GADGET=${CVI_GADGET:-/tmp/usb/usb_gadget/cvitek}
+
+load_uvc_frame_interval() {
+	uvc_fps=$(sed -n '/^\[vencchn3\]/,/^\[/ {
+		s/^[[:space:]]*dst_framerate[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*$/\1/p
+	}' "$PARAM_CONFIG" 2>/dev/null | sed -n '1p')
+
+	case "$uvc_fps" in
+		60)
+			UVC_FRAME_INTERVAL=166666
+			;;
+		*)
+			uvc_fps=30
+			UVC_FRAME_INTERVAL=333333
+			;;
+	esac
+
+	mkdir -p /var/run
+	printf '%s\n' "$UVC_FRAME_INTERVAL" > "$UVC_INTERVAL_FILE"
+}
 
 find_uvc_function() {
 	for path in "$CVI_GADGET"/functions/uvc.usb*; do
@@ -47,6 +68,7 @@ remove_dir() {
 
 setup_uvc() {
 	find_uvc_function
+	load_uvc_frame_interval
 
 	control=$UVC_FUNCTION/control
 	streaming=$UVC_FUNCTION/streaming
@@ -61,14 +83,15 @@ setup_uvc() {
 	echo 48000000 > "$control/header/h/dwClockFrequency"
 	mkdir -p "$frame"
 
-	# MJPEG format index 1, frame index 1: 1920x1080 at 30 fps.
+	# MJPEG format index 1, frame index 1 follows the active sensor mode.
 	echo 1920 > "$frame/wWidth"
 	echo 1080 > "$frame/wHeight"
 	echo "$UVC_MIN_BIT_RATE" > "$frame/dwMinBitRate"
 	echo "$UVC_MAX_BIT_RATE" > "$frame/dwMaxBitRate"
 	echo "$MAX_FRAME_SIZE" > "$frame/dwMaxVideoFrameBufferSize"
-	echo 333333 > "$frame/dwDefaultFrameInterval"
-	echo 333333 > "$frame/dwFrameInterval"
+	echo "$UVC_FRAME_INTERVAL" > "$frame/dwDefaultFrameInterval"
+	echo "$UVC_FRAME_INTERVAL" > "$frame/dwFrameInterval"
+	echo "UVC descriptor: MJPEG 1920x1080 at ${uvc_fps} fps"
 
 	mkdir -p "$header"
 	add_link "$format" "$header/m"
@@ -111,6 +134,7 @@ cleanup_uvc() {
 		[ -d "$function" ] || continue
 		cleanup_function "$function"
 	done
+	rm -f "$UVC_INTERVAL_FILE"
 }
 
 case "$1" in

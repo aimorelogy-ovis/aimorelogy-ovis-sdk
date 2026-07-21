@@ -43,6 +43,9 @@ YoloV6Detection::YoloV6Detection(std::pair<int, int> yolov6_pair) {
 YoloV6Detection::~YoloV6Detection() {}
 
 int YoloV6Detection::onModelOpened() {
+  if (num_cls_ == 0 && !net_param_.model_config.types.empty()) {
+    num_cls_ = static_cast<int>(net_param_.model_config.types.size());
+  }
   const auto &input_layer = net_->getInputNames()[0];
   auto input_shape = net_->getTensorInfo(input_layer).shape;
   int input_h = input_shape[2];

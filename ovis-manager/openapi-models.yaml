@@ -1,0 +1,1157 @@
+openapi: 3.0.3
+info:
+  title: OVIS 自定义模型管理 API
+  version: 1.0.0
+  description: |
+    OVIS Manager 自定义模型导入、上传、提交、部署和任务查询契约。
+
+    上传采用单个全量 HTTP 请求，不支持 multipart、Base64、chunked、Content-Range
+    或断点续传。浏览器刷新后可以持久化 import ID；若状态为 created 或 failed，必须从
+    offset 0 重新上传完整文件。上传中的进度来自浏览器上传事件，服务端只在上传完成或失败
+    后更新 uploadedBytes。
+
+    import ID 和最终 model ID 相同。commit 成功后导入任务被删除，GET import 返回 404；
+    如果 commit 响应丢失，前端必须使用同一个 ID 查询 GET /models/{modelId} 判断是否成功。
+servers:
+  - url: /api/v1
+tags:
+  - name: Model importers
+  - name: Model imports
+  - name: Models
+  - name: Tasks
+paths:
+  /models/importers:
+    get:
+      tags: [Model importers]
+      summary: 获取当前固件支持的模型导入器及上传能力
+      security: []
+      operationId: getModelImporters
+      responses:
+        '200':
+          description: 导入器目录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImporterCatalog'
+              example:
+                upload:
+                  strategy: single-request
+                  contentType: application/octet-stream
+                  contentLengthRequired: true
+                  contentLengthSource: body
+                  contentRange: false
+                  resumable: false
+                  retryOffset: 0
+                  progressSource: client
+                importers:
+                  - id: detection.yolov5
+                    schemaVersion: 1
+                    name: YOLOv5 目标检测
+                    task: object_detection
+                    enabled: true
+                    deployable: true
+                    maxFileSize: 16777216
+                    runtimeConsumers: [ipcamera.object_detection]
+                    metadataSchema:
+                      type: object
+                      additionalProperties: false
+                      required: [labels, anchors]
+                      properties:
+                        labels:
+                          type: array
+                          minItems: 1
+                          maxItems: 256
+                          uniqueItems: true
+                          items: { type: string, minLength: 1, maxLength: 96 }
+                        anchors:
+                          type: array
+                    deploymentSchema:
+                      type: object
+                      additionalProperties: false
+                      required: [threshold, processingSize]
+                      properties:
+                        threshold:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                          default: 0.5
+                          step: 0.01
+                        processingSize:
+                          $ref: '#/components/schemas/ProcessingSize'
+                    defaults:
+                      anchors:
+                        - [[10, 13], [16, 30], [33, 23]]
+                        - [[30, 61], [62, 45], [59, 119]]
+                        - [[116, 90], [156, 198], [373, 326]]
+                availableBytes: 52428800
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/imports:
+    post:
+      tags: [Model imports]
+      summary: 创建持久化模型导入任务
+      operationId: createModelImport
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateImportRequest'
+            examples:
+              yolov8:
+                value:
+                  importerId: detection.yolov8
+                  schemaVersion: 1
+                  name: 安全帽检测
+                  fileSize: 3145728
+                  metadata:
+                    labels: [person, helmet]
+              soundCommand:
+                value:
+                  importerId: classification.sound_command
+                  schemaVersion: 1
+                  name: 两分类语音命令
+                  fileSize: 2097152
+                  metadata:
+                    labels: [background, start]
+                    sampleRate: 16000
+                    channels: 1
+                    hopLength: 128
+                    preprocessProfile: fixed
+      responses:
+        '201':
+          description: 导入任务已创建；将 id 持久化后开始上传
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportTask'
+              example:
+                id: 018f1234abcd5678
+                status: created
+                importerId: detection.yolov8
+                schemaVersion: 1
+                name: 安全帽检测
+                fileSize: 3145728
+                uploadedBytes: 0
+                createdAt: 1784505600
+                metadata:
+                  labels: [person, helmet]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /models/imports/{importId}/content:
+    put:
+      tags: [Model imports]
+      summary: 全量上传 BModel 二进制文件
+      description: |
+        Content-Length 必须与创建任务时的 fileSize 完全相等。仅支持
+        application/octet-stream。不得发送 Content-Range 或 Transfer-Encoding。
+        浏览器会根据 Blob 自动产生 Content-Length，前端不得手动设置该受限请求头。
+        失败重试必须重新发送整个文件，起始 offset 固定为 0。
+      operationId: uploadModelImportContent
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: 完整文件已持久化
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportTask'
+              example:
+                id: 018f1234abcd5678
+                status: uploaded
+                importerId: detection.yolov8
+                schemaVersion: 1
+                name: 安全帽检测
+                fileSize: 3145728
+                uploadedBytes: 3145728
+                createdAt: 1784505600
+                checksum: 5f2d3a1017aa931c
+                metadata:
+                  labels: [person, helmet]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /models/imports/{importId}:
+    get:
+      tags: [Model imports]
+      summary: 查询可恢复的导入任务
+      operationId: getModelImport
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+      responses:
+        '200':
+          description: 导入任务详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportTask'
+              examples:
+                failed:
+                  value:
+                    id: 018f1234abcd5678
+                    status: failed
+                    importerId: detection.yolov8
+                    schemaVersion: 1
+                    name: 安全帽检测
+                    fileSize: 3145728
+                    uploadedBytes: 1048576
+                    createdAt: 1784505600
+                    error: 模型上传连接提前中断
+                    metadata:
+                      labels: [person, helmet]
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Model imports]
+      summary: 取消导入任务并删除临时文件
+      operationId: cancelModelImport
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204':
+          description: 已取消
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /models/imports/{importId}/commit:
+    post:
+      tags: [Model imports]
+      summary: 校验并原子提交已上传模型
+      description: |
+        校验 fileSize、BModel 魔数、导入器 metadata，并生成独立 factory.json。
+        成功后 import ID 即 model ID，导入任务查询将返回 404。
+      operationId: commitModelImport
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          description: 模型已进入 ready 状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /models:
+    get:
+      tags: [Models]
+      summary: 获取已提交模型列表及存储空间
+      operationId: listModels
+      responses:
+        '200':
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelList'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/{modelId}:
+    get:
+      tags: [Models]
+      summary: 获取模型完整元数据
+      operationId: getModel
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 模型详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Models]
+      summary: 删除未被当前或待应用配置引用的模型
+      description: referenced 为 true 时必须先停用并等待配置任务成功。
+      operationId: deleteModel
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204':
+          description: 已删除
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /models/{modelId}/deployment:
+    get:
+      tags: [Models]
+      summary: 读取模型保存及实际应用的部署参数
+      operationId: getModelDeployment
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      responses:
+        '200':
+          description: 部署参数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentState'
+              example:
+                modelId: 018f1234abcd5678
+                schemaVersion: 1
+                deployable: true
+                active: true
+                referenced: true
+                parameters:
+                  threshold: 0.55
+                  processingSize: { width: 448, height: 256 }
+                appliedParameters:
+                  threshold: 0.55
+                  processingSize: { width: 448, height: 256 }
+                parameterSchema:
+                  threshold:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                    default: 0.5
+                    step: 0.01
+                  processingSize:
+                    type: object
+                    description: 送入检测管线的 VPSS 图像帧尺寸，不改变 BModel Tensor 尺寸。
+                    minWidth: 160
+                    maxWidth: 1920
+                    minHeight: 96
+                    maxHeight: 1080
+                    step: 2
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 该模型类型当前不可部署
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags: [Models]
+      summary: 保存下次启用时使用的部署参数
+      description: 保存本身不会重启服务，也不会改变当前正在运行的参数。
+      operationId: updateModelDeployment
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetectionDeploymentParameters'
+            example:
+              threshold: 0.55
+              processingSize: { width: 448, height: 256 }
+      responses:
+        '200':
+          description: 已保存
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /models/{modelId}/activate:
+    post:
+      tags: [Models]
+      summary: 启用可部署模型并创建配置任务
+      description: |
+        空请求体时使用已保存 deployment 参数。也可提供一次性阈值和 AI 输入帧尺寸覆盖；覆盖值只用于
+        本次启用，不修改已保存参数。检测模型启用时会关闭冲突的人脸、人体姿态和目标跟踪任务。
+      operationId: activateModel
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetectionDeploymentParameters'
+      responses:
+        '202':
+          description: 配置任务已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedTask'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /models/{modelId}/deactivate:
+    post:
+      tags: [Models]
+      summary: 停用模型并切回内置检测模型配置
+      operationId: deactivateModel
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '202':
+          description: 配置任务已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedTask'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /tasks/{taskId}:
+    get:
+      tags: [Tasks]
+      summary: 查询启用或停用配置任务
+      description: |
+        Manager 在内存中保留最近 16 个任务。任务不跨 Manager 进程重启持久化；收到 404 时
+        前端应重新读取模型详情和部署状态，以 active、referenced 与 appliedParameters
+        判断最终结果。
+      security: []
+      operationId: getTask
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: 任务状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+              example:
+                id: 12
+                state: running
+                stage: restarting_ipcamera
+                progress: 60
+                message: 正在重启视频服务
+                rolled_back: false
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    CsrfHeader:
+      name: X-OVIS-CSRF
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: ['1']
+    ImportId:
+      name: importId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ModelId'
+    ModelId:
+      name: modelId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ModelId'
+
+  responses:
+    BadRequest:
+      description: 请求结构、字段、上传协议或模型校验无效
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: 缺少 X-OVIS-CSRF 或 Origin 不允许
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: 导入任务、模型或配置任务不存在
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: 模型不可部署、仍被引用或已有配置任务执行中
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: 板端存储或响应生成失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    ModelId:
+      type: string
+      pattern: '^[0-9a-f]{16}$'
+      example: 018f1234abcd5678
+
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+
+    UploadCapabilities:
+      type: object
+      required:
+        - strategy
+        - contentType
+        - contentLengthRequired
+        - contentLengthSource
+        - contentRange
+        - resumable
+        - retryOffset
+        - progressSource
+      additionalProperties: false
+      properties:
+        strategy:
+          type: string
+          enum: [single-request]
+        contentType:
+          type: string
+          enum: [application/octet-stream]
+        contentLengthRequired:
+          type: boolean
+          enum: [true]
+        contentLengthSource:
+          type: string
+          enum: [body]
+        contentRange:
+          type: boolean
+          enum: [false]
+        resumable:
+          type: boolean
+          enum: [false]
+        retryOffset:
+          type: integer
+          enum: [0]
+        progressSource:
+          type: string
+          enum: [client]
+
+    ImporterCatalog:
+      type: object
+      required: [upload, importers, availableBytes]
+      additionalProperties: false
+      properties:
+        upload:
+          $ref: '#/components/schemas/UploadCapabilities'
+        importers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelImporter'
+        availableBytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 已扣除板端保留空间后，可用于新模型的字节数。
+
+    ModelImporter:
+      type: object
+      required:
+        - id
+        - schemaVersion
+        - name
+        - task
+        - enabled
+        - deployable
+        - maxFileSize
+        - runtimeConsumers
+        - metadataSchema
+      properties:
+        id:
+          type: string
+          enum:
+            - detection.yolov5
+            - detection.yolov6
+            - detection.yolov7
+            - detection.yolov8
+            - detection.yolov10
+            - detection.yolo26
+            - detection.ppyoloe
+            - detection.yolox
+            - classification.image
+            - pose.yolov8
+            - segmentation.yolov8
+            - feature.image
+            - classification.sound_command
+        schemaVersion:
+          type: integer
+          enum: [1]
+        name:
+          type: string
+        task:
+          type: string
+          enum:
+            - object_detection
+            - image_classification
+            - keypoint_detection
+            - instance_segmentation
+            - image_feature
+            - sound_classification
+        enabled:
+          type: boolean
+        deployable:
+          type: boolean
+        maxFileSize:
+          type: integer
+          enum: [16777216]
+        runtimeConsumers:
+          type: array
+          items:
+            type: string
+            enum: [ipcamera.object_detection]
+          description: 空数组表示当前固件只能保存该模型，尚无运行消费者。
+        metadataSchema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema 子集；前端以它决定该导入器的独立表单字段。
+        deploymentSchema:
+          type: object
+          additionalProperties: true
+          nullable: true
+        defaults:
+          type: object
+          additionalProperties: true
+          nullable: true
+        constraints:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    Labels:
+      type: array
+      minItems: 1
+      maxItems: 256
+      uniqueItems: true
+      items:
+        type: string
+        minLength: 1
+        maxLength: 96
+
+    Vector3:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        type: number
+
+    RgbOrder:
+      type: string
+      enum: [RGB, BGR]
+
+    AnchorPair:
+      type: array
+      minItems: 2
+      maxItems: 2
+      items:
+        type: integer
+        minimum: 1
+        maximum: 65535
+
+    AnchorGroup:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        $ref: '#/components/schemas/AnchorPair'
+
+    Anchors:
+      type: array
+      minItems: 3
+      maxItems: 3
+      items:
+        $ref: '#/components/schemas/AnchorGroup'
+
+    DetectionMetadata:
+      type: object
+      required: [labels]
+      additionalProperties: false
+      properties:
+        labels:
+          $ref: '#/components/schemas/Labels'
+
+    AnchoredDetectionMetadata:
+      type: object
+      required: [labels, anchors]
+      additionalProperties: false
+      properties:
+        labels:
+          $ref: '#/components/schemas/Labels'
+        anchors:
+          $ref: '#/components/schemas/Anchors'
+
+    ImageClassificationMetadata:
+      type: object
+      required: [labels, rgbOrder, mean, std]
+      additionalProperties: false
+      properties:
+        labels:
+          type: array
+          minItems: 2
+          maxItems: 1024
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 96 }
+        rgbOrder:
+          $ref: '#/components/schemas/RgbOrder'
+        mean:
+          $ref: '#/components/schemas/Vector3'
+        std:
+          allOf:
+            - $ref: '#/components/schemas/Vector3'
+          description: 三项均不能为 0。
+
+    PoseMetadata:
+      type: object
+      required: [labels, keypoints, rgbOrder]
+      additionalProperties: false
+      properties:
+        labels:
+          $ref: '#/components/schemas/Labels'
+        keypoints:
+          type: array
+          minItems: 1
+          maxItems: 256
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 96 }
+        rgbOrder:
+          $ref: '#/components/schemas/RgbOrder'
+        skeleton:
+          type: array
+          maxItems: 512
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: integer
+              minimum: 0
+          description: 索引必须小于 keypoints 数量，起点和终点不能相同。
+
+    SegmentationMetadata:
+      type: object
+      required: [labels, rgbOrder]
+      additionalProperties: false
+      properties:
+        labels:
+          $ref: '#/components/schemas/Labels'
+        rgbOrder:
+          $ref: '#/components/schemas/RgbOrder'
+        colors:
+          type: array
+          items:
+            type: string
+            pattern: '^#[0-9A-Fa-f]{6}$'
+          description: 提供时长度必须与 labels 完全相同。
+
+    ImageFeatureMetadata:
+      type: object
+      required: [rgbOrder, mean, std]
+      additionalProperties: false
+      properties:
+        rgbOrder:
+          $ref: '#/components/schemas/RgbOrder'
+        mean:
+          $ref: '#/components/schemas/Vector3'
+        std:
+          allOf:
+            - $ref: '#/components/schemas/Vector3'
+          description: 三项均不能为 0。
+
+    SoundCommandMetadata:
+      type: object
+      required: [labels, sampleRate, channels, hopLength, preprocessProfile]
+      additionalProperties: false
+      properties:
+        labels:
+          type: array
+          minItems: 2
+          maxItems: 256
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 96 }
+        sampleRate:
+          type: integer
+          enum: [8000, 16000]
+        channels:
+          type: integer
+          enum: [1]
+        hopLength:
+          type: integer
+          minimum: 1
+          maximum: 4096
+        preprocessProfile:
+          type: string
+          enum: [common, fixed]
+
+    ImportMetadata:
+      oneOf:
+        - $ref: '#/components/schemas/DetectionMetadata'
+        - $ref: '#/components/schemas/AnchoredDetectionMetadata'
+        - $ref: '#/components/schemas/ImageClassificationMetadata'
+        - $ref: '#/components/schemas/PoseMetadata'
+        - $ref: '#/components/schemas/SegmentationMetadata'
+        - $ref: '#/components/schemas/ImageFeatureMetadata'
+        - $ref: '#/components/schemas/SoundCommandMetadata'
+      description: 实际结构必须与 importerId 对应导入器的 metadataSchema 完全一致。
+
+    CreateImportRequest:
+      type: object
+      required: [importerId, schemaVersion, name, fileSize, metadata]
+      additionalProperties: false
+      properties:
+        importerId:
+          type: string
+          description: 必须来自 GET /models/importers。
+        schemaVersion:
+          type: integer
+          enum: [1]
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        fileSize:
+          type: integer
+          minimum: 1
+          maximum: 16777216
+        metadata:
+          $ref: '#/components/schemas/ImportMetadata'
+
+    ImportTask:
+      type: object
+      required:
+        - id
+        - status
+        - importerId
+        - schemaVersion
+        - name
+        - fileSize
+        - uploadedBytes
+        - createdAt
+        - metadata
+      properties:
+        id:
+          $ref: '#/components/schemas/ModelId'
+        status:
+          type: string
+          enum: [created, uploaded, failed]
+          description: ready 不属于导入任务状态；commit 成功后应查询模型详情。
+        importerId:
+          type: string
+        schemaVersion:
+          type: integer
+          enum: [1]
+        name:
+          type: string
+        fileSize:
+          type: integer
+        uploadedBytes:
+          type: integer
+          minimum: 0
+          description: 仅在上传完成或失败后持久化，不能作为续传 offset。
+        createdAt:
+          type: integer
+          format: int64
+          description: Unix 时间戳，单位秒。
+        metadata:
+          $ref: '#/components/schemas/ImportMetadata'
+        checksum:
+          type: string
+          pattern: '^[0-9a-f]{16}$'
+        error:
+          type: string
+          description: status 为 failed 时的上传错误，刷新后仍可读取。
+        validationError:
+          type: string
+          description: 最近一次 commit 校验错误；状态仍为 uploaded，可以取消或重试 commit。
+
+    DetectionDeploymentParameters:
+      type: object
+      required: [threshold, processingSize]
+      additionalProperties: false
+      properties:
+        threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.5
+        processingSize:
+          $ref: '#/components/schemas/ProcessingSize'
+
+    ProcessingSize:
+      type: object
+      description: 送入检测管线的 VPSS 图像帧尺寸，不改变 BModel Tensor 尺寸。
+      required: [width, height]
+      additionalProperties: false
+      properties:
+        width:
+          type: integer
+          minimum: 160
+          maximum: 1920
+          multipleOf: 2
+          default: 448
+        height:
+          type: integer
+          minimum: 96
+          maximum: 1080
+          multipleOf: 2
+          default: 256
+
+    DeploymentState:
+      type: object
+      required:
+        - modelId
+        - schemaVersion
+        - deployable
+        - active
+        - referenced
+        - parameters
+        - appliedParameters
+        - parameterSchema
+      additionalProperties: false
+      properties:
+        modelId:
+          $ref: '#/components/schemas/ModelId'
+        schemaVersion:
+          type: integer
+          enum: [1]
+        deployable:
+          type: boolean
+          enum: [true]
+        active:
+          type: boolean
+        referenced:
+          type: boolean
+        parameters:
+          $ref: '#/components/schemas/DetectionDeploymentParameters'
+        appliedParameters:
+          allOf:
+            - $ref: '#/components/schemas/DetectionDeploymentParameters'
+          nullable: true
+        parameterSchema:
+          type: object
+          additionalProperties: true
+
+    ModelDetail:
+      type: object
+      required:
+        - id
+        - status
+        - importerId
+        - schemaVersion
+        - name
+        - fileSize
+        - createdAt
+        - committedAt
+        - metadata
+        - modelType
+        - task
+        - deployable
+      properties:
+        id:
+          $ref: '#/components/schemas/ModelId'
+        status:
+          type: string
+          enum: [ready]
+        importerId:
+          type: string
+        schemaVersion:
+          type: integer
+          enum: [1]
+        name:
+          type: string
+        fileSize:
+          type: integer
+        uploadedBytes:
+          type: integer
+        createdAt:
+          type: integer
+          format: int64
+        committedAt:
+          type: integer
+          format: int64
+        checksum:
+          type: string
+          pattern: '^[0-9a-f]{16}$'
+        metadata:
+          $ref: '#/components/schemas/ImportMetadata'
+        modelType:
+          type: string
+          enum:
+            - YOLOV5
+            - YOLOV6
+            - YOLOV7
+            - YOLOV8
+            - YOLOV10
+            - YOLO26
+            - PPYOLOE
+            - YOLOX
+            - CLS_IMG
+            - KEYPOINT_YOLOV8POSE
+            - YOLOV8_SEG
+            - FEATURE_IMG
+            - CLS_SOUND_COMMAND
+        task:
+          type: string
+        deployable:
+          type: boolean
+        deployment:
+          allOf:
+            - $ref: '#/components/schemas/DetectionDeploymentParameters'
+          nullable: true
+        active:
+          type: boolean
+          description: 仅 GET 模型详情时返回；表示当前正在推理。
+        referenced:
+          type: boolean
+          description: 仅 GET 模型详情时返回；表示运行配置仍引用该模型。
+
+    ModelSummary:
+      type: object
+      required:
+        - id
+        - status
+        - importerId
+        - schemaVersion
+        - name
+        - fileSize
+        - createdAt
+        - committedAt
+        - modelType
+        - task
+        - deployable
+        - metadataSummary
+        - active
+        - referenced
+      properties:
+        id: { $ref: '#/components/schemas/ModelId' }
+        status: { type: string, enum: [ready] }
+        importerId: { type: string }
+        schemaVersion: { type: integer, enum: [1] }
+        name: { type: string }
+        fileSize: { type: integer }
+        createdAt: { type: integer, format: int64 }
+        committedAt: { type: integer, format: int64 }
+        modelType: { type: string }
+        task: { type: string }
+        deployable: { type: boolean }
+        metadataSummary:
+          type: object
+          additionalProperties: false
+          properties:
+            labelsCount: { type: integer, minimum: 0 }
+            keypointsCount: { type: integer, minimum: 0 }
+        active: { type: boolean }
+        referenced: { type: boolean }
+
+    ModelStorage:
+      type: object
+      required: [totalBytes, availableBytes, reservedBytes]
+      additionalProperties: false
+      properties:
+        totalBytes: { type: integer, format: int64, minimum: 0 }
+        availableBytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 文件系统原始可用字节数，尚未扣除 reservedBytes。
+        reservedBytes: { type: integer, format: int64, enum: [2097152] }
+
+    ModelList:
+      type: object
+      required: [models, storage]
+      additionalProperties: false
+      properties:
+        models:
+          type: array
+          maxItems: 128
+          items:
+            $ref: '#/components/schemas/ModelSummary'
+        storage:
+          $ref: '#/components/schemas/ModelStorage'
+
+    AcceptedTask:
+      type: object
+      required: [task_id, revision]
+      additionalProperties: false
+      properties:
+        task_id:
+          type: integer
+          minimum: 1
+        revision:
+          type: string
+          pattern: '^[0-9a-f]{16}$'
+
+    Task:
+      type: object
+      required: [id, state, stage, progress, message, rolled_back]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        state:
+          type: string
+          enum: [queued, running, succeeded, failed]
+        stage:
+          type: string
+          description: 展示用阶段标识，不作为前端状态机枚举依据。
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        message:
+          type: string
+        rolled_back:
+          type: boolean

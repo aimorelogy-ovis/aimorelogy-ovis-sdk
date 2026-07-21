@@ -283,6 +283,20 @@ int main(int argc, char *argv[])
     #ifdef RTSP_SUPPORT
     /* create rtsp server */
     if (app_ipcam_Rtsp_Param_Get()->session_cnt > 0) {
+        CVI_U32 u32WaitMs = 0;
+        while (!app_ipcam_Venc_All_Stream_Ready() && u32WaitMs < 3000) {
+            usleep(10 * 1000);
+            u32WaitMs += 10;
+        }
+        if (app_ipcam_Venc_All_Stream_Ready()) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "VENC streams ready before RTSP setup, wait=%u ms\n",
+                u32WaitMs);
+        } else {
+            APP_PROF_LOG_PRINT(LEVEL_WARN,
+                "VENC streams not stable before RTSP setup after %u ms\n",
+                u32WaitMs);
+        }
         APP_CHK_RET(app_ipcam_Rtsp_Server_Create(), "create rtsp server");
     } else {
         APP_PROF_LOG_PRINT(LEVEL_INFO, "RTSP output not enable\n");

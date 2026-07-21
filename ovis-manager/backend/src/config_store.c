@@ -22,18 +22,32 @@ struct config_values {
 	int sub_fps;
 	int sub_bitrate;
 	int osd_enabled;
-	int person_enabled;
-	double person_threshold;
+	int object_enabled;
+	double object_threshold;
+	int object_width;
+	int object_height;
 	int face_enabled;
 	double face_threshold;
+	int face_width;
+	int face_height;
 	int motion_enabled;
 	int motion_sensitivity;
+	int motion_width;
+	int motion_height;
 	int human_pose_enabled;
 	double human_pose_threshold;
+	int human_pose_width;
+	int human_pose_height;
 	int object_tracking_enabled;
 	int object_tracking_search_type;
 	int object_tracking_use_kalman;
 	double object_tracking_score_threshold;
+	int object_tracking_det_width;
+	int object_tracking_det_height;
+	int object_tracking_sot_width;
+	int object_tracking_sot_height;
+	char object_model_id[96];
+	char object_model_path[512];
 };
 
 struct ini_update {
@@ -201,16 +215,26 @@ static int load_values(const char *path, struct config_values *values)
 	    read_int(path, "vencchn1", "dst_framerate", &values->sub_fps) != 0 ||
 	    read_int(path, "vencchn1", "bit_rate", &values->sub_bitrate) != 0 ||
 	    read_int(path, "osdc_config", "enable", &values->osd_enabled) != 0 ||
-	    read_int(path, "ai_pd_config", "pd_enable", &values->person_enabled) != 0 ||
-	    read_double(path, "ai_pd_config", "threshold", &values->person_threshold) != 0 ||
+	    read_int(path, "ai_pd_config", "pd_enable", &values->object_enabled) != 0 ||
+	    read_double(path, "ai_pd_config", "threshold", &values->object_threshold) != 0 ||
+	    read_int(path, "ai_pd_config", "grp_width", &values->object_width) != 0 ||
+	    read_int(path, "ai_pd_config", "grp_height", &values->object_height) != 0 ||
 	    read_int(path, "ai_fd_config", "fd_enable", &values->face_enabled) != 0 ||
 	    read_double(path, "ai_fd_config", "threshold_fd", &values->face_threshold) != 0 ||
+	    read_int(path, "ai_fd_config", "grp_width", &values->face_width) != 0 ||
+	    read_int(path, "ai_fd_config", "grp_height", &values->face_height) != 0 ||
 	    read_int(path, "ai_md_config", "md_enable", &values->motion_enabled) != 0 ||
 	    read_int(path, "ai_md_config", "threshold", &motion_threshold) != 0 ||
+	    read_int(path, "ai_md_config", "grp_width", &values->motion_width) != 0 ||
+	    read_int(path, "ai_md_config", "grp_height", &values->motion_height) != 0 ||
 	    read_int(path, "ai_human_keypoint_config", "human_keypoint_enable",
 		&values->human_pose_enabled) != 0 ||
 	    read_double(path, "ai_human_keypoint_config", "threshold",
 		&values->human_pose_threshold) != 0 ||
+	    read_int(path, "ai_human_keypoint_config", "model_width",
+		&values->human_pose_width) != 0 ||
+	    read_int(path, "ai_human_keypoint_config", "model_height",
+		&values->human_pose_height) != 0 ||
 	    read_int(path, "ai_object_track_config", "object_track_enable",
 		&values->object_tracking_enabled) != 0 ||
 	    read_int(path, "ai_object_track_config", "search_type",
@@ -218,8 +242,26 @@ static int load_values(const char *path, struct config_values *values)
 	    read_int(path, "ai_object_track_config", "use_kalman",
 		&values->object_tracking_use_kalman) != 0 ||
 	    read_double(path, "ai_object_track_config", "tracking_score_threshold",
-		&values->object_tracking_score_threshold) != 0)
+		&values->object_tracking_score_threshold) != 0 ||
+	    read_int(path, "ai_object_track_config", "grp_width",
+		&values->object_tracking_det_width) != 0 ||
+	    read_int(path, "ai_object_track_config", "grp_height",
+		&values->object_tracking_det_height) != 0 ||
+	    read_int(path, "ai_object_track_config", "sot_grp_width",
+		&values->object_tracking_sot_width) != 0 ||
+	    read_int(path, "ai_object_track_config", "sot_grp_height",
+		&values->object_tracking_sot_height) != 0 ||
+	    read_ini_value(path, "ai_pd_config", "model_id", values->object_model_id,
+		sizeof(values->object_model_id)) != 0 ||
+	    read_ini_value(path, "ai_pd_config", "model_path", values->object_model_path,
+		sizeof(values->object_model_path)) != 0)
 		return -1;
+	if (values->object_model_path[0] == '"') {
+		size_t length = strlen(values->object_model_path);
+		memmove(values->object_model_path, values->object_model_path + 1, length);
+		if (length > 1 && values->object_model_path[length - 2] == '"')
+			values->object_model_path[length - 2] = '\0';
+	}
 	values->motion_sensitivity = threshold_to_sensitivity(motion_threshold);
 	return 0;
 }
@@ -271,6 +313,42 @@ static int json_print(cJSON *root, char *json, size_t size)
 	return result;
 }
 
+static cJSON *add_processing_size(cJSON *parent, const char *name,
+	int width, int height)
+{
+	cJSON *size = cJSON_AddObjectToObject(parent, name);
+
+	if (size == NULL)
+		return NULL;
+	cJSON_AddNumberToObject(size, "width", width);
+	cJSON_AddNumberToObject(size, "height", height);
+	return size;
+}
+
+static void add_detection_model(cJSON *parent, const struct config_values *values)
+{
+	cJSON *model = cJSON_AddObjectToObject(parent, "model");
+	char prefix[512];
+	const char *start;
+
+	if (model == NULL)
+		return;
+	snprintf(prefix, sizeof(prefix), "%s/", OVIS_MODEL_STORE_DIR);
+	start = strncmp(values->object_model_path, prefix, strlen(prefix)) == 0 ?
+		values->object_model_path + strlen(prefix) : NULL;
+	if (start != NULL && strlen(start) >= 16 && start[16] == '/') {
+		char id[17];
+		memcpy(id, start, 16);
+		id[16] = '\0';
+		cJSON_AddStringToObject(model, "source", "custom");
+		cJSON_AddStringToObject(model, "id", id);
+	} else {
+		cJSON_AddStringToObject(model, "source", "builtin");
+		cJSON_AddStringToObject(model, "id", "builtin.object-detection");
+	}
+	cJSON_AddStringToObject(model, "runtime_model", values->object_model_id);
+}
+
 static cJSON *values_to_json(const struct config_values *values)
 {
 	cJSON *root = cJSON_CreateObject();
@@ -282,7 +360,7 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON *sub_stream;
 	cJSON *overlay;
 	cJSON *detection;
-	cJSON *person;
+	cJSON *object;
 	cJSON *face;
 	cJSON *motion;
 	cJSON *human_pose;
@@ -298,7 +376,7 @@ static cJSON *values_to_json(const struct config_values *values)
 	sub_stream = cJSON_AddObjectToObject(video, "sub");
 	overlay = cJSON_AddObjectToObject(root, "overlay");
 	detection = cJSON_AddObjectToObject(root, "detection");
-	person = cJSON_AddObjectToObject(detection, "person");
+	object = cJSON_AddObjectToObject(detection, "object");
 	face = cJSON_AddObjectToObject(detection, "face");
 	motion = cJSON_AddObjectToObject(detection, "motion");
 	human_pose = cJSON_AddObjectToObject(detection, "human_pose");
@@ -317,14 +395,23 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON_AddNumberToObject(sub_stream, "fps", values->sub_fps);
 	cJSON_AddNumberToObject(sub_stream, "bitrate_kbps", values->sub_bitrate);
 	cJSON_AddBoolToObject(overlay, "enabled", values->osd_enabled);
-	cJSON_AddBoolToObject(person, "enabled", values->person_enabled);
-	cJSON_AddNumberToObject(person, "threshold", values->person_threshold);
+	cJSON_AddBoolToObject(object, "enabled", values->object_enabled);
+	cJSON_AddNumberToObject(object, "threshold", values->object_threshold);
+	add_processing_size(object, "processing_size", values->object_width,
+		values->object_height);
+	add_detection_model(object, values);
 	cJSON_AddBoolToObject(face, "enabled", values->face_enabled);
 	cJSON_AddNumberToObject(face, "threshold", values->face_threshold);
+	add_processing_size(face, "processing_size", values->face_width,
+		values->face_height);
 	cJSON_AddBoolToObject(motion, "enabled", values->motion_enabled);
 	cJSON_AddNumberToObject(motion, "sensitivity", values->motion_sensitivity);
+	add_processing_size(motion, "processing_size", values->motion_width,
+		values->motion_height);
 	cJSON_AddBoolToObject(human_pose, "enabled", values->human_pose_enabled);
 	cJSON_AddNumberToObject(human_pose, "threshold", values->human_pose_threshold);
+	add_processing_size(human_pose, "processing_size", values->human_pose_width,
+		values->human_pose_height);
 	cJSON_AddBoolToObject(object_tracking, "enabled", values->object_tracking_enabled);
 	cJSON_AddStringToObject(object_tracking, "search_method",
 		values->object_tracking_search_type == 3 ? "fastsam" : "color");
@@ -332,13 +419,17 @@ static cJSON *values_to_json(const struct config_values *values)
 		values->object_tracking_use_kalman);
 	cJSON_AddNumberToObject(object_tracking, "score_threshold",
 		values->object_tracking_score_threshold);
+	add_processing_size(object_tracking, "detection_processing_size",
+		values->object_tracking_det_width, values->object_tracking_det_height);
+	add_processing_size(object_tracking, "tracking_processing_size",
+		values->object_tracking_sot_width, values->object_tracking_sot_height);
 	return root;
 }
 
 int config_capabilities_json(char *json, size_t size)
 {
 	static const char capabilities[] =
-		"{\"schema_version\":3,\"outputs\":{"
+		"{\"schema_version\":4,\"outputs\":{"
 		"\"rtsp\":{\"supported\":true,\"default_enabled\":true},"
 		"\"uvc\":{\"supported\":true,\"default_enabled\":true,"
 		"\"profile\":{\"codec\":\"mjpeg\",\"width\":1920,\"height\":1080,\"fps\":30}}},"
@@ -347,15 +438,30 @@ int config_capabilities_json(char *json, size_t size)
 		"\"fps_options\":[15,25,30,60],\"bitrate_min\":512,\"bitrate_max\":15000}]},"
 		"\"sub\":{\"profiles\":[{\"id\":\"768x572\",\"width\":768,\"height\":572,"
 		"\"fps_options\":[15,25,30],\"bitrate_min\":128,\"bitrate_max\":4000}]}},"
-		"\"features\":{\"osd\":true,\"person_detection\":true,"
+		"\"features\":{\"osd\":true,\"object_detection\":true,"
 		"\"face_detection\":true,\"motion_detection\":true,"
 		"\"human_pose\":true,\"object_tracking\":true},"
 		"\"ai\":{\"max_active_tpu_features\":1,\"features\":["
-		"{\"id\":\"person\",\"name\":\"人员检测\",\"model\":\"YOLOv8n Monitor Person\"},"
-		"{\"id\":\"face\",\"name\":\"人脸检测\",\"model\":\"SCRFD\"},"
-		"{\"id\":\"human_pose\",\"name\":\"人体姿态\",\"model\":\"YOLOv8 Pose\"},"
+		"{\"id\":\"object\",\"name\":\"目标检测\",\"model_selectable\":true,"
+		"\"processing_size\":{\"description\":\"送入 AI 的 VPSS 图像帧尺寸，不改变 BModel Tensor 尺寸\","
+		"\"min_width\":160,\"max_width\":1920,"
+		"\"min_height\":96,\"max_height\":1080,\"step\":2,\"default\":{\"width\":448,\"height\":256}}},"
+		"{\"id\":\"face\",\"name\":\"人脸检测\",\"model\":\"SCRFD\","
+		"\"processing_size\":{\"description\":\"送入 AI 的 VPSS 图像帧尺寸，不改变 BModel Tensor 尺寸\","
+		"\"min_width\":160,\"max_width\":768,"
+		"\"min_height\":96,\"max_height\":432,\"step\":2,\"default\":{\"width\":768,\"height\":432}}},"
+		"{\"id\":\"motion\",\"name\":\"移动检测\","
+		"\"processing_size\":{\"description\":\"送入移动检测管线的 VPSS 图像帧尺寸\","
+		"\"min_width\":160,\"max_width\":640,"
+		"\"min_height\":96,\"max_height\":360,\"step\":2,\"default\":{\"width\":640,\"height\":360}}},"
+		"{\"id\":\"human_pose\",\"name\":\"人体姿态\",\"model\":\"YOLOv8 Pose\","
+		"\"processing_size\":{\"description\":\"送入 AI 的 VPSS 图像帧尺寸，不改变 BModel Tensor 尺寸\","
+		"\"min_width\":160,\"max_width\":640,"
+		"\"min_height\":96,\"max_height\":384,\"step\":2,\"default\":{\"width\":640,\"height\":384}}},"
 		"{\"id\":\"object_tracking\",\"name\":\"目标检测与跟踪\","
-		"\"model\":\"YOLOv8n + FearTrack\",\"search_methods\":[\"color\",\"fastsam\"]}],"
+		"\"model\":\"YOLOv8n + FearTrack\",\"search_methods\":[\"color\",\"fastsam\"],"
+		"\"detection_processing_size\":{\"fixed\":true,\"width\":640,\"height\":384},"
+		"\"tracking_processing_size\":{\"fixed\":true,\"width\":1920,\"height\":1080}}],"
 		"\"motion_detection\":true}}";
 
 	if (strlen(capabilities) + 1 > size)
@@ -430,6 +536,15 @@ static int string_item(cJSON *parent, const char *name, const char **value)
 	return 0;
 }
 
+static int processing_size_item(cJSON *parent, const char *name,
+	int *width, int *height)
+{
+	cJSON *size = object_item(parent, name);
+
+	return int_item(size, "width", width) == 0 &&
+		int_item(size, "height", height) == 0 ? 0 : -1;
+}
+
 static int parse_payload(const char *body, struct config_values *values,
 	char revision[33], char *error, size_t error_size)
 {
@@ -443,7 +558,7 @@ static int parse_payload(const char *body, struct config_values *values,
 	cJSON *sub_stream;
 	cJSON *overlay;
 	cJSON *detection;
-	cJSON *person;
+	cJSON *object;
 	cJSON *face;
 	cJSON *motion;
 	cJSON *human_pose;
@@ -466,7 +581,7 @@ static int parse_payload(const char *body, struct config_values *values,
 	sub_stream = object_item(video, "sub");
 	overlay = object_item(values_json, "overlay");
 	detection = object_item(values_json, "detection");
-	person = object_item(detection, "person");
+	object = object_item(detection, "object");
 	face = object_item(detection, "face");
 	motion = object_item(detection, "motion");
 	human_pose = object_item(detection, "human_pose");
@@ -482,19 +597,33 @@ static int parse_payload(const char *body, struct config_values *values,
 	    int_item(sub_stream, "fps", &values->sub_fps) != 0 ||
 	    int_item(sub_stream, "bitrate_kbps", &values->sub_bitrate) != 0 ||
 	    bool_item(overlay, "enabled", &values->osd_enabled) != 0 ||
-	    bool_item(person, "enabled", &values->person_enabled) != 0 ||
-	    double_item(person, "threshold", &values->person_threshold) != 0 ||
+	    bool_item(object, "enabled", &values->object_enabled) != 0 ||
+	    double_item(object, "threshold", &values->object_threshold) != 0 ||
+	    processing_size_item(object, "processing_size", &values->object_width,
+		&values->object_height) != 0 ||
 	    bool_item(face, "enabled", &values->face_enabled) != 0 ||
 	    double_item(face, "threshold", &values->face_threshold) != 0 ||
+	    processing_size_item(face, "processing_size", &values->face_width,
+		&values->face_height) != 0 ||
 	    bool_item(motion, "enabled", &values->motion_enabled) != 0 ||
 	    int_item(motion, "sensitivity", &values->motion_sensitivity) != 0 ||
+	    processing_size_item(motion, "processing_size", &values->motion_width,
+		&values->motion_height) != 0 ||
 	    bool_item(human_pose, "enabled", &values->human_pose_enabled) != 0 ||
 	    double_item(human_pose, "threshold", &values->human_pose_threshold) != 0 ||
+	    processing_size_item(human_pose, "processing_size", &values->human_pose_width,
+		&values->human_pose_height) != 0 ||
 	    bool_item(object_tracking, "enabled", &values->object_tracking_enabled) != 0 ||
 	    string_item(object_tracking, "search_method", &search_method) != 0 ||
 	    bool_item(object_tracking, "use_kalman", &values->object_tracking_use_kalman) != 0 ||
 	    double_item(object_tracking, "score_threshold",
-		&values->object_tracking_score_threshold) != 0)
+		&values->object_tracking_score_threshold) != 0 ||
+	    processing_size_item(object_tracking, "detection_processing_size",
+		&values->object_tracking_det_width,
+		&values->object_tracking_det_height) != 0 ||
+	    processing_size_item(object_tracking, "tracking_processing_size",
+		&values->object_tracking_sot_width,
+		&values->object_tracking_sot_height) != 0)
 		goto done;
 	if (strcmp(main_profile, "1080p") != 0 || strcmp(sub_profile, "768x572") != 0) {
 		snprintf(error, error_size, "配置包含设备不支持的分辨率预设");
@@ -537,10 +666,18 @@ static int sub_fps_supported(int fps)
 	return fps == 15 || fps == 25 || fps == 30;
 }
 
+static int processing_size_valid(int width, int height, int max_width,
+	int max_height)
+{
+	return width >= OVIS_AI_MIN_WIDTH && width <= max_width &&
+		height >= OVIS_AI_MIN_HEIGHT && height <= max_height &&
+		(width % 2) == 0 && (height % 2) == 0;
+}
+
 static cJSON *validate_values(const struct config_values *values)
 {
 	cJSON *errors = cJSON_CreateArray();
-	int active_tpu_features = values->person_enabled + values->face_enabled +
+	int active_tpu_features = values->object_enabled + values->face_enabled +
 		values->human_pose_enabled + values->object_tracking_enabled;
 
 	if (!main_fps_supported(values->main_fps))
@@ -551,19 +688,43 @@ static cJSON *validate_values(const struct config_values *values)
 		add_issue(errors, "video.sub.fps", "UNSUPPORTED_FPS", "子码流不支持此帧率");
 	if (values->sub_bitrate < 128 || values->sub_bitrate > 4000)
 		add_issue(errors, "video.sub.bitrate_kbps", "OUT_OF_RANGE", "子码流码率范围为 128-4000 Kbps");
-	if (values->person_threshold < 0 || values->person_threshold > 1)
-		add_issue(errors, "detection.person.threshold", "OUT_OF_RANGE", "人员检测阈值必须在 0 到 1 之间");
+	if (values->object_threshold < 0 || values->object_threshold > 1)
+		add_issue(errors, "detection.object.threshold", "OUT_OF_RANGE", "目标检测阈值必须在 0 到 1 之间");
+	if (!processing_size_valid(values->object_width, values->object_height,
+			OVIS_AI_OBJECT_FRAME_MAX_WIDTH, OVIS_AI_OBJECT_FRAME_MAX_HEIGHT))
+		add_issue(errors, "detection.object.processing_size", "OUT_OF_RANGE",
+			"目标检测 AI 输入帧尺寸必须为 160x96 到 1920x1080 范围内的偶数");
 	if (values->face_threshold < 0 || values->face_threshold > 1)
 		add_issue(errors, "detection.face.threshold", "OUT_OF_RANGE", "人脸检测阈值必须在 0 到 1 之间");
+	if (!processing_size_valid(values->face_width, values->face_height,
+			OVIS_AI_FACE_MAX_WIDTH, OVIS_AI_FACE_MAX_HEIGHT))
+		add_issue(errors, "detection.face.processing_size", "OUT_OF_RANGE",
+			"人脸检测 AI 输入帧尺寸必须为 160x96 到 768x432 范围内的偶数");
 	if (values->motion_sensitivity < 0 || values->motion_sensitivity > 100)
 		add_issue(errors, "detection.motion.sensitivity", "OUT_OF_RANGE", "移动检测灵敏度必须在 0 到 100 之间");
+	if (!processing_size_valid(values->motion_width, values->motion_height,
+			OVIS_AI_MOTION_MAX_WIDTH, OVIS_AI_MOTION_MAX_HEIGHT))
+		add_issue(errors, "detection.motion.processing_size", "OUT_OF_RANGE",
+			"移动检测 AI 输入帧尺寸必须为 160x96 到 640x360 范围内的偶数");
 	if (values->human_pose_threshold < 0 || values->human_pose_threshold > 1)
 		add_issue(errors, "detection.human_pose.threshold", "OUT_OF_RANGE", "人体姿态阈值必须在 0 到 1 之间");
+	if (!processing_size_valid(values->human_pose_width, values->human_pose_height,
+			OVIS_AI_HUMAN_POSE_MAX_WIDTH, OVIS_AI_HUMAN_POSE_MAX_HEIGHT))
+		add_issue(errors, "detection.human_pose.processing_size", "OUT_OF_RANGE",
+			"人体姿态 AI 输入帧尺寸必须为 160x96 到 640x384 范围内的偶数");
 	if (values->object_tracking_score_threshold < 0 ||
 	    values->object_tracking_score_threshold > 1)
 		add_issue(errors, "detection.object_tracking.score_threshold", "OUT_OF_RANGE", "目标跟踪分数阈值必须在 0 到 1 之间");
+	if (values->object_tracking_det_width != OVIS_AI_TRACK_DET_WIDTH ||
+	    values->object_tracking_det_height != OVIS_AI_TRACK_DET_HEIGHT)
+		add_issue(errors, "detection.object_tracking.detection_processing_size",
+			"FIXED_BY_MODEL", "目标跟踪检测尺寸由当前 BModel 固定为 640x384");
+	if (values->object_tracking_sot_width != OVIS_AI_TRACK_SOT_WIDTH ||
+	    values->object_tracking_sot_height != OVIS_AI_TRACK_SOT_HEIGHT)
+		add_issue(errors, "detection.object_tracking.tracking_processing_size",
+			"FIXED_BY_MODEL", "目标跟踪搜索尺寸由当前运行管线固定为 1920x1080");
 	if (active_tpu_features > 1)
-		add_issue(errors, "detection", "AI_FEATURE_CONFLICT", "人员、人脸、人体姿态和目标跟踪最多只能启用一项");
+		add_issue(errors, "detection", "AI_FEATURE_CONFLICT", "目标检测、人脸、人体姿态和目标跟踪最多只能启用一项");
 	return errors;
 }
 
@@ -680,6 +841,75 @@ static int write_updates(const char *source, const char *target,
 	}
 	output = NULL;
 	if (rename(temporary, target) != 0)
+		goto done;
+	result = 0;
+done:
+	if (input != NULL)
+		fclose(input);
+	if (output != NULL)
+		fclose(output);
+	if (result != 0)
+		unlink(temporary);
+	return result;
+}
+
+static int ensure_ini_key(const char *path, const char *wanted_section,
+	const char *wanted_key, const char *default_value)
+{
+	char existing[160];
+	char line[1024];
+	char parse_line[1024];
+	char section[64] = "";
+	char temporary[512];
+	FILE *input = NULL;
+	FILE *output = NULL;
+	int in_section = 0;
+	int section_found = 0;
+	int inserted = 0;
+	int result = -1;
+
+	if (read_ini_value(path, wanted_section, wanted_key, existing,
+			sizeof(existing)) == 0)
+		return 0;
+	snprintf(temporary, sizeof(temporary), "%s.key.tmp", path);
+	input = fopen(path, "r");
+	output = fopen(temporary, "w");
+	if (input == NULL || output == NULL)
+		goto done;
+	while (fgets(line, sizeof(line), input) != NULL) {
+		char *text;
+
+		snprintf(parse_line, sizeof(parse_line), "%s", line);
+		text = trim(parse_line);
+		if (*text == '[') {
+			char *close = strchr(text, ']');
+			if (in_section && !inserted) {
+				fprintf(output, "%-16s = %s\n", wanted_key, default_value);
+				inserted = 1;
+			}
+			if (close != NULL) {
+				*close = '\0';
+				snprintf(section, sizeof(section), "%s", text + 1);
+				in_section = strcmp(section, wanted_section) == 0;
+				if (in_section)
+					section_found = 1;
+			}
+		}
+		fputs(line, output);
+	}
+	if (in_section && !inserted) {
+		fprintf(output, "%-16s = %s\n", wanted_key, default_value);
+		inserted = 1;
+	}
+	if (!section_found || !inserted || fflush(output) != 0 ||
+	    fsync(fileno(output)) != 0)
+		goto done;
+	if (fclose(output) != 0) {
+		output = NULL;
+		goto done;
+	}
+	output = NULL;
+	if (rename(temporary, path) != 0)
 		goto done;
 	result = 0;
 done:
@@ -987,7 +1217,7 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp6.chn0", "height", "1080", 0 },
 		{ "vpssgrp6.chn0", "video_fmt", "VIDEO_FORMAT_LINEAR", 0 },
 		{ "vpssgrp6.chn0", "chn_pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
-		{ "vpssgrp6.chn0", "dst_framerate", "30", 0 },
+		{ "vpssgrp6.chn0", "dst_framerate", "", 0 },
 		{ "vpssgrp6.chn0", "depth", "0", 0 },
 		{ "vpssgrp6.chn0", "mirror", "0", 0 },
 		{ "vpssgrp6.chn0", "filp", "0", 0 },
@@ -1011,8 +1241,8 @@ static int migrate_runtime_config(const char *path)
 		{ "vencchn3", "src_chn_id", "0", 0 },
 		{ "vencchn3", "vpss_grp", "6", 0 },
 		{ "vencchn3", "vpss_chn", "0", 0 },
-		{ "vencchn3", "src_framerate", "30", 0 },
-		{ "vencchn3", "dst_framerate", "30", 0 },
+		{ "vencchn3", "src_framerate", "", 0 },
+		{ "vencchn3", "dst_framerate", "", 0 },
 		{ "vencchn3", "rc_mode", "VENC_RC_MODE_MJPEGCBR", 0 },
 		{ "vencchn3", "bit_rate", "50000", 0 },
 		{ "vencchn3", "max_bitrate", "50000", 0 },
@@ -1022,6 +1252,27 @@ static int migrate_runtime_config(const char *path)
 		{ "vencchn1", "bEnable", "", 0 },
 		{ "vencchn3", "bEnable", "", 0 },
 		{ "rtsp_config", "rtsp_cnt", "", 0 },
+		{ "vb_pool_1", "bEnable", "", 0 },
+		{ "vb_pool_2", "bEnable", "", 0 },
+		{ "vb_pool_3", "bEnable", "", 0 },
+		{ "vb_pool_4", "bEnable", "", 0 },
+		{ "vb_pool_7", "bEnable", "", 0 },
+		{ "vpssgrp2", "max_w", "1920", 0 },
+		{ "vpssgrp2", "max_h", "1080", 0 },
+		{ "vpssgrp2", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vpssgrp2", "src_chn_id", "0", 0 },
+		{ "vpssgrp2", "src_framerate", "", 0 },
+		{ "vpssgrp2", "dst_framerate", "10", 0 },
+		{ "vpssgrp2.chn0", "chn_pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vb_pool_2", "frame_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vpssgrp3", "max_w", "1920", 0 },
+		{ "vpssgrp3", "max_h", "1080", 0 },
+		{ "vpssgrp3", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vpssgrp3", "src_chn_id", "0", 0 },
+		{ "vpssgrp4", "max_w", "1920", 0 },
+		{ "vpssgrp4", "max_h", "1080", 0 },
+		{ "vpssgrp4", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vpssgrp4", "src_chn_id", "0", 0 },
 	};
 	char migrated[512];
 	char value[160];
@@ -1033,7 +1284,10 @@ static int migrate_runtime_config(const char *path)
 	int uvc_enabled = 1;
 	int osd_enabled = 0;
 	int main_fps = 0;
-	int ai_source_enabled = 0;
+	int runtime_sub_enabled = 0;
+	int human_pose_width = OVIS_AI_HUMAN_POSE_MAX_WIDTH;
+	int human_pose_height = OVIS_AI_HUMAN_POSE_MAX_HEIGHT;
+	int shared_ai_source_enabled = 0;
 	int sub_dependent_enabled[3];
 	int keep = -1;
 	int index;
@@ -1046,6 +1300,10 @@ static int migrate_runtime_config(const char *path)
 		AI_SOURCE_UPDATE_INDEX = 31,
 		FIXED_TOPOLOGY_UPDATE_BASE = 32,
 		UVC_SOURCE_FPS_UPDATE_INDEX = 32,
+		SHARED_CHANNEL_WIDTH_UPDATE_INDEX = 33,
+		SHARED_CHANNEL_HEIGHT_UPDATE_INDEX = 34,
+		SHARED_POOL_WIDTH_UPDATE_INDEX = 42,
+		SHARED_POOL_HEIGHT_UPDATE_INDEX = 43,
 	};
 	static const int fixed_update_indexes[] = {
 		1, 3, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
@@ -1054,6 +1312,12 @@ static int migrate_runtime_config(const char *path)
 
 	if (access(path, F_OK) != 0)
 		return -1;
+	if (ensure_ini_key(path, "ai_pd_config", "model_path_cfg",
+			"\"/usr/share/ipcamera/model_factory.json\"") != 0)
+		return -1;
+	if (read_ini_value(path, "ai_pd_config", "model_path", value,
+			sizeof(value)) == 0 && strstr(value, OVIS_MODEL_STORE_DIR "/") != NULL)
+		snprintf(updates[1].value, sizeof(updates[1].value), "%s", value);
 	needs_update = !has_section(path, "output_config") ||
 		!has_section(path, "ai_human_keypoint_config") ||
 		!has_section(path, "ai_object_track_config") ||
@@ -1073,8 +1337,14 @@ static int migrate_runtime_config(const char *path)
 	    read_int(path, "output_config", "uvc_enable", &uvc_enabled) != 0 ||
 	    read_int(path, "output_config", "sub_enable", &sub_enabled) != 0 ||
 	    read_int(path, "vencchn0", "dst_framerate", &main_fps) != 0 ||
+	    read_int(path, "ai_human_keypoint_config", "model_width",
+		&human_pose_width) != 0 ||
+	    read_int(path, "ai_human_keypoint_config", "model_height",
+		&human_pose_height) != 0 ||
 	    read_int(path, "osdc_config", "enable", &osd_enabled) != 0)
 		return -1;
+	runtime_sub_enabled = rtsp_enabled && sub_enabled &&
+		!(uvc_enabled && main_fps == 60);
 	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vb_pool_6", "bEnable", rtsp_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
@@ -1082,7 +1352,7 @@ static int migrate_runtime_config(const char *path)
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vencchn0", "bEnable", rtsp_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vencchn1", "bEnable", rtsp_enabled && sub_enabled) != 0 ||
+			"vencchn1", "bEnable", runtime_sub_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"rtsp_config", "rtsp_cnt", rtsp_enabled ? 2 : 0) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
@@ -1092,13 +1362,59 @@ static int migrate_runtime_config(const char *path)
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vpssgrp6.chn0", "chn_enable", uvc_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vencchn3", "bEnable", uvc_enabled) != 0)
+			"vencchn3", "bEnable", uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp6.chn0", "dst_framerate",
+			main_fps == 60 ? 60 : 30) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn3", "src_framerate",
+			main_fps == 60 ? 60 : 30) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn3", "dst_framerate",
+			main_fps == 60 ? 60 : 30) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp2", "src_framerate",
+			main_fps == 60 ? 60 : 30) != 0)
 		return -1;
 	if (enabled[0] + enabled[1] + enabled[2] + enabled[3] > 1)
 		needs_update = 1;
+	for (index = 0; index < 4; index++) {
+		if (enabled[index] && keep < 0)
+			keep = index;
+		enabled[index] = enabled[index] && keep == index;
+	}
+	shared_ai_source_enabled = enabled[2] || enabled[3];
+	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_1", "bEnable", shared_ai_source_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_2", "bEnable", enabled[0]) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_3", "bEnable", enabled[1]) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_4", "bEnable", motion_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_7", "bEnable", enabled[3]) != 0)
+		return -1;
 	snprintf(updates[UVC_SOURCE_FPS_UPDATE_INDEX].value,
 		sizeof(updates[UVC_SOURCE_FPS_UPDATE_INDEX].value), "%d",
 		main_fps == 60 ? 60 : 30);
+	if (!enabled[3]) {
+		int shared_width = enabled[2] ? human_pose_width : OVIS_AI_TRACK_DET_WIDTH;
+		int shared_height = enabled[2] ? human_pose_height : OVIS_AI_TRACK_DET_HEIGHT;
+
+		snprintf(updates[SHARED_CHANNEL_WIDTH_UPDATE_INDEX].value,
+			sizeof(updates[SHARED_CHANNEL_WIDTH_UPDATE_INDEX].value), "%d",
+			shared_width);
+		snprintf(updates[SHARED_CHANNEL_HEIGHT_UPDATE_INDEX].value,
+			sizeof(updates[SHARED_CHANNEL_HEIGHT_UPDATE_INDEX].value), "%d",
+			shared_height);
+		snprintf(updates[SHARED_POOL_WIDTH_UPDATE_INDEX].value,
+			sizeof(updates[SHARED_POOL_WIDTH_UPDATE_INDEX].value), "%d",
+			shared_width);
+		snprintf(updates[SHARED_POOL_HEIGHT_UPDATE_INDEX].value,
+			sizeof(updates[SHARED_POOL_HEIGHT_UPDATE_INDEX].value), "%d",
+			shared_height);
+	}
 	for (index = 0;
 	     index < (int)(sizeof(fixed_update_indexes) /
 		     sizeof(fixed_update_indexes[0]));
@@ -1122,17 +1438,10 @@ static int migrate_runtime_config(const char *path)
 			break;
 		}
 	}
-	for (index = 0; index < 4; index++) {
-		if (enabled[index] && keep < 0)
-			keep = index;
-		enabled[index] = enabled[index] && keep == index;
-	}
 	group_enabled[0] = enabled[0];
 	group_enabled[1] = enabled[1];
 	group_enabled[2] = motion_enabled;
 	group_enabled[3] = 0;
-	ai_source_enabled = enabled[0] || enabled[1] || motion_enabled ||
-		enabled[2] || enabled[3];
 	for (index = 0; index < AI_GROUP_UPDATE_COUNT; index++) {
 		int current;
 
@@ -1143,9 +1452,9 @@ static int migrate_runtime_config(const char *path)
 			break;
 		}
 	}
-	sub_dependent_enabled[0] = rtsp_enabled && sub_enabled;
-	sub_dependent_enabled[1] = rtsp_enabled && sub_enabled;
-	sub_dependent_enabled[2] = rtsp_enabled && sub_enabled && osd_enabled;
+	sub_dependent_enabled[0] = runtime_sub_enabled;
+	sub_dependent_enabled[1] = runtime_sub_enabled;
+	sub_dependent_enabled[2] = runtime_sub_enabled && osd_enabled;
 	for (index = 0; index < SUB_UPDATE_COUNT; index++) {
 		int current;
 
@@ -1161,7 +1470,7 @@ static int migrate_runtime_config(const char *path)
 
 		if (read_int(path, updates[AI_SOURCE_UPDATE_INDEX].section,
 				updates[AI_SOURCE_UPDATE_INDEX].key, &current) != 0 ||
-		    current != ai_source_enabled)
+		    current != shared_ai_source_enabled)
 			needs_update = 1;
 	}
 	if (!needs_update)
@@ -1180,7 +1489,7 @@ static int migrate_runtime_config(const char *path)
 			"%d", sub_dependent_enabled[index]);
 	snprintf(updates[AI_SOURCE_UPDATE_INDEX].value,
 		sizeof(updates[AI_SOURCE_UPDATE_INDEX].value), "%d",
-		ai_source_enabled);
+		shared_ai_source_enabled);
 	snprintf(migrated, sizeof(migrated), "%s.migrated", path);
 	if (write_updates(path, migrated, updates, sizeof(updates) / sizeof(updates[0])) != 0)
 		return -1;
@@ -1237,24 +1546,66 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "vpssgrp6.chn0", "chn_enable", "", 0 },
 		{ "vencchn3", "bEnable", "", 0 },
 		{ "rtsp_config", "rtsp_cnt", "", 0 },
+		{ "ai_pd_config", "grp_width", "", 0 },
+		{ "ai_pd_config", "grp_height", "", 0 },
+		{ "vpssgrp2.chn0", "width", "", 0 },
+		{ "vpssgrp2.chn0", "height", "", 0 },
+		{ "vb_pool_2", "frame_width", "", 0 },
+		{ "vb_pool_2", "frame_height", "", 0 },
+		{ "ai_fd_config", "grp_width", "", 0 },
+		{ "ai_fd_config", "grp_height", "", 0 },
+		{ "vpssgrp3.chn0", "width", "", 0 },
+		{ "vpssgrp3.chn0", "height", "", 0 },
+		{ "vb_pool_3", "frame_width", "", 0 },
+		{ "vb_pool_3", "frame_height", "", 0 },
+		{ "ai_md_config", "grp_width", "", 0 },
+		{ "ai_md_config", "grp_height", "", 0 },
+		{ "vpssgrp4.chn0", "width", "", 0 },
+		{ "vpssgrp4.chn0", "height", "", 0 },
+		{ "vb_pool_4", "frame_width", "", 0 },
+		{ "vb_pool_4", "frame_height", "", 0 },
+		{ "ai_human_keypoint_config", "model_width", "", 0 },
+		{ "ai_human_keypoint_config", "model_height", "", 0 },
+		{ "ai_object_track_config", "grp_width", "", 0 },
+		{ "ai_object_track_config", "grp_height", "", 0 },
+		{ "ai_object_track_config", "sot_grp_width", "", 0 },
+		{ "ai_object_track_config", "sot_grp_height", "", 0 },
+		{ "vpssgrp0.chn2", "width", "", 0 },
+		{ "vpssgrp0.chn2", "height", "", 0 },
+		{ "vb_pool_1", "frame_width", "", 0 },
+		{ "vb_pool_1", "frame_height", "", 0 },
+		{ "vb_pool_1", "bEnable", "", 0 },
+		{ "vb_pool_2", "bEnable", "", 0 },
+		{ "vb_pool_3", "bEnable", "", 0 },
+		{ "vb_pool_4", "bEnable", "", 0 },
+		{ "vb_pool_7", "bEnable", "", 0 },
+		{ "vpssgrp6.chn0", "dst_framerate", "", 0 },
+		{ "vencchn3", "src_framerate", "", 0 },
+		{ "vencchn3", "dst_framerate", "", 0 },
+		{ "vpssgrp2", "src_framerate", "", 0 },
+		{ "vpssgrp2", "dst_framerate", "", 0 },
 	};
 	char validation_error[256];
+	int runtime_sub_enabled;
 	enum {
 		STAGE_AI_SOURCE_UPDATE_INDEX = 29,
 		STAGE_UVC_SOURCE_FPS_UPDATE_INDEX = 30,
 	};
 
+	runtime_sub_enabled = values->rtsp_enabled && values->sub_enabled &&
+		!(values->uvc_enabled && values->main_fps == 60);
+
 	snprintf(updates[0].value, sizeof(updates[0].value), "%d", values->main_fps);
 	snprintf(updates[1].value, sizeof(updates[1].value), "%d", values->main_bitrate);
 	snprintf(updates[2].value, sizeof(updates[2].value), "%d", values->main_bitrate);
 	snprintf(updates[3].value, sizeof(updates[3].value), "%d",
-		values->rtsp_enabled && values->sub_enabled);
+		runtime_sub_enabled);
 	snprintf(updates[4].value, sizeof(updates[4].value), "%d", values->sub_fps);
 	snprintf(updates[5].value, sizeof(updates[5].value), "%d", values->sub_bitrate);
 	snprintf(updates[6].value, sizeof(updates[6].value), "%d", values->sub_bitrate);
 	snprintf(updates[7].value, sizeof(updates[7].value), "%d", values->osd_enabled);
-	snprintf(updates[8].value, sizeof(updates[8].value), "%d", values->person_enabled);
-	snprintf(updates[9].value, sizeof(updates[9].value), "%.6g", values->person_threshold);
+	snprintf(updates[8].value, sizeof(updates[8].value), "%d", values->object_enabled);
+	snprintf(updates[9].value, sizeof(updates[9].value), "%.6g", values->object_threshold);
 	snprintf(updates[10].value, sizeof(updates[10].value), "%d", values->face_enabled);
 	snprintf(updates[11].value, sizeof(updates[11].value), "%.6g", values->face_threshold);
 	snprintf(updates[12].value, sizeof(updates[12].value), "%d", values->motion_enabled);
@@ -1271,21 +1622,19 @@ static int stage_values(const struct config_values *values, char revision[17],
 		values->main_fps == 60 ? OVIS_SC235HAI_60FPS_SNS_TYPE : OVIS_SC235HAI_30FPS_SNS_TYPE);
 	snprintf(updates[21].value, sizeof(updates[21].value), "%d",
 		values->main_fps == 60 ? 60 : 30);
-	snprintf(updates[22].value, sizeof(updates[22].value), "%d", values->person_enabled);
+	snprintf(updates[22].value, sizeof(updates[22].value), "%d", values->object_enabled);
 	snprintf(updates[23].value, sizeof(updates[23].value), "%d", values->face_enabled);
 	snprintf(updates[24].value, sizeof(updates[24].value), "%d", values->motion_enabled);
 	snprintf(updates[25].value, sizeof(updates[25].value), "%d", 0);
 	snprintf(updates[26].value, sizeof(updates[26].value), "%d",
-		values->rtsp_enabled && values->sub_enabled);
+		runtime_sub_enabled);
 	snprintf(updates[27].value, sizeof(updates[27].value), "%d",
-		values->rtsp_enabled && values->sub_enabled);
+		runtime_sub_enabled);
 	snprintf(updates[28].value, sizeof(updates[28].value), "%d",
-		values->rtsp_enabled && values->sub_enabled && values->osd_enabled);
+		runtime_sub_enabled && values->osd_enabled);
 	snprintf(updates[STAGE_AI_SOURCE_UPDATE_INDEX].value,
 		sizeof(updates[STAGE_AI_SOURCE_UPDATE_INDEX].value), "%d",
-		values->person_enabled || values->face_enabled ||
-		values->motion_enabled || values->human_pose_enabled ||
-		values->object_tracking_enabled);
+		values->human_pose_enabled || values->object_tracking_enabled);
 	snprintf(updates[STAGE_UVC_SOURCE_FPS_UPDATE_INDEX].value,
 		sizeof(updates[STAGE_UVC_SOURCE_FPS_UPDATE_INDEX].value), "%d",
 		values->main_fps == 60 ? 60 : 30);
@@ -1310,9 +1659,86 @@ static int stage_values(const struct config_values *values, char revision[17],
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vencchn3", "bEnable", values->uvc_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"rtsp_config", "rtsp_cnt", values->rtsp_enabled ? 2 : 0) != 0) {
-		snprintf(error, error_size, "无法生成输出服务配置");
+			"rtsp_config", "rtsp_cnt", values->rtsp_enabled ? 2 : 0) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_1", "bEnable",
+			values->human_pose_enabled || values->object_tracking_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_2", "bEnable", values->object_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_3", "bEnable", values->face_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_4", "bEnable", values->motion_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_7", "bEnable", values->object_tracking_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp6.chn0", "dst_framerate",
+			values->main_fps == 60 ? 60 : 30) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn3", "src_framerate",
+			values->main_fps == 60 ? 60 : 30) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vencchn3", "dst_framerate",
+			values->main_fps == 60 ? 60 : 30) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp2", "src_framerate",
+			values->main_fps == 60 ? 60 : 30) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp2", "dst_framerate", OVIS_AI_DETECTION_FPS) != 0) {
+		snprintf(error, error_size, "无法生成输出服务或 AI 资源配置");
 		return -1;
+	}
+	{
+		int shared_width = values->object_tracking_enabled ?
+			values->object_tracking_det_width : values->human_pose_enabled ?
+			values->human_pose_width : OVIS_AI_TRACK_DET_WIDTH;
+		int shared_height = values->object_tracking_enabled ?
+			values->object_tracking_det_height : values->human_pose_enabled ?
+			values->human_pose_height : OVIS_AI_TRACK_DET_HEIGHT;
+		struct {
+			const char *section;
+			const char *key;
+			int value;
+		} dimensions[] = {
+			{ "ai_pd_config", "grp_width", values->object_width },
+			{ "ai_pd_config", "grp_height", values->object_height },
+			{ "vpssgrp2.chn0", "width", values->object_width },
+			{ "vpssgrp2.chn0", "height", values->object_height },
+			{ "vb_pool_2", "frame_width", values->object_width },
+			{ "vb_pool_2", "frame_height", values->object_height },
+			{ "ai_fd_config", "grp_width", values->face_width },
+			{ "ai_fd_config", "grp_height", values->face_height },
+			{ "vpssgrp3.chn0", "width", values->face_width },
+			{ "vpssgrp3.chn0", "height", values->face_height },
+			{ "vb_pool_3", "frame_width", values->face_width },
+			{ "vb_pool_3", "frame_height", values->face_height },
+			{ "ai_md_config", "grp_width", values->motion_width },
+			{ "ai_md_config", "grp_height", values->motion_height },
+			{ "vpssgrp4.chn0", "width", values->motion_width },
+			{ "vpssgrp4.chn0", "height", values->motion_height },
+			{ "vb_pool_4", "frame_width", values->motion_width },
+			{ "vb_pool_4", "frame_height", values->motion_height },
+			{ "ai_human_keypoint_config", "model_width", values->human_pose_width },
+			{ "ai_human_keypoint_config", "model_height", values->human_pose_height },
+			{ "ai_object_track_config", "grp_width", values->object_tracking_det_width },
+			{ "ai_object_track_config", "grp_height", values->object_tracking_det_height },
+			{ "ai_object_track_config", "sot_grp_width", values->object_tracking_sot_width },
+			{ "ai_object_track_config", "sot_grp_height", values->object_tracking_sot_height },
+			{ "vpssgrp0.chn2", "width", shared_width },
+			{ "vpssgrp0.chn2", "height", shared_height },
+			{ "vb_pool_1", "frame_width", shared_width },
+			{ "vb_pool_1", "frame_height", shared_height },
+		};
+		size_t index;
+
+		for (index = 0; index < sizeof(dimensions) / sizeof(dimensions[0]); index++) {
+			if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+					dimensions[index].section, dimensions[index].key,
+					dimensions[index].value) != 0) {
+				snprintf(error, error_size, "无法生成 AI 输入帧尺寸配置");
+				return -1;
+			}
+		}
 	}
 	if (write_updates(OVIS_CONFIG_FILE, OVIS_CONFIG_PENDING, updates,
 			sizeof(updates) / sizeof(updates[0])) != 0) {
@@ -1378,6 +1804,174 @@ int config_stage_json(const char *body, char *json, size_t size,
 	result = 0;
 	audit_log("config.stage", "success");
 done:
+	pthread_mutex_unlock(&config_lock);
+	return result;
+}
+
+static int model_id_is_valid(const char *model_id)
+{
+	size_t index;
+
+	if (model_id == NULL || strncmp(model_id, "TDL_MODEL_", 10) != 0 ||
+	    strlen(model_id) >= 80)
+		return 0;
+	for (index = 10; model_id[index] != '\0'; index++) {
+		if (!(model_id[index] >= 'A' && model_id[index] <= 'Z') &&
+		    !(model_id[index] >= '0' && model_id[index] <= '9') &&
+		    model_id[index] != '_')
+			return 0;
+	}
+	return index > 10;
+}
+
+int config_stage_detection_model(const char *model_id, const char *model_path,
+	const char *model_config_path, double threshold, int processing_width,
+	int processing_height, int enabled,
+	char revision[17], char *error, size_t error_size)
+{
+	struct ini_update updates[] = {
+		{ "ai_pd_config", "model_id", "", 0 },
+		{ "ai_pd_config", "model_path", "", 0 },
+		{ "ai_pd_config", "model_path_cfg", "", 0 },
+		{ "ai_pd_config", "threshold", "", 0 },
+		{ "ai_pd_config", "pd_enable", "", 0 },
+		{ "ai_fd_config", "fd_enable", "0", 0 },
+		{ "ai_human_keypoint_config", "human_keypoint_enable", "0", 0 },
+		{ "ai_object_track_config", "object_track_enable", "0", 0 },
+		{ "vpssgrp2", "grp_enable", "", 0 },
+		{ "vpssgrp3", "grp_enable", "0", 0 },
+		{ "vpssgrp0.chn2", "chn_enable", "", 0 },
+		{ "ai_pd_config", "grp_width", "", 0 },
+		{ "ai_pd_config", "grp_height", "", 0 },
+		{ "vpssgrp2.chn0", "width", "", 0 },
+		{ "vpssgrp2.chn0", "height", "", 0 },
+		{ "vb_pool_2", "frame_width", "", 0 },
+		{ "vb_pool_2", "frame_height", "", 0 },
+		{ "vpssgrp0.chn2", "width", "", 0 },
+		{ "vpssgrp0.chn2", "height", "", 0 },
+		{ "vb_pool_1", "frame_width", "", 0 },
+		{ "vb_pool_1", "frame_height", "", 0 },
+		{ "vb_pool_1", "bEnable", "0", 0 },
+		{ "vb_pool_2", "bEnable", "", 0 },
+		{ "vb_pool_3", "bEnable", "0", 0 },
+		{ "vb_pool_4", "bEnable", "", 0 },
+		{ "vb_pool_7", "bEnable", "0", 0 },
+	};
+	char validation_error[256];
+	int motion_enabled = 0;
+	int custom_paths;
+	int builtin_paths;
+	int result = -1;
+
+	error[0] = '\0';
+	custom_paths = model_path != NULL && model_config_path != NULL &&
+		strncmp(model_path, OVIS_MODEL_STORE_DIR "/", strlen(OVIS_MODEL_STORE_DIR) + 1) == 0 &&
+		strncmp(model_config_path, OVIS_MODEL_STORE_DIR "/", strlen(OVIS_MODEL_STORE_DIR) + 1) == 0;
+	builtin_paths = model_path != NULL && model_config_path != NULL &&
+		strcmp(model_path,
+			"/usr/share/ipcamera/cv184x/yolov8n_det_monitor_person_256_448_INT8_cv184x.bmodel") == 0 &&
+		strcmp(model_config_path, "/usr/share/ipcamera/model_factory.json") == 0;
+	if (!model_id_is_valid(model_id)) {
+		snprintf(error, error_size, "检测模型运行类型无效");
+		return -1;
+	}
+	if (threshold < 0 || threshold > 1) {
+		snprintf(error, error_size, "检测阈值必须在 0 到 1 之间");
+		return -1;
+	}
+	if (!processing_size_valid(processing_width, processing_height,
+			OVIS_AI_OBJECT_FRAME_MAX_WIDTH, OVIS_AI_OBJECT_FRAME_MAX_HEIGHT)) {
+		snprintf(error, error_size,
+			"AI 输入帧尺寸必须为 160x96 到 1920x1080 范围内的偶数");
+		return -1;
+	}
+	if (enabled != 0 && enabled != 1) {
+		snprintf(error, error_size, "检测模型启用状态无效");
+		return -1;
+	}
+	if (model_path == NULL || model_config_path == NULL ||
+	    (!custom_paths && !builtin_paths) ||
+	    strchr(model_path, '\n') != NULL || strchr(model_path, '"') != NULL ||
+	    strchr(model_config_path, '\n') != NULL || strchr(model_config_path, '"') != NULL) {
+		snprintf(error, error_size, "检测模型文件路径无效");
+		return -1;
+	}
+	if (access(model_path, R_OK) != 0 || access(model_config_path, R_OK) != 0) {
+		snprintf(error, error_size, "检测模型文件或配置文件不可用");
+		return -1;
+	}
+	pthread_mutex_lock(&config_lock);
+	if (ensure_ini_key(OVIS_CONFIG_FILE, "ai_pd_config", "model_path_cfg",
+			"\"/usr/share/ipcamera/model_factory.json\"") != 0 ||
+	    read_int(OVIS_CONFIG_FILE, "ai_md_config", "md_enable", &motion_enabled) != 0) {
+		snprintf(error, error_size, "无法准备检测模型运行配置");
+		goto done;
+	}
+	snprintf(updates[0].value, sizeof(updates[0].value), "%s", model_id);
+	snprintf(updates[1].value, sizeof(updates[1].value), "\"%s\"", model_path);
+	snprintf(updates[2].value, sizeof(updates[2].value), "\"%s\"", model_config_path);
+	snprintf(updates[3].value, sizeof(updates[3].value), "%.6g", threshold);
+	snprintf(updates[4].value, sizeof(updates[4].value), "%d", enabled);
+	snprintf(updates[8].value, sizeof(updates[8].value), "%d", enabled);
+	snprintf(updates[10].value, sizeof(updates[10].value), "0");
+	snprintf(updates[11].value, sizeof(updates[11].value), "%d", processing_width);
+	snprintf(updates[12].value, sizeof(updates[12].value), "%d", processing_height);
+	snprintf(updates[13].value, sizeof(updates[13].value), "%d", processing_width);
+	snprintf(updates[14].value, sizeof(updates[14].value), "%d", processing_height);
+	snprintf(updates[15].value, sizeof(updates[15].value), "%d", processing_width);
+	snprintf(updates[16].value, sizeof(updates[16].value), "%d", processing_height);
+	snprintf(updates[17].value, sizeof(updates[17].value), "%d", OVIS_AI_TRACK_DET_WIDTH);
+	snprintf(updates[18].value, sizeof(updates[18].value), "%d", OVIS_AI_TRACK_DET_HEIGHT);
+	snprintf(updates[19].value, sizeof(updates[19].value), "%d", OVIS_AI_TRACK_DET_WIDTH);
+	snprintf(updates[20].value, sizeof(updates[20].value), "%d", OVIS_AI_TRACK_DET_HEIGHT);
+	snprintf(updates[22].value, sizeof(updates[22].value), "%d", enabled);
+	snprintf(updates[24].value, sizeof(updates[24].value), "%d", motion_enabled);
+	if (write_updates(OVIS_CONFIG_FILE, OVIS_CONFIG_PENDING, updates,
+			sizeof(updates) / sizeof(updates[0])) != 0) {
+		snprintf(error, error_size, "无法创建检测模型待应用配置");
+		goto done;
+	}
+	if (config_validate_file(OVIS_CONFIG_PENDING, validation_error,
+			sizeof(validation_error)) != 0) {
+		unlink(OVIS_CONFIG_PENDING);
+		snprintf(error, error_size, "检测模型配置校验失败: %s", validation_error);
+		goto done;
+	}
+	if (revision_for_file(OVIS_CONFIG_PENDING, revision) != 0) {
+		unlink(OVIS_CONFIG_PENDING);
+		snprintf(error, error_size, "无法生成检测模型配置版本");
+		goto done;
+	}
+	result = 0;
+	audit_log(enabled ? "model.config.activate" : "model.config.deactivate", "success");
+done:
+	pthread_mutex_unlock(&config_lock);
+	return result;
+}
+
+int config_rebase_backup_away_from_model(const char *id,
+	char *error, size_t error_size)
+{
+	char path[512];
+	char needle[512];
+	int result = 0;
+
+	if (id == NULL || strlen(id) != 16) {
+		snprintf(error, error_size, "模型 ID 无效");
+		return -1;
+	}
+	pthread_mutex_lock(&config_lock);
+	if (access(OVIS_CONFIG_BACKUP, F_OK) == 0 &&
+	    read_ini_value(OVIS_CONFIG_BACKUP, "ai_pd_config", "model_path",
+			path, sizeof(path)) == 0) {
+		snprintf(needle, sizeof(needle), "%s/%s/model.bmodel",
+			OVIS_MODEL_STORE_DIR, id);
+		if (strstr(path, needle) != NULL &&
+		    atomic_copy(OVIS_CONFIG_FILE, OVIS_CONFIG_BACKUP) != 0) {
+			snprintf(error, error_size, "无法更新模型关联的回滚配置");
+			result = -1;
+		}
+	}
 	pthread_mutex_unlock(&config_lock);
 	return result;
 }

@@ -787,7 +787,9 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
     s32Ratio = fmax(((float)pVpssChnAttr->u32Width / (float)pastChnInfo->u32Width), ((float)pVpssChnAttr->u32Height / (float)pastChnInfo->u32Height));
     #ifdef AI_SUPPORT
     #ifdef PD_SUPPORT
-    if (iOsdcIndex == 0 && g_pstOsdcCfg->bShowPdRect[iOsdcIndex]) {
+    if (iOsdcIndex == 0 &&
+        g_pstOsdcCfg->bShowPdRect[iOsdcIndex] &&
+        app_ipcam_Ai_PD_ProcStatus_Get()) {
         app_ipcam_Ai_PD_ObjDrawInfo_Get(&g_objMetaPd);
         if (g_objMetaPd.size > 0 && g_objMetaPd.info != NULL) {
             for (i = 0; i < g_objMetaPd.size; i++) {
@@ -800,12 +802,12 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
                 pstObjAttr[OsdcObjsNum].stRgnRect.stRect.u32Width = g_stPdRectRatio.ScaleX * (g_objMetaPd.info[i].box.x2 - g_objMetaPd.info[i].box.x1);
                 pstObjAttr[OsdcObjsNum].stRgnRect.stRect.u32Height = g_stPdRectRatio.ScaleY * (g_objMetaPd.info[i].box.y2 - g_objMetaPd.info[i].box.y1);
                 pstObjAttr[OsdcObjsNum].stRgnRect.u32Thick = 4;
+                pstObjAttr[OsdcObjsNum].stRgnRect.u32Color = COLOR_RED(0);
                 pstObjAttr[OsdcObjsNum].stRgnRect.u32IsFill = CVI_FALSE;
                 pstObjAttr[OsdcObjsNum].enObjType = RGN_CMPR_RECT;
 
                 OsdcObjsNum++;
             }
-            TDL_ReleaseObjectMeta(&g_objMetaPd);
         }
     }
     #endif
@@ -888,7 +890,9 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
     }
 #endif
 #ifdef OBJECT_TRACK_SUPPORT
-if (iOsdcIndex == 0 && g_pstOsdcCfg->bShowTrackRect[iOsdcIndex]) {
+if (iOsdcIndex == 0 &&
+    g_pstOsdcCfg->bShowTrackRect[iOsdcIndex] &&
+    app_ipcam_Ai_Object_Track_ProcStatus_Get()) {
     app_ipcam_Ai_Object_Track_ObjDrawInfo_Get(&g_objMetaObjectTrack);
 
     s32Ret = app_ipcam_Osd_ObjectTrack_CenterBox_Add(pstObjAttr, &OsdcObjsNum, &g_objMetaObjectTrack);
@@ -1099,8 +1103,10 @@ static int app_ipcam_ObjRectRatio_Set(void)
     /* set AI PD rect-ratio */
     g_stPdRectRatio.VpssChn_W = pstPdCfg->u32GrpWidth;
     g_stPdRectRatio.VpssChn_H = pstPdCfg->u32GrpHeight;
-    g_stPdRectRatio.ScaleX = g_stPdRectRatio.ScaleY =
-        fmax(((float)stOdecSize.u32Width / (float)g_stPdRectRatio.VpssChn_W), ((float)stOdecSize.u32Height / (float)g_stPdRectRatio.VpssChn_H));
+    g_stPdRectRatio.ScaleX = (float)stOdecSize.u32Width /
+        (float)g_stPdRectRatio.VpssChn_W;
+    g_stPdRectRatio.ScaleY = (float)stOdecSize.u32Height /
+        (float)g_stPdRectRatio.VpssChn_H;
     #endif
     #ifdef MD_SUPPORT
     APP_PARAM_AI_MD_CFG_S *pstMdCfg = app_ipcam_Ai_MD_Param_Get();
@@ -1259,6 +1265,11 @@ int app_ipcam_Osdc_DeInit(void)
 #ifdef OBJECT_TRACK_SUPPORT
     free(g_objMetaObjectTrack.info);
     g_objMetaObjectTrack.info = NULL;
+#endif
+#ifdef PD_SUPPORT
+    free(g_objMetaPd.info);
+    g_objMetaPd.info = NULL;
+    g_objMetaPd.size = 0;
 #endif
 
     return CVI_SUCCESS;
