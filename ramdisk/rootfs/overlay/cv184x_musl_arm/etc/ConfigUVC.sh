@@ -101,12 +101,10 @@ setup_uvc() {
 	add_link "$header" "$streaming/class/hs/h"
 	add_link "$header" "$streaming/class/ss/h"
 
-	# Bulk transport gives MJPEG payloads USB-level retry semantics. This avoids
-	# visible partial JPEG frames when 60 fps capture and AI load contend with
-	# the DWC2 controller.
-	echo 1 > "$UVC_FUNCTION/streaming_bulk"
+	# Reserve three 1024-byte transactions per 125 us microframe. The standard
+	# isochronous UVC endpoint is supported consistently by desktop host stacks.
 	echo 1 > "$UVC_FUNCTION/streaming_interval"
-	echo 512 > "$UVC_FUNCTION/streaming_maxpacket"
+	echo 3072 > "$UVC_FUNCTION/streaming_maxpacket"
 	echo 0 > "$UVC_FUNCTION/streaming_maxburst"
 	echo 1 > "$UVC_FUNCTION/defer_connect"
 }

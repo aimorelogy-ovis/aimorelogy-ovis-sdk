@@ -82,6 +82,7 @@ uvc_video_encode_bulk(struct usb_request *req, struct uvc_video *video,
 	len -= ret;
 
 	req->length = video->req_size - len;
+	req->zero = video->payload_size == video->max_payload_size;
 
 	if (buf->bytesused == video->queue.buf_used) {
 		video->queue.buf_used = 0;
@@ -95,9 +96,6 @@ uvc_video_encode_bulk(struct usb_request *req, struct uvc_video *video,
 	if (video->payload_size == video->max_payload_size ||
 	    buf->bytesused == video->queue.buf_used)
 		video->payload_size = 0;
-
-	req->zero = req->length &&
-		(req->length % video->ep->maxpacket) == 0;
 }
 
 #if !IS_ENABLED(CONFIG_USB_UVCG_SG_TRANSFER)
@@ -253,12 +251,9 @@ uvc_video_alloc_requests(struct uvc_video *video)
 
 	BUG_ON(video->req_size);
 
-	if (usb_endpoint_xfer_bulk(video->ep->desc))
-		req_size = UVC_BULK_REQUEST_SIZE;
-	else
-		req_size = video->ep->maxpacket
-			 * max_t(unsigned int, video->ep->maxburst, 1)
-			 * video->ep->mult;
+	req_size = video->ep->maxpacket
+		 * max_t(unsigned int, video->ep->maxburst, 1)
+		 * video->ep->mult;
 #if !IS_ENABLED(CONFIG_USB_UVCG_SG_TRANSFER)
 	for (i = 0; i < UVC_NUM_REQUESTS; ++i) {
 		video->req_buffer[i] = kmalloc(req_size, GFP_KERNEL);
@@ -416,14 +411,11 @@ int uvcg_video_enable(struct uvc_video *video, int enable)
 	if ((ret = uvc_video_alloc_requests(video)) < 0)
 		return ret;
 
-	if (usb_endpoint_xfer_bulk(video->ep->desc)) {
-		video->max_payload_size = UVC_BULK_REQUEST_SIZE;
+	if (video->max_payload_size) {
 		video->encode = uvc_video_encode_bulk;
 		video->payload_size = 0;
-	} else {
-		video->max_payload_size = 0;
+	} else
 		video->encode = uvc_video_encode_isoc;
-	}
 
 	uvcg_video_pump_schedule(video);
 
