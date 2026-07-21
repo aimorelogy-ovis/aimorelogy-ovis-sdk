@@ -627,8 +627,10 @@ int zfifo_readv_plus(ZFIFO_DESC *zfifo_desc, ZFIFO_NODE *iov, int iovcnt, int ti
 
     if (zfifo_desc->index <= zfifo->first_index)
     {
-        if (zfifo_desc->index < zfifo->first_index)
+        if (zfifo_desc->index < zfifo->first_index) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "lost data: cur_index = %d, first_index = %d, read desc:0x%p\n", zfifo_desc->index, zfifo->first_index, zfifo_desc);
+            zfifo_desc->overrun = 1;
+        }
 
         zfifo_desc->index = zfifo->first_index;
         zfifo_desc->offset = zfifo->first_offset;
@@ -809,6 +811,24 @@ int zfifo_set_newest_frame(ZFIFO_DESC *zfifo_desc)
     }
     pthread_mutex_unlock(&zfifo->mutex);
     return 0;
+}
+
+int zfifo_take_overrun(ZFIFO_DESC *zfifo_desc)
+{
+    int overrun;
+
+    if (zfifo_desc == NULL || zfifo_desc->zfifo == NULL)
+    {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "param error.\n");
+        return -1;
+    }
+
+    pthread_mutex_lock(&zfifo_desc->zfifo->mutex);
+    overrun = zfifo_desc->overrun;
+    zfifo_desc->overrun = 0;
+    pthread_mutex_unlock(&zfifo_desc->zfifo->mutex);
+
+    return overrun;
 }
 
 int zfifo_set_oldest_frame(ZFIFO_DESC *zfifo_desc)

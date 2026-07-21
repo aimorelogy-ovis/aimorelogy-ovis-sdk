@@ -18,6 +18,8 @@ static pthread_mutex_t g_PDStatusMutex = PTHREAD_MUTEX_INITIALIZER;
 /**************************************************************************
  *                           C O N S T A N T S                            *
  **************************************************************************/
+#define APP_PD_DIAG_INTERVAL 30
+#define APP_PD_MAX_DRAW_OBJECTS 100
 
 /**************************************************************************
  *                          D A T A    T Y P E S                          *
@@ -110,6 +112,14 @@ static CVI_S32 app_ipcam_Ai_InferenceFunc_Get(TDLModel model_id)
     switch (model_id)
     {
         case TDL_MODEL_YOLOV8N_DET_MONITOR_PERSON:
+        case TDL_MODEL_YOLOV5:
+        case TDL_MODEL_YOLOV6:
+        case TDL_MODEL_YOLOV7:
+        case TDL_MODEL_YOLOV8:
+        case TDL_MODEL_YOLOV10:
+        case TDL_MODEL_YOLO26:
+        case TDL_MODEL_PPYOLOE:
+        case TDL_MODEL_YOLOX:
             g_pfpPDInference = TDL_Detection;
         break;
 
@@ -126,55 +136,9 @@ static void app_ipcam_Ai_Param_dump(void)
     APP_PROF_LOG_PRINT(LEVEL_INFO, "bEnable=%d Grp=%d Chn=%d GrpW=%d GrpH=%d\n", 
         g_pstPdCfg->bEnable, g_pstPdCfg->VpssGrp, g_pstPdCfg->VpssChn, g_pstPdCfg->u32GrpWidth, g_pstPdCfg->u32GrpHeight);
     APP_PROF_LOG_PRINT(LEVEL_INFO, "threshold=%f\n", g_pstPdCfg->threshold);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id=%d model_path=%s\n", g_pstPdCfg->model_id, g_pstPdCfg->model_path);
+    APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id=%d model_path=%s model_path_cfg=%s\n",
+        g_pstPdCfg->model_id, g_pstPdCfg->model_path, g_pstPdCfg->model_path_cfg);
 
-}
-
-/**
- * 深拷贝 TDLObject 结构体
- * @param dst 目标对象（需预先分配内存）
- * @param src 源对象
- * @return 0成功，-1失败
- */
-static int deep_copy_tdl_object(TDLObject* dst, const TDLObject* src) {
-    // 1. 参数检查
-    if (dst == NULL || src == NULL) {
-        return -1;
-    }
-
-    // 2. 拷贝基本成员
-    dst->size = src->size;
-    dst->width = src->width;
-    dst->height = src->height;
-
-    // 3. 处理 TDLObjectInfo 数组
-    if (src->info != NULL && src->size > 0) {
-        // 分配新数组内存
-        dst->info = (TDLObjectInfo*)malloc(src->size * sizeof(TDLObjectInfo));
-        if (dst->info == NULL) {
-            return -1;
-        }
-
-        // 逐个拷贝对象信息
-        for (uint32_t i = 0; i < src->size; i++) {
-            // 拷贝基本成员
-            dst->info[i].box.x1 = src->info[i].box.x1;
-            dst->info[i].box.x2 = src->info[i].box.x2;
-            dst->info[i].box.y1 = src->info[i].box.y1;
-            dst->info[i].box.y2 = src->info[i].box.y2;
-            dst->info[i].score = src->info[i].score;
-            dst->info[i].class_id = src->info[i].class_id;
-            dst->info[i].landmark_size = src->info[i].landmark_size;
-            dst->info[i].obj_type = src->info[i].obj_type;
-    
-            // landmark_properity 设为 NULL（不拷贝原数据）
-            dst->info[i].landmark_properity = NULL;
-        }
-    } else {
-        return 0;
-    }
-
-    return 0;
 }
 
 static CVI_S32 app_ipcam_Ai_PD_Proc_Init(CVI_VOID)
@@ -207,7 +171,10 @@ static CVI_S32 app_ipcam_Ai_PD_Proc_Init(CVI_VOID)
         return s32Ret;
     }
 
-    s32Ret = TDL_OpenModel(g_PDAiHandle, g_pstPdCfg->model_id, g_pstPdCfg->model_path, NULL, 0);
+    s32Ret = TDL_OpenModel(g_PDAiHandle, g_pstPdCfg->model_id,
+        g_pstPdCfg->model_path,
+        g_pstPdCfg->model_path_cfg[0] == '\0' ? NULL : g_pstPdCfg->model_path_cfg,
+        0);
     if (s32Ret != CVI_SUCCESS)
     {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_SetModelPath failed with %#x! maybe reset model path\n", s32Ret);
@@ -221,6 +188,22 @@ static CVI_S32 app_ipcam_Ai_PD_Proc_Init(CVI_VOID)
         return s32Ret;
     }
 
+    {
+        SMT_MutexAutoLock(g_PDMutex, lock);
+        if (g_stPDObjDraw.info == NULL) {
+            g_stPDObjDraw.info = malloc(
+                APP_PD_MAX_DRAW_OBJECTS * sizeof(TDLObjectInfo));
+            if (g_stPDObjDraw.info == NULL) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "malloc g_stPDObjDraw.info failed\n");
+                return CVI_FAILURE;
+            }
+        }
+        g_stPDObjDraw.size = 0;
+        g_stPDObjDraw.width = 0;
+        g_stPDObjDraw.height = 0;
+    }
+
     APP_PROF_LOG_PRINT(LEVEL_INFO, "AI PD init ------------------> done \n");
 
     return CVI_SUCCESS;
@@ -229,6 +212,11 @@ static CVI_S32 app_ipcam_Ai_PD_Proc_Init(CVI_VOID)
 static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
+    CVI_U32 u32FrameCount = 0;
+    CVI_U32 u32InferenceErrors = 0;
+    CVI_U32 u32EmptyFrames = 0;
+    CVI_U32 u32DetectedFrames = 0;
+    CVI_U32 u32StaleFrames = 0;
     APP_PROF_LOG_PRINT(LEVEL_INFO, "AI PD start running!\n");
 
     prctl(PR_SET_NAME, "Thread_PD_PROC");
@@ -255,43 +243,128 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
             usleep(100*1000);
             continue;
         }
+        for (;;) {
+            VIDEO_FRAME_INFO_S stLatestFrame = {0};
+            CVI_S32 s32LatestRet = CVI_VPSS_GetChnFrame(
+                VpssGrp, VpssChn, &stLatestFrame, 0);
+
+            if (s32LatestRet != CVI_SUCCESS) {
+                break;
+            }
+            s32LatestRet = CVI_VPSS_ReleaseChnFrame(
+                VpssGrp, VpssChn, &stfdFrame);
+            if (s32LatestRet != CVI_SUCCESS) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "Grp(%d)-Chn(%d) release stale frame failed with %#x\n",
+                    VpssGrp, VpssChn, s32LatestRet);
+            }
+            stfdFrame = stLatestFrame;
+            u32StaleFrames++;
+        }
+        if (u32FrameCount == 0) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "PD input frame: grp=%d chn=%d size=%ux%u format=%d "
+                "stride=[%u,%u,%u] configured=%ux%u preprocessed=0\n",
+                VpssGrp, VpssChn, stfdFrame.stVFrame.u32Width,
+                stfdFrame.stVFrame.u32Height, stfdFrame.stVFrame.enPixelFormat,
+                stfdFrame.stVFrame.u32Stride[0], stfdFrame.stVFrame.u32Stride[1],
+                stfdFrame.stVFrame.u32Stride[2], g_pstPdCfg->u32GrpWidth,
+                g_pstPdCfg->u32GrpHeight);
+        }
         image_handle = TDL_WrapFrame((void*)&stfdFrame, false, false);
 
         pthread_mutex_unlock(&g_PDStatusMutex);  
 
         TDLObject obj_meta;
         memset(&obj_meta, 0, sizeof(TDLObject));
-        g_pfpPDInference(g_PDAiHandle, g_pstPdCfg->model_id, image_handle, &obj_meta);
-        // APP_PROF_LOG_PRINT(LEVEL_INFO, "PD obj: %d \n", obj_meta.size);
+        CVI_U32 u32InferenceStart = GetCurTimeInMsec();
+        s32Ret = g_pfpPDInference(g_PDAiHandle, g_pstPdCfg->model_id,
+            image_handle, &obj_meta);
+        CVI_U32 u32InferenceTime = GetCurTimeInMsec() - u32InferenceStart;
+        u32FrameCount++;
 
-        s32Ret = CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stfdFrame); 
-        if (s32Ret != CVI_SUCCESS)
+        CVI_S32 s32ReleaseRet = CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stfdFrame);
+        if (s32ReleaseRet != CVI_SUCCESS)
         {
-            APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) release frame failed with %#x\n", VpssGrp, VpssChn, s32Ret);
+            APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) release frame failed with %#x\n",
+                VpssGrp, VpssChn, s32ReleaseRet);
         }
         TDL_DestroyImage(image_handle);
-        // if (obj_meta.size == 0 || obj_meta.info == NULL) {
-        //     TDL_ReleaseObjectMeta(&obj_meta);
-        //     TDL_DestroyImage(image_handle);
-        //     if (g_stPDObjDraw.info != NULL) { 
-        //         TDL_ReleaseObjectMeta(&g_stPDObjDraw);
-                
-        //     }
-        //     continue;
-        // }
-        if (obj_meta.size == 0) {
+
+        if (s32Ret != CVI_SUCCESS) {
+            u32InferenceErrors++;
+            if (u32InferenceErrors == 1 ||
+                (u32FrameCount % APP_PD_DIAG_INTERVAL) == 0) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "PD DIAG inference failed: frame=%u ret=%#x time=%u ms "
+                    "errors=%u model=%d\n",
+                    u32FrameCount, s32Ret, u32InferenceTime,
+                    u32InferenceErrors, g_pstPdCfg->model_id);
+            }
+            if (obj_meta.info != NULL) {
+                TDL_ReleaseObjectMeta(&obj_meta);
+            }
             continue;
         }
-        
-        SMT_MutexAutoLock(g_PDMutex, lock);
-        if (g_stPDObjDraw.info != NULL) { 
-            TDL_ReleaseObjectMeta(&g_stPDObjDraw);
+
+        if (obj_meta.size > 0 && obj_meta.info == NULL) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "PD DIAG invalid metadata: frame=%u objects=%u info=NULL\n",
+                u32FrameCount, obj_meta.size);
+            continue;
         }
 
-        memset(&g_stPDObjDraw, 0, sizeof(TDLObject));
-        deep_copy_tdl_object(&g_stPDObjDraw, &obj_meta);
+        {
+            SMT_MutexAutoLock(g_PDMutex, lock);
+            g_stPDObjDraw.size = 0;
+            g_stPDObjDraw.width = obj_meta.width;
+            g_stPDObjDraw.height = obj_meta.height;
+            if (obj_meta.size > 0 && g_stPDObjDraw.info != NULL) {
+                g_stPDObjDraw.size = obj_meta.size <= APP_PD_MAX_DRAW_OBJECTS ?
+                    obj_meta.size : APP_PD_MAX_DRAW_OBJECTS;
+                memcpy(g_stPDObjDraw.info, obj_meta.info,
+                    g_stPDObjDraw.size * sizeof(TDLObjectInfo));
+            }
+        }
+
+        if (obj_meta.size == 0) {
+            u32EmptyFrames++;
+            if (u32FrameCount == 1 ||
+                (u32FrameCount % APP_PD_DIAG_INTERVAL) == 0) {
+                APP_PROF_LOG_PRINT(LEVEL_INFO,
+                    "PD DIAG no objects: frame=%u time=%u ms empty=%u "
+                    "detected=%u errors=%u threshold=%.3f\n",
+                    u32FrameCount, u32InferenceTime, u32EmptyFrames,
+                    u32DetectedFrames, u32InferenceErrors, g_pstPdCfg->threshold);
+            }
+            if (obj_meta.info != NULL) {
+                TDL_ReleaseObjectMeta(&obj_meta);
+            }
+            continue;
+        }
+
+        u32DetectedFrames++;
+        if (u32DetectedFrames == 1 ||
+            (u32FrameCount % APP_PD_DIAG_INTERVAL) == 0) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "PD DIAG detected: frame=%u time=%u ms objects=%u "
+                "meta=%ux%u class=%d score=%.3f box=[%.1f,%.1f,%.1f,%.1f] "
+                "detected=%u empty=%u errors=%u\n",
+                u32FrameCount, u32InferenceTime, obj_meta.size,
+                obj_meta.width, obj_meta.height,
+                obj_meta.info[0].class_id, obj_meta.info[0].score,
+                obj_meta.info[0].box.x1, obj_meta.info[0].box.y1,
+                obj_meta.info[0].box.x2, obj_meta.info[0].box.y2,
+                u32DetectedFrames, u32EmptyFrames, u32InferenceErrors);
+        }
+
         TDL_ReleaseObjectMeta(&obj_meta);
     }
+
+    APP_PROF_LOG_PRINT(LEVEL_INFO,
+        "PD DIAG stopped: frames=%u detected=%u empty=%u errors=%u stale=%u\n",
+        u32FrameCount, u32DetectedFrames, u32EmptyFrames,
+        u32InferenceErrors, u32StaleFrames);
 
     pthread_exit(NULL);
 
@@ -301,16 +374,37 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
 
 int app_ipcam_Ai_PD_ObjDrawInfo_Get(TDLObject *pstAiObj)
 {
+    static CVI_U32 u32OsdHandoffCount = 0;
+
     _NULL_POINTER_CHECK_(pstAiObj, -1);
 
+    if (pstAiObj->info == NULL) {
+        pstAiObj->info = malloc(
+            APP_PD_MAX_DRAW_OBJECTS * sizeof(TDLObjectInfo));
+        if (pstAiObj->info == NULL) {
+            pstAiObj->size = 0;
+            return CVI_FAILURE;
+        }
+    }
+
     SMT_MutexAutoLock(g_PDMutex, lock);
-    if (g_stPDObjDraw.size == 0) {
-        return CVI_SUCCESS;
-    } else {
-        memset(pstAiObj, 0, sizeof(TDLObject));
-        deep_copy_tdl_object(pstAiObj, &g_stPDObjDraw);
-        if (g_stPDObjDraw.info != NULL) { 
-            TDL_ReleaseObjectMeta(&g_stPDObjDraw);
+    pstAiObj->size = 0;
+    pstAiObj->width = g_stPDObjDraw.width;
+    pstAiObj->height = g_stPDObjDraw.height;
+    if (g_stPDObjDraw.size > 0 && g_stPDObjDraw.info != NULL) {
+        pstAiObj->size = g_stPDObjDraw.size <= APP_PD_MAX_DRAW_OBJECTS ?
+            g_stPDObjDraw.size : APP_PD_MAX_DRAW_OBJECTS;
+        memcpy(pstAiObj->info, g_stPDObjDraw.info,
+            pstAiObj->size * sizeof(TDLObjectInfo));
+
+        u32OsdHandoffCount++;
+        if (u32OsdHandoffCount == 1 ||
+            (u32OsdHandoffCount % APP_PD_DIAG_INTERVAL) == 0) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "PD DIAG OSD handoff: count=%u objects=%u "
+                "class=%d score=%.3f\n",
+                u32OsdHandoffCount, pstAiObj->size,
+                pstAiObj->info[0].class_id, pstAiObj->info[0].score);
         }
     }
     return CVI_SUCCESS;
@@ -341,6 +435,15 @@ int app_ipcam_Ai_PD_Stop(void)
     {
         pthread_join(g_PDThreadHandle, NULL);
         g_PDThreadHandle = 0;
+    }
+
+    {
+        SMT_MutexAutoLock(g_PDMutex, lock);
+        free(g_stPDObjDraw.info);
+        g_stPDObjDraw.info = NULL;
+        g_stPDObjDraw.size = 0;
+        g_stPDObjDraw.width = 0;
+        g_stPDObjDraw.height = 0;
     }
 
     TDL_CloseModel(g_PDAiHandle, g_pstPdCfg->model_id);
@@ -384,8 +487,10 @@ int app_ipcam_Ai_PD_Start(void)
         return s32Ret;
     }
     
-    g_PDScaleX = g_PDScaleY = fmax(((float)pstVpssCfg->astVpssChnAttr[0].u32Width / (float)g_pstPdCfg->u32GrpWidth), \
-                                     ((float)pstVpssCfg->astVpssChnAttr[0].u32Height / (float)g_pstPdCfg->u32GrpHeight));
+    g_PDScaleX = (float)pstVpssCfg->astVpssChnAttr[0].u32Width /
+        (float)g_pstPdCfg->u32GrpWidth;
+    g_PDScaleY = (float)pstVpssCfg->astVpssChnAttr[0].u32Height /
+        (float)g_pstPdCfg->u32GrpHeight;
 
     app_ipcam_Ai_PD_ProcStatus_Set(CVI_TRUE);
 

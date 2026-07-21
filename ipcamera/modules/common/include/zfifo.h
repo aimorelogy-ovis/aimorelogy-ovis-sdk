@@ -30,6 +30,7 @@ typedef struct _ZFIFO_DESC_ {
 
     int index;
     int offset;
+    int overrun;
 } ZFIFO_DESC;
 
 typedef struct _NODE_HEADER_ {
@@ -51,6 +52,7 @@ int zfifo_writev(ZFIFO_DESC *zfifo_desc, const ZFIFO_NODE *iov, int iovcnt);
 int zfifo_readv(ZFIFO_DESC *zfifo_desc, ZFIFO_NODE *iov, int iovcnt, int timeout);
 int zfifo_set_newest_frame(ZFIFO_DESC *zfifo_desc);
 int zfifo_set_oldest_frame(ZFIFO_DESC *zfifo_desc);
+int zfifo_take_overrun(ZFIFO_DESC *zfifo_desc);
 
 
 int zfifo_writev_plus(ZFIFO_DESC *zfifo_desc, const ZFIFO_NODE *iov, int iovcnt, int flag);

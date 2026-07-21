@@ -30,8 +30,32 @@
 #ifndef OVIS_PRIVATE_NETWORK_NAME
 #define OVIS_PRIVATE_NETWORK_NAME "ovis-camera"
 #endif
-#define OVIS_MAX_REQUEST_SIZE (16 * 1024)
-#define OVIS_MAX_BODY_SIZE (8 * 1024)
+#define OVIS_MAX_REQUEST_SIZE (136 * 1024)
+#define OVIS_MAX_BODY_SIZE (128 * 1024)
+#ifndef OVIS_MODEL_DIR
+#define OVIS_MODEL_DIR "/mnt/system/ovis-models"
+#endif
+#define OVIS_MODEL_IMPORT_DIR OVIS_MODEL_DIR "/.imports"
+#define OVIS_MODEL_STORE_DIR OVIS_MODEL_DIR "/models"
+#define OVIS_MODEL_MAX_FILE_SIZE (16 * 1024 * 1024)
+#define OVIS_MODEL_RESERVED_BYTES (2 * 1024 * 1024)
+#define OVIS_AI_MIN_WIDTH 160
+#define OVIS_AI_MIN_HEIGHT 96
+#define OVIS_AI_OBJECT_DEFAULT_WIDTH 448
+#define OVIS_AI_OBJECT_DEFAULT_HEIGHT 256
+#define OVIS_AI_OBJECT_FRAME_MAX_WIDTH 1920
+#define OVIS_AI_OBJECT_FRAME_MAX_HEIGHT 1080
+#define OVIS_AI_FACE_MAX_WIDTH 768
+#define OVIS_AI_FACE_MAX_HEIGHT 432
+#define OVIS_AI_MOTION_MAX_WIDTH 640
+#define OVIS_AI_MOTION_MAX_HEIGHT 360
+#define OVIS_AI_HUMAN_POSE_MAX_WIDTH 640
+#define OVIS_AI_HUMAN_POSE_MAX_HEIGHT 384
+#define OVIS_AI_TRACK_DET_WIDTH 640
+#define OVIS_AI_TRACK_DET_HEIGHT 384
+#define OVIS_AI_TRACK_SOT_WIDTH 1920
+#define OVIS_AI_TRACK_SOT_HEIGHT 1080
+#define OVIS_AI_DETECTION_FPS 10
 #ifndef OVIS_SERVICE_SCRIPT
 #define OVIS_SERVICE_SCRIPT "/etc/init.d/S99z_ipcamera"
 #endif
@@ -80,8 +104,12 @@ struct http_request {
 	char authorization[256];
 	char csrf[64];
 	char origin[256];
+	char content_type[128];
+	char content_range[128];
+	char transfer_encoding[64];
 	char *body;
 	size_t body_len;
+	size_t content_length;
 };
 
 int http_server_run(unsigned short port);
@@ -93,6 +121,7 @@ int config_get_output_flags(int *rtsp_enabled, int *uvc_enabled);
 unsigned long task_submit(enum service_action action);
 unsigned long config_task_submit_apply(const char *revision);
 unsigned long config_task_submit_reset(void);
+int task_is_busy(void);
 int task_get(unsigned long id, char *json, size_t size);
 int config_ensure_runtime(char *error, size_t error_size);
 int config_read_json(char *json, size_t size);
@@ -105,6 +134,35 @@ int config_apply_staged(const char *revision, char *message, size_t message_size
 	int *rolled_back);
 int config_apply_defaults(char *message, size_t message_size, int *rolled_back);
 int config_validate_file(const char *path, char *error, size_t error_size);
+int config_stage_detection_model(const char *model_id, const char *model_path,
+	const char *model_config_path, double threshold, int processing_width,
+	int processing_height, int enabled,
+	char revision[17], char *error, size_t error_size);
+int config_rebase_backup_away_from_model(const char *id,
+	char *error, size_t error_size);
+int model_importers_json(char *json, size_t size);
+int model_list_json(char *json, size_t size);
+int model_get_json(const char *id, char *json, size_t size,
+	char *error, size_t error_size);
+int model_import_create(const char *body, char *json, size_t size,
+	char *error, size_t error_size);
+int model_import_write_content(const char *id, int fd, const void *initial,
+	size_t initial_size, size_t content_length, char *json, size_t size,
+	char *error, size_t error_size);
+int model_import_status(const char *id, char *json, size_t size,
+	char *error, size_t error_size);
+int model_import_commit(const char *id, char *json, size_t size,
+	char *error, size_t error_size);
+int model_import_cancel(const char *id, char *error, size_t error_size);
+int model_delete(const char *id, char *error, size_t error_size);
+int model_deployment_get_json(const char *id, char *json, size_t size,
+	char *error, size_t error_size);
+int model_deployment_update(const char *id, const char *body,
+	char *json, size_t size, char *error, size_t error_size);
+int model_activate(const char *id, const char *body, char *json, size_t size,
+	char *error, size_t error_size);
+int model_deactivate(const char *id, char *json, size_t size,
+	char *error, size_t error_size);
 int device_info_json(char *json, size_t size);
 int device_private_network_id(char *identity, size_t size);
 int auth_check(const char *authorization);

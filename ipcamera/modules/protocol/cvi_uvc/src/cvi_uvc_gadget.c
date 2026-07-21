@@ -121,7 +121,7 @@ struct uvc_format_info {
     const struct uvc_frame_info *frames;
 };
 
-static const struct uvc_frame_info uvc_frames_mjpeg[] = {
+static struct uvc_frame_info uvc_frames_mjpeg[] = {
     // {
     //     2560,
     //     1440,
@@ -150,6 +150,28 @@ static const struct uvc_frame_info uvc_frames_mjpeg[] = {
         },
     },
 };
+
+#define UVC_FRAME_INTERVAL_30_FPS 333333U
+#define UVC_FRAME_INTERVAL_60_FPS 166666U
+#define UVC_FRAME_INTERVAL_FILE "/var/run/ovis-uvc-frame-interval"
+
+static uint32_t uvc_load_frame_interval(void)
+{
+    FILE *file;
+    unsigned int interval = UVC_FRAME_INTERVAL_30_FPS;
+
+    file = fopen(UVC_FRAME_INTERVAL_FILE, "r");
+    if (file != NULL) {
+        if (fscanf(file, "%u", &interval) != 1 ||
+            (interval != UVC_FRAME_INTERVAL_30_FPS &&
+             interval != UVC_FRAME_INTERVAL_60_FPS)) {
+            interval = UVC_FRAME_INTERVAL_30_FPS;
+        }
+        fclose(file);
+    }
+
+    return interval;
+}
 
 /* Keep this table aligned with the formats linked by ConfigUVC.sh. */
 static const struct uvc_format_info uvc_formats[] = {
@@ -205,6 +227,8 @@ typedef struct tagUVC_DEVICE_CTX_S {
     /* uvc buffer queue and dequeue counters */
     unsigned long long int qbuf_count;
     unsigned long long int dqbuf_count;
+    unsigned long long int frame_timeout_count;
+    uint32_t consecutive_frame_timeouts;
 
     /* v4l2 device hook */
     struct v4l2_device *vdev;
@@ -638,6 +662,7 @@ static int uvc_uninit_device(UVC_DEVICE_CTX_S *dev) {
             }
 
             free(dev->mem);
+            dev->mem = NULL;
             break;
 
         case IO_METHOD_USERPTR:
@@ -975,8 +1000,26 @@ static int uvc_video_process(UVC_DEVICE_CTX_S *dev) {
         // gettimeofday(&perf_t0, NULL);
         // usleep(200 * 1000);
         ret = uvc_video_fill_buffer(dev, &ubuf, UVC_FRAME_WAIT_TIMEOUT_MS);
-        if ((ret < 0) && (ret != -ETIMEDOUT)) {
+        if (ret == -ETIMEDOUT) {
+            dev->frame_timeout_count++;
+            dev->consecutive_frame_timeouts++;
+            cvi_uvc_stream_set_enabled(true);
+            if (dev->consecutive_frame_timeouts == 1 ||
+                (dev->consecutive_frame_timeouts % 30) == 0) {
+                printf("UVC: no fresh encoded frame for %u ms, "
+                    "re-enabling producer (consecutive=%u total=%llu).\n",
+                    UVC_FRAME_WAIT_TIMEOUT_MS,
+                    dev->consecutive_frame_timeouts,
+                    dev->frame_timeout_count);
+            }
+        } else if (ret < 0) {
             return ret;
+        } else {
+            if (dev->consecutive_frame_timeouts != 0) {
+                printf("UVC: fresh encoded frames resumed after %u timeouts.\n",
+                    dev->consecutive_frame_timeouts);
+            }
+            dev->consecutive_frame_timeouts = 0;
         }
         // gettimeofday(&perf_t1, NULL);
         // use_time = (perf_t1.tv_sec - perf_t0.tv_sec) * 1000 + (perf_t1.tv_usec - perf_t0.tv_usec) / 1000;
@@ -1229,7 +1272,16 @@ static int uvc_video_reqbufs_mmap(UVC_DEVICE_CTX_S *dev, int nbufs) {
     return 0;
 
 err_free:
+    while (i > 0) {
+        --i;
+        munmap(dev->mem[i].start, dev->mem[i].length);
+    }
     free(dev->mem);
+    dev->mem = NULL;
+    CLEAR(rb);
+    rb.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+    rb.memory = V4L2_MEMORY_MMAP;
+    ioctl(dev->uvc_fd, VIDIOC_REQBUFS, &rb);
 err:
     return ret;
 }
@@ -1294,13 +1346,23 @@ static int uvc_video_reqbufs(UVC_DEVICE_CTX_S *dev, int nbufs) {
  *	  supports a BULK type video streaming endpoint.
  */
 static int uvc_handle_streamon_event(UVC_DEVICE_CTX_S *dev) {
+    int buffers_allocated = 0;
     int ret;
+
+    if (dev->is_streaming) {
+        if (dev->run_standalone) {
+            cvi_uvc_stream_set_enabled(true);
+        }
+        printf("UVC: stream already active, ignoring duplicate stream-on.\n");
+        return 0;
+    }
 
     ret = uvc_video_reqbufs(dev, dev->nbufs);
     if (ret < 0) {
         printf("[%s] after uvc_video_reqbufs\n", __func__);
         goto err;
     }
+    buffers_allocated = 1;
     if (!dev->run_standalone) {
         /* UVC - V4L2 integrated path. */
         if (IO_METHOD_USERPTR == dev->vdev->io) {
@@ -1327,6 +1389,7 @@ static int uvc_handle_streamon_event(UVC_DEVICE_CTX_S *dev) {
     /* The initial QBUF path waits for encoded frames, so enable the
      * producer before filling those buffers. */
     if (dev->run_standalone) {
+        dev->consecutive_frame_timeouts = 0;
         cvi_uvc_stream_set_enabled(true);
     }
 
@@ -1351,6 +1414,10 @@ static int uvc_handle_streamon_event(UVC_DEVICE_CTX_S *dev) {
 err:
     cvi_uvc_stream_set_enabled(false);
     if (dev->run_standalone) {
+        if (buffers_allocated && dev->io == IO_METHOD_MMAP &&
+            dev->mem != NULL) {
+            uvc_uninit_device(dev);
+        }
         uvc_video_reqbufs(dev, 0);
         clear_waited_node();
     }
@@ -1719,8 +1786,6 @@ static void uvc_events_process_streaming(UVC_DEVICE_CTX_S *dev, uint8_t req, uin
             resp->length = 1;
             break;
     }
-    if (dev->bulk && cs == UVC_VS_COMMIT_CONTROL)
-        uvc_handle_streamon_event(dev);
 }
 
 static void uvc_events_process_class(UVC_DEVICE_CTX_S *dev, struct usb_ctrlrequest *ctrl,
@@ -1822,6 +1887,7 @@ static int uvc_events_process_data(UVC_DEVICE_CTX_S *dev, struct uvc_request_dat
     const uint32_t *interval;
     uint32_t iformat, iframe;
     uint32_t nframes;
+    uint32_t selected_fps;
     uint32_t *val = (uint32_t *)data->data;
     int ret;
 
@@ -1872,9 +1938,7 @@ static int uvc_events_process_data(UVC_DEVICE_CTX_S *dev, struct uvc_request_dat
 
     while (interval[0] < ctrl->dwFrameInterval && interval[1]) ++interval;
 
-    dev->width = frame->width;
-    dev->height = frame->height;
-    printf("width:%d height:%d\n", dev->width, dev->height);
+    printf("width:%d height:%d\n", frame->width, frame->height);
     printf("format->fcc:%d, expect: %d\n", format->fcc, V4L2_PIX_FMT_H264);
     target->bFormatIndex = iformat;
     target->bFrameIndex = iframe;
@@ -1900,14 +1964,37 @@ static int uvc_events_process_data(UVC_DEVICE_CTX_S *dev, struct uvc_request_dat
             break;
     }
     target->dwFrameInterval = *interval;
+    selected_fps = 10000000 / target->dwFrameInterval;
 
     if (dev->control == UVC_VS_COMMIT_CONTROL) {
+        if (dev->is_streaming && dev->fcc == format->fcc &&
+            dev->width == frame->width && dev->height == frame->height &&
+            dev->fps == selected_fps) {
+            if (dev->run_standalone) {
+                cvi_uvc_stream_set_enabled(true);
+            }
+            printf("UVC: duplicate commit for %ux%u@%u, keeping current stream.\n",
+                frame->width, frame->height, selected_fps);
+            return 0;
+        }
+
+        if (dev->is_streaming) {
+            printf("UVC: rejecting format change while streaming "
+                "(%ux%u@%u -> %ux%u@%u).\n",
+                dev->width, dev->height, dev->fps,
+                frame->width, frame->height, selected_fps);
+            return -EBUSY;
+        }
+
         dev->fcc = format->fcc;
         dev->width = frame->width;
         dev->height = frame->height;
-        dev->fps = 10000000 / target->dwFrameInterval;
-        uvc_video_set_format(dev);
-        if (dev->bulk && !dev->is_streaming) {
+        dev->fps = selected_fps;
+        ret = uvc_video_set_format(dev);
+        if (ret < 0) {
+            goto err;
+        }
+        if (dev->bulk) {
             ret = uvc_handle_streamon_event(dev);
             if (ret < 0)
                 goto err;
@@ -1945,6 +2032,7 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
 
         case UVC_EVENT_DISCONNECT:
             cvi_uvc_stream_set_enabled(false);
+            dev->consecutive_frame_timeouts = 0;
             dev->uvc_shutdown_requested = 1;
             printf("[%s]: UVC_EVENT_DISCONNECT\n", __func__);
             printf(
@@ -1978,6 +2066,7 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
 
         case UVC_EVENT_STREAMOFF:
             cvi_uvc_stream_set_enabled(false);
+            dev->consecutive_frame_timeouts = 0;
             /* Stop V4L2 streaming... */
             if (!dev->run_standalone && dev->vdev->is_streaming) {
                 /* UVC - V4L2 integrated path. */
@@ -2119,13 +2208,17 @@ int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32Max
     (void)pstDevCaps;
     (void)u32MaxFrameSize;
 
-    /* Keep the initial V4L2 state aligned with format index 1 advertised
-     * through ConfigFS: MJPEG 1920x1080 at 30 fps. */
+    uvc_frames_mjpeg[0].intervals[0] = uvc_load_frame_interval();
+    uvc_frames_mjpeg[0].intervals[1] = 0;
+
+    /* Keep the initial V4L2 state aligned with the active ConfigFS mode. */
     s_stUVCDevCtx.fcc = uvc_formats[0].fcc;
     s_stUVCDevCtx.width = uvc_formats[0].frames[0].width;
     s_stUVCDevCtx.height = uvc_formats[0].frames[0].height;
     s_stUVCDevCtx.fps = 10000000 / uvc_formats[0].frames[0].intervals[0];
     s_stUVCDevCtx.imgsize = MAX_BITSTREAM_BUFFER_SIZE;
+
+    printf("UVC mode: MJPEG 1920x1080 at %u fps\n", s_stUVCDevCtx.fps);
 
     s_stUVCDevCtx.io = uvc_io_method;
     s_stUVCDevCtx.bulk = bulk_mode;

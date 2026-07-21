@@ -121,6 +121,7 @@ static CVI_S32 app_ipcam_RtspAttr_Init(VENC_CHN vencChn, CVI_S32 session_id
 static void rtsp_service_media_task(void *arg)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
+    CVI_BOOL bSeekKeyFrame = CVI_TRUE;
     RTSP_FRAME_S frame = {0};
     RTSP_SERVICE_CONTEXT_S *ctx = (RTSP_SERVICE_CONTEXT_S *)arg;
 
@@ -154,11 +155,30 @@ static void rtsp_service_media_task(void *arg)
     ctx->i_frame_flag = 1;
     while(ctx->RtspThread.bRun_flag) {
         stReadFrameInfo.frameBufLen = CVI_MBUF_STREAM_MAX_SIZE;
-        s32Ret = app_ipcam_Mbuf_ReadFrame(readerId, ctx->i_frame_flag
+        s32Ret = app_ipcam_Mbuf_ReadFrame(readerId, bSeekKeyFrame
                                         , &stReadFrameInfo, 100);
         if (s32Ret < 0) {
             APP_PROF_LOG_PRINT(LEVEL_INFO
                 , "app_ipcam_Mbuf_ReadFrame failed. s32Ret:%d.\n", s32Ret);
+            continue;
+        }
+        if (app_ipcam_Mbuf_ReaderTakeOverrun(readerId) > 0) {
+            app_ipcam_Mbuf_ReaderSetNewest(readerId);
+            ctx->i_frame_flag = 1;
+            bSeekKeyFrame = CVI_FALSE;
+            if ((ctx->attr.video_codec == RTSP_VIDEO_H264) ||
+                (ctx->attr.video_codec == RTSP_VIDEO_H265)) {
+                CVI_S32 s32IdrRet = CVI_VENC_RequestIDR(
+                    ctx->attr.vencChn, CVI_TRUE);
+                if (s32IdrRet != CVI_SUCCESS) {
+                    APP_PROF_LOG_PRINT(LEVEL_WARN,
+                        "Request IDR for venc[%d] after MBUF overrun failed: %d.\n",
+                        ctx->attr.vencChn, s32IdrRet);
+                }
+            }
+            APP_PROF_LOG_PRINT(LEVEL_WARN,
+                "RTSP venc[%d] MBUF overrun, discard frames until next I-frame.\n",
+                ctx->attr.vencChn);
             continue;
         }
         if ((ctx->i_frame_flag)
@@ -167,6 +187,7 @@ static void rtsp_service_media_task(void *arg)
             continue;
         }
         ctx->i_frame_flag = 0;
+        bSeekKeyFrame = CVI_FALSE;
 
         if (stReadFrameInfo.frameParam.frameLen > 0) {
             frame.data[0] = stReadFrameInfo.frameBuf;
@@ -362,8 +383,11 @@ static CVI_S32 rtsp_service_create(RTSP_SERVICE_CONTEXT_S **rtsp_ctx
     APP_PROF_LOG_PRINT(LEVEL_INFO, "rtsp_service init media_info %f %d %d\n"
         , attr->framerate, attr->video_codec, attr->audio_pernum);
 
-    RTSP_Create(&ctx->rtsp_ser, &rtsp_info, &media_info);
-    if (ctx->rtsp_ser == NULL) {
+    CVI_S32 s32Ret = RTSP_Create(&ctx->rtsp_ser, &rtsp_info, &media_info);
+    if (s32Ret != CVI_SUCCESS || ctx->rtsp_ser == NULL) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "RTSP_Create live%d failed: ret=%d handle=%p.\n",
+            attr->id, s32Ret, ctx->rtsp_ser);
         OSAL_MUTEX_Destroy(ctx->mutex);
         free(ctx);
         return CVI_FAILURE;
@@ -408,7 +432,7 @@ static void rtsp_service_destroy(RTSP_SERVICE_CONTEXT_S *rtsp_ctx)
 CVI_S32 app_ipcam_Rtsp_Server_Create(CVI_VOID)
 {
     CVI_S32 s32Ret = 0;
-    RTSP_SER_ATTR_S stAttr[RTSP_INSTANCE_NUM];
+    RTSP_SER_ATTR_S stAttr[RTSP_INSTANCE_NUM] = {0};
     APP_PROF_LOG_PRINT(LEVEL_INFO, "app_ipcam_Rtsp_Server_Create start.\n");
 
     for (CVI_S32 i = 0; i < pstRtspCtx->session_cnt; i++) {

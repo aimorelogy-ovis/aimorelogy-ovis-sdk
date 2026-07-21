@@ -192,12 +192,32 @@ static char *make_ai_conflict_payload(cJSON *document)
 	cJSON *values = cJSON_Duplicate(
 		cJSON_GetObjectItemCaseSensitive(document, "values"), 1);
 	cJSON *detection = cJSON_GetObjectItemCaseSensitive(values, "detection");
-	cJSON *person = cJSON_GetObjectItemCaseSensitive(detection, "person");
+	cJSON *object = cJSON_GetObjectItemCaseSensitive(detection, "object");
 	cJSON *face = cJSON_GetObjectItemCaseSensitive(detection, "face");
 	char *json;
 
-	cJSON_ReplaceItemInObjectCaseSensitive(person, "enabled", cJSON_CreateBool(1));
+	cJSON_ReplaceItemInObjectCaseSensitive(object, "enabled", cJSON_CreateBool(1));
 	cJSON_ReplaceItemInObjectCaseSensitive(face, "enabled", cJSON_CreateBool(1));
+	cJSON_AddItemToObject(payload, "revision", cJSON_Duplicate(revision, 1));
+	cJSON_AddItemToObject(payload, "values", values);
+	json = cJSON_PrintUnformatted(payload);
+	cJSON_Delete(payload);
+	return json;
+}
+
+static char *make_object_frame_payload(cJSON *document, int width, int height)
+{
+	cJSON *payload = cJSON_CreateObject();
+	cJSON *revision = cJSON_GetObjectItemCaseSensitive(document, "revision");
+	cJSON *values = cJSON_Duplicate(
+		cJSON_GetObjectItemCaseSensitive(document, "values"), 1);
+	cJSON *detection = cJSON_GetObjectItemCaseSensitive(values, "detection");
+	cJSON *object = cJSON_GetObjectItemCaseSensitive(detection, "object");
+	cJSON *size = cJSON_GetObjectItemCaseSensitive(object, "processing_size");
+	char *json;
+
+	cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(size, "width"), width);
+	cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(size, "height"), height);
 	cJSON_AddItemToObject(payload, "revision", cJSON_Duplicate(revision, 1));
 	cJSON_AddItemToObject(payload, "values", values);
 	json = cJSON_PrintUnformatted(payload);
@@ -310,6 +330,15 @@ int main(void)
 		    "VENC_RC_MODE_MJPEGCBR") ||
 	    !active_config_value_equals("vencchn3", "bit_rate", "50000") ||
 	    !active_config_value_equals("vencchn3", "max_bitrate", "50000") ||
+	    !active_config_value_equals("vpssgrp2", "max_w", "1920") ||
+	    !active_config_value_equals("vpssgrp2", "max_h", "1080") ||
+	    !active_config_value_equals("vpssgrp2", "src_chn_id", "0") ||
+	    !active_config_value_equals("vpssgrp2", "src_framerate", "30") ||
+	    !active_config_value_equals("vpssgrp2", "dst_framerate", "10") ||
+	    !active_config_value_equals("vpssgrp2", "pixel_fmt", "PIXEL_FORMAT_NV12") ||
+	    !active_config_value_equals("vpssgrp2.chn0", "chn_pixel_fmt",
+		    "PIXEL_FORMAT_NV12") ||
+	    !active_config_value_equals("vb_pool_2", "frame_fmt", "PIXEL_FORMAT_NV12") ||
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
 		fail("ObjectTrack VPSS topology migration failed");
 
@@ -318,7 +347,8 @@ int main(void)
 	    !active_config_value_equals("vpssgrp3", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp4", "grp_enable", "1") ||
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
-	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "1"))
+	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "0") ||
+	    !active_config_value_equals("vb_pool_4", "bEnable", "1"))
 		fail("VPSS feature groups did not follow the AI switches");
 	if (!active_config_value_equals("vpssgrp0.chn1", "chn_enable", "0") ||
 	    !active_config_value_equals("vencchn2", "bEnable", "0") ||
@@ -351,6 +381,16 @@ int main(void)
 			sizeof(error)) != 1 || strstr(validation, "AI_FEATURE_CONFLICT") == NULL)
 		fail("conflicting TPU features were not rejected");
 	free(payload);
+	payload = make_object_frame_payload(document, 1920, 1080);
+	if (config_validate_json(payload, validation, sizeof(validation), error,
+			sizeof(error)) != 0)
+		fail("maximum object AI input frame size was rejected");
+	free(payload);
+	payload = make_object_frame_payload(document, 1922, 1080);
+	if (config_validate_json(payload, validation, sizeof(validation), error,
+			sizeof(error)) != 1 || strstr(validation, "OUT_OF_RANGE") == NULL)
+		fail("out-of-range object AI input frame size was not rejected");
+	free(payload);
 	cJSON_Delete(document);
 
 	stage_and_apply(30, 8500, 60, 1, 1, 1, 0, 0, 1, 0, 1);
@@ -363,10 +403,10 @@ int main(void)
 	if (!active_config_value_equals("vpssgrp4", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "0"))
 		fail("disabled motion detection left its VPSS group enabled");
-	if (!active_config_value_equals("vpssgrp0.chn1", "chn_enable", "1") ||
-	    !active_config_value_equals("vencchn2", "bEnable", "1") ||
-	    !active_config_value_equals("osdc_config1", "bShow", "1"))
-		fail("enabled sub stream did not restore dependent channels");
+	if (!active_config_value_equals("vpssgrp0.chn1", "chn_enable", "0") ||
+	    !active_config_value_equals("vencchn2", "bEnable", "0") ||
+	    !active_config_value_equals("osdc_config1", "bShow", "0"))
+		fail("60 fps UVC mode did not release sub stream resources");
 	document = read_document(revision_after, sizeof(revision_after));
 	{
 		cJSON *values = cJSON_GetObjectItemCaseSensitive(document, "values");
@@ -380,8 +420,13 @@ int main(void)
 	}
 	if (!active_config_contains(OVIS_SC235HAI_60FPS_SNS_TYPE))
 		fail("60 fps sensor type was not persisted");
-	if (!active_config_value_equals("vpssgrp6.chn0", "src_framerate", "60"))
-		fail("60 fps did not update the UVC VPSS source frame rate");
+	if (!active_config_value_equals("vpssgrp6.chn0", "src_framerate", "60") ||
+	    !active_config_value_equals("vpssgrp6.chn0", "dst_framerate", "60") ||
+	    !active_config_value_equals("vencchn3", "src_framerate", "60") ||
+	    !active_config_value_equals("vencchn3", "dst_framerate", "60") ||
+	    !active_config_value_equals("vpssgrp2", "src_framerate", "60") ||
+	    !active_config_value_equals("vpssgrp2", "dst_framerate", "10"))
+		fail("60 fps did not update the UVC or AI VPSS frame rates");
 	cJSON_Delete(document);
 	stage_and_apply(60, 8800, 60, 1, 1, 1, 0, 1, 0, 1, 0);
 	if (!active_config_value_equals("ai_object_track_config",
@@ -445,8 +490,13 @@ int main(void)
 	}
 	if (!active_config_contains(OVIS_SC235HAI_30FPS_SNS_TYPE))
 		fail("reset did not restore the 30 fps sensor type");
-	if (!active_config_value_equals("vpssgrp6.chn0", "src_framerate", "30"))
-		fail("reset did not restore the UVC VPSS source frame rate");
+	if (!active_config_value_equals("vpssgrp6.chn0", "src_framerate", "30") ||
+	    !active_config_value_equals("vpssgrp6.chn0", "dst_framerate", "30") ||
+	    !active_config_value_equals("vencchn3", "src_framerate", "30") ||
+	    !active_config_value_equals("vencchn3", "dst_framerate", "30") ||
+	    !active_config_value_equals("vpssgrp2", "src_framerate", "30") ||
+	    !active_config_value_equals("vpssgrp2", "dst_framerate", "10"))
+		fail("reset did not restore the UVC or AI VPSS frame rates");
 	if (!active_config_value_equals("vpssgrp2", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp3", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp4", "grp_enable", "0") ||

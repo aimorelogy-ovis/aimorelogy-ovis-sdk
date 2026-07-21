@@ -65,6 +65,10 @@ typedef struct {
 
 int app_ipcam_Mbuf_ReadFrame(CVI_MBUF_HANDLE readerid, int bKeyFrame, CVI_MEDIA_FRAME_INFO_T *pFrameInfo, int iTimeouts);
 
+int app_ipcam_Mbuf_ReaderTakeOverrun(CVI_MBUF_HANDLE readerid);
+
+int app_ipcam_Mbuf_ReaderSetNewest(CVI_MBUF_HANDLE readerid);
+
 int app_ipcam_Mbuf_Video_WriteFrame(int mbufId, CVI_MEDIA_FRAME_INFO_T *pFrameInfo);
 
 int app_ipcam_Mbuf_Audio_WriteFrame(int mbufId, CVI_MEDIA_FRAME_INFO_T *pFrameInfo);
@@ -81,5 +85,4 @@ int app_ipcam_Mbuf_UnInit();
 };
 #endif
 #endif
-
 

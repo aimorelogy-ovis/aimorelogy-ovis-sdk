@@ -111,6 +111,10 @@
       "_comment":"custom model, specify num_cls or branch string",
       "file_name":""
     },
+    "YOLOV7":{
+      "_comment":"custom model, specify num_cls or branch string",
+      "file_name":""
+    },
     "YOLOV8":{
       "_comment":"custom model, specify num_cls or branch string",
       "file_name":""

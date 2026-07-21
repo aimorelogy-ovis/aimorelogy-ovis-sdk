@@ -93,6 +93,7 @@ typedef struct APP_PARAM_AI_PD_CFG_T {
     float threshold;
     TDLModel model_id;
     char model_path[MODEL_PATH_LEN];
+    char model_path_cfg[MODEL_PATH_LEN];
 } APP_PARAM_AI_PD_CFG_S;
 
 typedef struct APP_PARAM_AI_FD_CFG_T {

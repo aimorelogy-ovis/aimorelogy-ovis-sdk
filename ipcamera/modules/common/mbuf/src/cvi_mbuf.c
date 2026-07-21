@@ -227,6 +227,28 @@ int app_ipcam_Mbuf_ReadFrame(CVI_MBUF_HANDLE readerid, int bKeyFrame, CVI_MEDIA_
     return iRet;
 }
 
+int app_ipcam_Mbuf_ReaderTakeOverrun(CVI_MBUF_HANDLE readerid)
+{
+    if (readerid == NULL)
+    {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "param error.\n");
+        return -1;
+    }
+
+    return zfifo_take_overrun((ZFIFO_DESC *)readerid);
+}
+
+int app_ipcam_Mbuf_ReaderSetNewest(CVI_MBUF_HANDLE readerid)
+{
+    if (readerid == NULL)
+    {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "param error.\n");
+        return -1;
+    }
+
+    return zfifo_set_newest_frame((ZFIFO_DESC *)readerid);
+}
+
 int app_ipcam_Mbuf_Video_WriteFrame(int mbufId, CVI_MEDIA_FRAME_INFO_T *pFrameInfo)
 {
     int iRet = -1;
@@ -345,5 +367,4 @@ int app_ipcam_Mbuf_UnInit()
     }
     return 0;
 }
-
 

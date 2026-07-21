@@ -103,6 +103,7 @@ static unsigned long submit_task(enum task_kind kind, enum service_action action
 	const char *revision)
 {
 	struct service_task *task = NULL;
+	struct service_task *oldest = NULL;
 	pthread_t thread;
 	unsigned long id;
 	size_t index;
@@ -115,11 +116,15 @@ static unsigned long submit_task(enum task_kind kind, enum service_action action
 		}
 	}
 	for (index = 0; index < MAX_TASKS; index++) {
-		if (tasks[index].state != TASK_QUEUED && tasks[index].state != TASK_RUNNING) {
+		if (tasks[index].state == TASK_EMPTY) {
 			task = &tasks[index];
 			break;
 		}
+		if (oldest == NULL || tasks[index].id < oldest->id)
+			oldest = &tasks[index];
 	}
+	if (task == NULL)
+		task = oldest;
 	if (task == NULL) {
 		pthread_mutex_unlock(&tasks_lock);
 		return 0;
@@ -164,6 +169,22 @@ unsigned long config_task_submit_apply(const char *revision)
 unsigned long config_task_submit_reset(void)
 {
 	return submit_task(TASK_CONFIG_RESET, SERVICE_RESTART, NULL);
+}
+
+int task_is_busy(void)
+{
+	size_t index;
+	int busy = 0;
+
+	pthread_mutex_lock(&tasks_lock);
+	for (index = 0; index < MAX_TASKS; index++) {
+		if (tasks[index].state == TASK_QUEUED || tasks[index].state == TASK_RUNNING) {
+			busy = 1;
+			break;
+		}
+	}
+	pthread_mutex_unlock(&tasks_lock);
+	return busy;
 }
 
 int task_get(unsigned long id, char *json, size_t size)

@@ -40,6 +40,9 @@ PPYoloEDetection::PPYoloEDetection(std::pair<int, int> ppyoloe_pair) {
 PPYoloEDetection::~PPYoloEDetection() {}
 
 int PPYoloEDetection::onModelOpened() {
+  if (num_cls_ == 0 && !net_param_.model_config.types.empty()) {
+    num_cls_ = static_cast<int>(net_param_.model_config.types.size());
+  }
   const auto &input_layer = net_->getInputNames()[0];
   auto input_shape = net_->getTensorInfo(input_layer).shape;
   int input_h = input_shape[2];
@@ -56,7 +59,9 @@ int PPYoloEDetection::onModelOpened() {
     int stride_w = input_w / feat_w;
 
     if (stride_h == 0 && num_output == 2) {
-      if (channel == num_cls_) {
+      if (channel != num_box_channel_ &&
+          (num_cls_ == 0 || channel == num_cls_)) {
+        num_cls_ = channel;
         class_out_names[stride_h] = output_layers[j];
         strides.push_back(stride_h);
         LOGI("parse class decode branch:%s,channel:%d\n",
@@ -79,6 +84,11 @@ int PPYoloEDetection::onModelOpened() {
       strides.push_back(stride_h);
       LOGI("parse box branch,name:%s,stride:%d\n", output_layers[j].c_str(),
            stride_h);
+    } else if (num_cls_ == 0 && num_output == 6) {
+      num_cls_ = channel;
+      class_out_names[stride_h] = output_layers[j];
+      LOGI("parse class branch,name:%s,stride:%d,num_cls:%d\n",
+           output_layers[j].c_str(), stride_h, channel);
     } else if (channel == num_cls_) {
       class_out_names[stride_h] = output_layers[j];
       LOGI("parse class branch,name:%s,stride:%d\n", output_layers[j].c_str(),

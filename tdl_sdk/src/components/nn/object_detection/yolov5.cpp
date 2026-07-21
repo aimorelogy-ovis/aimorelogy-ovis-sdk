@@ -21,6 +21,27 @@ int yolov5_argmax(T *ptr, int start_idx, int arr_len) {
 
 float sigmoid(float x) { return 1.0 / (1 + exp(-x)); }
 
+static bool parseConfiguredAnchors(const std::string &value,
+                                   uint32_t *anchors) {
+  std::stringstream stream(value);
+
+  for (int index = 0; index < 18; index++) {
+    long long anchor;
+    char separator;
+
+    if (!(stream >> anchor) || anchor <= 0 ||
+        static_cast<unsigned long long>(anchor) > UINT32_MAX) {
+      return false;
+    }
+    anchors[index] = static_cast<uint32_t>(anchor);
+    if (index != 17 && (!(stream >> separator) || separator != ',')) {
+      return false;
+    }
+  }
+  stream >> std::ws;
+  return stream.eof();
+}
+
 template <typename T>
 void parseDet(T *ptr, float qscale, int start_idx, int grid_x, int grid_y,
               float pw, float ph, int stride, std::vector<float> &decode_box) {
@@ -57,6 +78,14 @@ YoloV5Detection::YoloV5Detection(std::pair<int, int> yolov5_pair) {
 }
 
 int YoloV5Detection::onModelOpened() {
+  const auto &parameters = net_param_.model_config.custom_config_str;
+  auto anchors = parameters.find("anchors");
+
+  if (anchors != parameters.end() &&
+      !parseConfiguredAnchors(anchors->second, initial_anchors)) {
+    LOGE("YOLOV5 anchors must contain 18 positive integers");
+    return -1;
+  }
   const auto &input_layer = net_->getInputNames()[0];
   auto input_shape = net_->getTensorInfo(input_layer).shape;
   int input_h = input_shape[2];

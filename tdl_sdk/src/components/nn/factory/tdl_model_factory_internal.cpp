@@ -319,6 +319,8 @@ std::shared_ptr<BaseModel> TDLModelFactory::createObjectDetectionModel(
     model_category = 1;  // YOLOV10
   } else if (model_type == ModelType::YOLOV6) {
     model_category = 2;  // YOLOV6
+  } else if (model_type == ModelType::YOLOV5) {
+    model_category = 4;  // YOLOV5
   } else if (model_type == ModelType::YOLO26) {
     model_category = 3;  // YOLO26
   } else if (model_type == ModelType::PPYOLOE) {

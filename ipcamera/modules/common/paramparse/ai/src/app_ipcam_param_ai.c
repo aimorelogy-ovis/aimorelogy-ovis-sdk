@@ -18,7 +18,15 @@ const char *ai_supported_model[TDL_MODEL_MAX] = {
     [TDL_MODEL_MBV2_DET_PERSON]              = MODEL_NAME(TDL_MODEL_MBV2_DET_PERSON),
     [TDL_MODEL_KEYPOINT_SIMCC_PERSON17]      = MODEL_NAME(TDL_MODEL_KEYPOINT_SIMCC_PERSON17),
     [TDL_MODEL_FEATURE_CLIP_IMG]             = MODEL_NAME(TDL_MODEL_FEATURE_CLIP_IMG),
-    [TDL_MODEL_FEATURE_CLIP_TEXT]            = MODEL_NAME(TDL_MODEL_FEATURE_CLIP_TEXT)
+    [TDL_MODEL_FEATURE_CLIP_TEXT]            = MODEL_NAME(TDL_MODEL_FEATURE_CLIP_TEXT),
+    [TDL_MODEL_YOLOV5]                       = MODEL_NAME(TDL_MODEL_YOLOV5),
+    [TDL_MODEL_YOLOV6]                       = MODEL_NAME(TDL_MODEL_YOLOV6),
+    [TDL_MODEL_YOLOV7]                       = MODEL_NAME(TDL_MODEL_YOLOV7),
+    [TDL_MODEL_YOLOV8]                       = MODEL_NAME(TDL_MODEL_YOLOV8),
+    [TDL_MODEL_YOLOV10]                      = MODEL_NAME(TDL_MODEL_YOLOV10),
+    [TDL_MODEL_YOLO26]                       = MODEL_NAME(TDL_MODEL_YOLO26),
+    [TDL_MODEL_PPYOLOE]                      = MODEL_NAME(TDL_MODEL_PPYOLOE),
+    [TDL_MODEL_YOLOX]                        = MODEL_NAME(TDL_MODEL_YOLOX)
 };
 
 const char ** app_ipcam_Param_get_ai_supported_model()
