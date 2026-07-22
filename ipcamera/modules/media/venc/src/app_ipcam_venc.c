@@ -1,6 +1,7 @@
 
 #include <pthread.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/select.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -1181,6 +1182,7 @@ static void *Thread_Streaming_Proc(void *pArgs)
     CVI_BOOL bGetStreamFailureLogged = CVI_FALSE;
     CVI_S32 s32VencCount = 0;
     CVI_S32 s32Ret = CVI_SUCCESS;
+    CVI_U64 u64DroppedStaleStreams = 0;
     APP_VENC_CHN_CFG_S *pastVencChnCfg = (APP_VENC_CHN_CFG_S *)pArgs;
     VENC_CHN VencChn = pastVencChnCfg->VencChn;
     CVI_BOOL bNeedMbuf = (pastVencChnCfg->StreamTo != 0);
@@ -1188,6 +1190,18 @@ static void *Thread_Streaming_Proc(void *pArgs)
     CVI_CHAR TaskName[64] = {'\0'};
     sprintf(TaskName, "Thread_Venc%d_Proc", VencChn);
     prctl(PR_SET_NAME, TaskName, 0, 0, 0);
+#ifdef CVI_UVC_SUPPORT
+    if ((VencChn == CVI_UVC_VENC_CHN) &&
+        (pastVencChnCfg->enType == PT_MJPEG)) {
+        if (setpriority(PRIO_PROCESS, 0, -5) != 0) {
+            APP_PROF_LOG_PRINT(LEVEL_WARN,
+                "set UVC VENC thread priority failed, errno=%d\n", errno);
+        } else {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "UVC VENC stream thread priority set to nice -5\n");
+        }
+    }
+#endif
     APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Venc channel_%d start running\n", VencChn);
 
     CVI_MEDIA_FRAME_INFO_T stFrameInfo = {0};
@@ -1285,6 +1299,35 @@ static void *Thread_Streaming_Proc(void *pArgs)
                 VencChn, stStream.u32Seq, stStream.u32PackCount);
             bGetStreamFailureLogged = CVI_FALSE;
         }
+
+#ifdef CVI_UVC_SUPPORT
+        /* MJPEG frames are independent. If the UVC encoder output has
+         * accumulated, release old frames before copying so VENC3 can accept
+         * fresh VPSS input instead of propagating backpressure upstream. */
+        if ((VencChn == CVI_UVC_VENC_CHN) &&
+            (pastVencChnCfg->enType == PT_MJPEG) &&
+            (stStatus.u32LeftStreamFrames > 1)) {
+            CVI_U32 u32StaleSeq = stStream.u32Seq;
+
+            s32Ret = CVI_VENC_ReleaseStream(VencChn, &stStream);
+            if (s32Ret != CVI_SUCCESS) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "release stale UVC stream failed, VencChn(%d), ret=%d\n",
+                    VencChn, s32Ret);
+                continue;
+            }
+
+            u64DroppedStaleStreams++;
+            if ((u64DroppedStaleStreams == 1) ||
+                ((u64DroppedStaleStreams % 120) == 0)) {
+                APP_PROF_LOG_PRINT(LEVEL_WARN,
+                    "UVC dropped stale VENC stream: seq=%u backlog=%u total=%llu\n",
+                    u32StaleSeq, stStatus.u32LeftStreamFrames,
+                    (unsigned long long)u64DroppedStaleStreams);
+            }
+            continue;
+        }
+#endif
 
         if (!bFirstStreamSeen) {
             APP_PROF_LOG_PRINT(LEVEL_INFO,

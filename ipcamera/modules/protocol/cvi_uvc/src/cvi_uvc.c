@@ -104,6 +104,7 @@ void cvi_uvc_stream_set_enabled(bool enabled)
 
 int cvi_uvc_stream_send_data(void *data)
 {
+    static unsigned long long invalid_jpeg_count;
     CVI_U32 i = 0;
     VENC_PACK_S *pstData = CVI_NULL;
     unsigned char *s = CVI_NULL;
@@ -220,10 +221,21 @@ int cvi_uvc_stream_send_data(void *data)
         fnode->used += data_len;
     }
 
+    if (!uvc_debug_jpeg_valid(fnode->mem, fnode->used)) {
+        invalid_jpeg_count++;
+        if (invalid_jpeg_count == 1 || (invalid_jpeg_count % 30) == 0) {
+            printf("UVC: drop invalid MJPEG frame seq=%u size=%u total=%llu.\n",
+                pstStream->u32Seq, fnode->used, invalid_jpeg_count);
+        }
+        fnode->used = 0;
+        put_node_to_queue(uvc_cache->free_queue, fnode);
+        return CVI_SUCCESS;
+    }
+
     if (access("/tmp/uvc-diag", F_OK) == 0) {
         fnode->debug_sequence = pstStream->u32Seq;
         fnode->debug_checksum = uvc_debug_checksum(fnode->mem, fnode->used);
-        fnode->debug_jpeg_valid = uvc_debug_jpeg_valid(fnode->mem, fnode->used);
+        fnode->debug_jpeg_valid = 1;
 
         if (!fnode->debug_jpeg_valid || (pstStream->u32Seq % 30) == 0) {
             printf("UVC DIAG producer seq=%u size=%u packs=%u jpeg=%u checksum=%08x\n",

@@ -2,11 +2,18 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <iostream>
 
 #include "preprocess/base_preprocessor.hpp"
 #include "utils/common_utils.hpp"
 #include "utils/tdl_log.hpp"
+
+static double monotonic_time_ms() {
+  return std::chrono::duration<double, std::milli>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
 
 void print_netparam(const NetParam& net_param) {
   std::stringstream ss;
@@ -218,6 +225,8 @@ int32_t BaseModel::inference(
 
   int batch_size = images.size();
   int process_idx = 0;
+  const double total_start_ms = monotonic_time_ms();
+  last_performance_ = {};
   std::string input_layer_name = net_->getInputNames()[0];
   const PreprocessParams& preprocess_params =
       preprocess_params_[input_layer_name];
@@ -235,6 +244,7 @@ int32_t BaseModel::inference(
   std::shared_ptr<BaseTensor> input_tensor =
       net_->getInputTensor(input_layer_name);
   while (process_idx < batch_size) {
+    double stage_start_ms = monotonic_time_ms();
     int fit_batch_size = getFitBatchSize(batch_size - process_idx);
     std::vector<std::shared_ptr<BaseImage>> batch_images;
     batch_rescale_params_[input_layer_name].clear();
@@ -266,18 +276,24 @@ int32_t BaseModel::inference(
         batch_rescale_params_[input_layer_name].push_back(rescale_params);
       }
     }
+    last_performance_.preprocess_ms += monotonic_time_ms() - stage_start_ms;
     model_timer_.TicToc("preprocess");
+    stage_start_ms = monotonic_time_ms();
     net_->updateInputTensors();
     net_->forward();
+    last_performance_.tpu_ms += monotonic_time_ms() - stage_start_ms;
     model_timer_.TicToc("tpu");
+    stage_start_ms = monotonic_time_ms();
     net_->updateOutputTensors();
     std::vector<std::shared_ptr<ModelOutputInfo>> batch_results;
     outputParse(batch_images, batch_results);
+    last_performance_.postprocess_ms += monotonic_time_ms() - stage_start_ms;
     model_timer_.TicToc("post");
     out_datas.insert(out_datas.end(), batch_results.begin(),
                      batch_results.end());
     process_idx += fit_batch_size;
   }
+  last_performance_.total_ms = monotonic_time_ms() - total_start_ms;
   return 0;
 }
 

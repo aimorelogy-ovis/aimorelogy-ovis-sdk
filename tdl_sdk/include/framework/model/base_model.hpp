@@ -14,6 +14,13 @@
 #include "tdl_model_defs.hpp"
 #include "utils/profiler.hpp"
 
+struct ModelPerformance {
+  double preprocess_ms = 0.0;
+  double tpu_ms = 0.0;
+  double postprocess_ms = 0.0;
+  double total_ms = 0.0;
+};
+
 class BaseModel {
  public:
   BaseModel();
@@ -94,6 +101,7 @@ class BaseModel {
   const std::vector<std::string>& getOutputNames() const;
   int32_t getTensorInfo(const std::string& name, TensorInfo& info);
   uint32_t getIOTensorBytes() { return net_->getIOTensorBytes(); }
+  ModelPerformance getLastPerformance() const { return last_performance_; }
   int32_t setIOTensorMemory(uint64_t phy_addr, uint8_t* sys_mem,
                             uint32_t size) {
     return net_->setIOTensorMemory(phy_addr, sys_mem, size);
@@ -135,6 +143,7 @@ class BaseModel {
   std::map<int, TDLObjectType> type_mapping_;
 
   Timer model_timer_;
+  ModelPerformance last_performance_;
 };
 
 #endif  // INCLUDE_BASE_MODEL_H_

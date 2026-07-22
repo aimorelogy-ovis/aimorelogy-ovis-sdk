@@ -267,6 +267,9 @@ int main(int argc, char *argv[])
     signal(SIGINT, app_ipcam_ExitSig_handle);
     signal(SIGTERM, app_ipcam_ExitSig_handle);
     signal(SIGUSR1, app_ipcam_Usr1Sig_handle);
+    /* RTSP clients can reset a TCP connection while the server is sending.
+     * Keep that socket failure local to the RTSP session. */
+    signal(SIGPIPE, SIG_IGN);
 
     /* load each moudles parameter from param_config.ini */
     APP_CHK_RET(app_ipcam_Param_Load(), "load global parameter");

@@ -233,6 +233,8 @@ static void rtsp_service_media_task(void *arg)
 
 static void rtsp_service_start_media_by_name(char *name)
 {
+    CVI_S32 s32TaskRet;
+
     if (name == NULL || strlen(name) <= 0) {
         return;
     }
@@ -263,7 +265,15 @@ static void rtsp_service_start_media_by_name(char *name)
                     video.priority = OSAL_TASK_PRI_RT_LOW;
                     video.detached = false;
                     video.stack_size = 128 * 1024;
-                    OSAL_TASK_Create(&video, &c->media_task);
+                    s32TaskRet = OSAL_TASK_Create(&video, &c->media_task);
+                    if (s32TaskRet != OSAL_SUCCESS) {
+                        c->RtspThread.bRun_flag = 0;
+                        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                            "Create thread(%s) for rtsp media failed: %d.\n",
+                            name, s32TaskRet);
+                        OSAL_MUTEX_Unlock(c->mutex);
+                        break;
+                    }
                     APP_PROF_LOG_PRINT(LEVEL_INFO
                         , "Create thread(%s) is success for rtsp_service_media_task.\n"
                         , name);
@@ -292,6 +302,14 @@ static void rtsp_service_stop_media_by_name(char *name)
         if (c) {
             OSAL_MUTEX_Lock(c->mutex);
             if (strcmp(c->attr.rtsp_name, name) == 0) {
+                if (c->ref <= 0) {
+                    c->ref = 0;
+                    APP_PROF_LOG_PRINT(LEVEL_WARN,
+                        "Ignore duplicate RTSP disconnect for session %s.\n",
+                        name);
+                    OSAL_MUTEX_Unlock(c->mutex);
+                    break;
+                }
                 c->ref--;
                 if (c->ref == 0) {
                     c->RtspThread.bRun_flag = 0;

@@ -63,8 +63,14 @@ int app_ipcam_Sys_EnableFastBoot(void)
 static int COMM_SYS_Init(VB_CONFIG_S *pstVbConfig)
 {
     CVI_S32 s32Ret = CVI_FAILURE;
-    CVI_VB_Exit();
-    CVI_SYS_Exit();
+    CVI_S32 s32VbExitRet = CVI_VB_Exit();
+    CVI_S32 s32SysExitRet = CVI_SYS_Exit();
+
+    if (s32VbExitRet != CVI_SUCCESS || s32SysExitRet != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN,
+            "MPP cleanup before init: VB=%#x SYS=%#x\n",
+            s32VbExitRet, s32SysExitRet);
+    }
 
     if (pstVbConfig == NULL) {
         APP_PROF_LOG_PRINT(LEVEL_INFO, "input parameter is null, it is invaild!\n");
@@ -79,7 +85,9 @@ static int COMM_SYS_Init(VB_CONFIG_S *pstVbConfig)
 
     s32Ret = CVI_VB_SetConfig(pstVbConfig);
     if (s32Ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "CVI_VB_SetConf failed!\n");
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "CVI_VB_SetConfig failed with %#x, pool_count=%u\n",
+            s32Ret, pstVbConfig->u32MaxPoolCnt);
         CVI_SYS_Exit();
         return s32Ret;
     }
