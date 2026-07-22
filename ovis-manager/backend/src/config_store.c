@@ -275,7 +275,13 @@ int config_get_output_flags(int *rtsp_enabled, int *uvc_enabled)
 	    read_int(OVIS_CONFIG_FILE, "output_config", "uvc_enable",
 			uvc_enabled) != 0) {
 		*rtsp_enabled = 0;
-		*uvc_enabled = 0;
+		*uvc_enabled = 1;
+		return -1;
+	}
+	if (!((*rtsp_enabled == 0 && *uvc_enabled == 1) ||
+	      (*rtsp_enabled == 1 && *uvc_enabled == 0))) {
+		*rtsp_enabled = 0;
+		*uvc_enabled = 1;
 		return -1;
 	}
 	return 0;
@@ -430,7 +436,7 @@ int config_capabilities_json(char *json, size_t size)
 {
 	static const char capabilities[] =
 		"{\"schema_version\":4,\"outputs\":{"
-		"\"rtsp\":{\"supported\":true,\"default_enabled\":true},"
+		"\"rtsp\":{\"supported\":true,\"default_enabled\":false},"
 		"\"uvc\":{\"supported\":true,\"default_enabled\":true,"
 		"\"profile\":{\"codec\":\"mjpeg\",\"width\":1920,\"height\":1080,\"fps\":30}}},"
 		"\"video\":{"
@@ -680,6 +686,9 @@ static cJSON *validate_values(const struct config_values *values)
 	int active_tpu_features = values->object_enabled + values->face_enabled +
 		values->human_pose_enabled + values->object_tracking_enabled;
 
+	if (values->rtsp_enabled == values->uvc_enabled)
+		add_issue(errors, "outputs", "OUTPUT_MODE_CONFLICT",
+			"UVC 和 RTSP 必须且只能启用一项");
 	if (!main_fps_supported(values->main_fps))
 		add_issue(errors, "video.main.fps", "UNSUPPORTED_FPS", "主码流不支持此帧率");
 	if (values->main_bitrate < 512 || values->main_bitrate > 15000)
@@ -964,7 +973,7 @@ static int has_section(const char *path, const char *wanted_section)
 
 static int append_missing_output_config(const char *path)
 {
-	int rtsp_enabled = 1;
+	int rtsp_enabled = 0;
 	int uvc_enabled = 1;
 	int sub_enabled = 0;
 	FILE *file;
@@ -974,6 +983,11 @@ static int append_missing_output_config(const char *path)
 	read_int(path, "vencchn0", "bEnable", &rtsp_enabled);
 	read_int(path, "vencchn3", "bEnable", &uvc_enabled);
 	read_int(path, "vencchn1", "bEnable", &sub_enabled);
+	if (!((rtsp_enabled == 0 && uvc_enabled == 1) ||
+	      (rtsp_enabled == 1 && uvc_enabled == 0))) {
+		rtsp_enabled = 0;
+		uvc_enabled = 1;
+	}
 	file = fopen(path, "a");
 	if (file == NULL)
 		return -1;
@@ -1056,7 +1070,7 @@ static int append_missing_runtime_sections(const char *path)
 	}
 	if (need_uvc_pool) {
 		fputs("\n[vb_pool_8]\n"
-			"bEnable         = 1\n"
+			"bEnable         = 0\n"
 			"frame_width     = 1920\n"
 			"frame_height    = 1080\n"
 			"frame_fmt       = PIXEL_FORMAT_NV12\n"
@@ -1068,7 +1082,7 @@ static int append_missing_runtime_sections(const char *path)
 	if (need_uvc_group) {
 		fputs("\n[vpssgrp6]\n"
 			"group_id        = 6\n"
-			"grp_enable      = 1\n"
+			"grp_enable      = 0\n"
 			"pixel_fmt       = PIXEL_FORMAT_NV12\n"
 			"src_framerate   = -1\n"
 			"dst_framerate   = -1\n"
@@ -1092,7 +1106,7 @@ static int append_missing_runtime_sections(const char *path)
 	}
 	if (need_uvc_channel) {
 		fputs("\n[vpssgrp6.chn0]\n"
-			"chn_enable      = 1\n"
+			"chn_enable      = 0\n"
 			"width           = 1920\n"
 			"height          = 1080\n"
 			"video_fmt       = VIDEO_FORMAT_LINEAR\n"
@@ -1180,7 +1194,7 @@ static int migrate_runtime_config(const char *path)
 		{ "vb_pool_7", "frame_fmt", "PIXEL_FORMAT_NV12", 0 },
 		{ "vb_pool_7", "blk_cnt", "4", 0 },
 		{ "vb_pool_6", "blk_cnt", "4", 0 },
-		{ "vb_pool_8", "bEnable", "1", 0 },
+		{ "vb_pool_8", "bEnable", "0", 0 },
 		{ "vb_pool_8", "frame_width", "1920", 0 },
 		{ "vb_pool_8", "frame_height", "1080", 0 },
 		{ "vb_pool_8", "frame_fmt", "PIXEL_FORMAT_NV12", 0 },
@@ -1191,7 +1205,7 @@ static int migrate_runtime_config(const char *path)
 		{ "vpss_config", "vpss_grp", "7", 0 },
 		{ "vpssgrp1", "chn_cnt", "1", 0 },
 		{ "vpssgrp6", "group_id", "6", 0 },
-		{ "vpssgrp6", "grp_enable", "1", 0 },
+		{ "vpssgrp6", "grp_enable", "0", 0 },
 		{ "vpssgrp6", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
 		{ "vpssgrp6", "src_framerate", "-1", 0 },
 		{ "vpssgrp6", "dst_framerate", "-1", 0 },
@@ -1212,7 +1226,7 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp6", "dst_mod_id", "CVI_ID_VPSS", 0 },
 		{ "vpssgrp6", "dst_dev_id", "6", 0 },
 		{ "vpssgrp6", "dst_chn_id", "0", 0 },
-		{ "vpssgrp6.chn0", "chn_enable", "1", 0 },
+		{ "vpssgrp6.chn0", "chn_enable", "0", 0 },
 		{ "vpssgrp6.chn0", "width", "1920", 0 },
 		{ "vpssgrp6.chn0", "height", "1080", 0 },
 		{ "vpssgrp6.chn0", "video_fmt", "VIDEO_FORMAT_LINEAR", 0 },
@@ -1237,9 +1251,9 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp6.chn0", "crop_rect_h", "0", 0 },
 		{ "vpssgrp6.chn0", "attach_en", "1", 0 },
 		{ "vpssgrp6.chn0", "attach_pool", "8", 0 },
-		{ "vencchn3", "src_dev_id", "6", 0 },
+		{ "vencchn3", "src_dev_id", "0", 0 },
 		{ "vencchn3", "src_chn_id", "0", 0 },
-		{ "vencchn3", "vpss_grp", "6", 0 },
+		{ "vencchn3", "vpss_grp", "0", 0 },
 		{ "vencchn3", "vpss_chn", "0", 0 },
 		{ "vencchn3", "src_framerate", "", 0 },
 		{ "vencchn3", "dst_framerate", "", 0 },
@@ -1261,8 +1275,8 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp2", "max_h", "1080", 0 },
 		{ "vpssgrp2", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
 		{ "vpssgrp2", "src_chn_id", "0", 0 },
-		{ "vpssgrp2", "src_framerate", "", 0 },
-		{ "vpssgrp2", "dst_framerate", "10", 0 },
+		{ "vpssgrp2", "src_framerate", "-1", 0 },
+		{ "vpssgrp2", "dst_framerate", "-1", 0 },
 		{ "vpssgrp2.chn0", "chn_pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
 		{ "vb_pool_2", "frame_fmt", "PIXEL_FORMAT_NV12", 0 },
 		{ "vpssgrp3", "max_w", "1920", 0 },
@@ -1273,6 +1287,8 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp4", "max_h", "1080", 0 },
 		{ "vpssgrp4", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
 		{ "vpssgrp4", "src_chn_id", "0", 0 },
+		{ "output_config", "rtsp_enable", "", 0 },
+		{ "output_config", "uvc_enable", "", 0 },
 	};
 	char migrated[512];
 	char value[160];
@@ -1280,7 +1296,7 @@ static int migrate_runtime_config(const char *path)
 	int motion_enabled = 0;
 	int group_enabled[4];
 	int sub_enabled = 0;
-	int rtsp_enabled = 1;
+	int rtsp_enabled = 0;
 	int uvc_enabled = 1;
 	int osd_enabled = 0;
 	int main_fps = 0;
@@ -1343,9 +1359,19 @@ static int migrate_runtime_config(const char *path)
 		&human_pose_height) != 0 ||
 	    read_int(path, "osdc_config", "enable", &osd_enabled) != 0)
 		return -1;
+	if (!((rtsp_enabled == 0 && uvc_enabled == 1) ||
+	      (rtsp_enabled == 1 && uvc_enabled == 0))) {
+		rtsp_enabled = 0;
+		uvc_enabled = 1;
+		needs_update = 1;
+	}
 	runtime_sub_enabled = rtsp_enabled && sub_enabled &&
 		!(uvc_enabled && main_fps == 60);
 	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"output_config", "rtsp_enable", rtsp_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"output_config", "uvc_enable", uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vb_pool_6", "bEnable", rtsp_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vpssgrp1", "grp_enable", rtsp_enabled) != 0 ||
@@ -1356,11 +1382,11 @@ static int migrate_runtime_config(const char *path)
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"rtsp_config", "rtsp_cnt", rtsp_enabled ? 2 : 0) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vb_pool_8", "bEnable", uvc_enabled) != 0 ||
+			"vb_pool_8", "bEnable", 0) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vpssgrp6", "grp_enable", uvc_enabled) != 0 ||
+			"vpssgrp6", "grp_enable", 0) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vpssgrp6.chn0", "chn_enable", uvc_enabled) != 0 ||
+			"vpssgrp6.chn0", "chn_enable", 0) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vencchn3", "bEnable", uvc_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
@@ -1373,8 +1399,9 @@ static int migrate_runtime_config(const char *path)
 			"vencchn3", "dst_framerate",
 			main_fps == 60 ? 60 : 30) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vpssgrp2", "src_framerate",
-			main_fps == 60 ? 60 : 30) != 0)
+			"vpssgrp2", "src_framerate", OVIS_AI_FRAME_RATE_AUTO) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp2", "dst_framerate", OVIS_AI_FRAME_RATE_AUTO) != 0)
 		return -1;
 	if (enabled[0] + enabled[1] + enabled[2] + enabled[3] > 1)
 		needs_update = 1;
@@ -1584,6 +1611,8 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "vencchn3", "dst_framerate", "", 0 },
 		{ "vpssgrp2", "src_framerate", "", 0 },
 		{ "vpssgrp2", "dst_framerate", "", 0 },
+		{ "vencchn3", "src_dev_id", "0", 0 },
+		{ "vencchn3", "vpss_grp", "0", 0 },
 	};
 	char validation_error[256];
 	int runtime_sub_enabled;
@@ -1651,11 +1680,11 @@ static int stage_values(const struct config_values *values, char revision[17],
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vencchn0", "bEnable", values->rtsp_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vb_pool_8", "bEnable", values->uvc_enabled) != 0 ||
+			"vb_pool_8", "bEnable", 0) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vpssgrp6", "grp_enable", values->uvc_enabled) != 0 ||
+			"vpssgrp6", "grp_enable", 0) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vpssgrp6.chn0", "chn_enable", values->uvc_enabled) != 0 ||
+			"vpssgrp6.chn0", "chn_enable", 0) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vencchn3", "bEnable", values->uvc_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
@@ -1681,10 +1710,9 @@ static int stage_values(const struct config_values *values, char revision[17],
 			"vencchn3", "dst_framerate",
 			values->main_fps == 60 ? 60 : 30) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vpssgrp2", "src_framerate",
-			values->main_fps == 60 ? 60 : 30) != 0 ||
+			"vpssgrp2", "src_framerate", OVIS_AI_FRAME_RATE_AUTO) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
-			"vpssgrp2", "dst_framerate", OVIS_AI_DETECTION_FPS) != 0) {
+			"vpssgrp2", "dst_framerate", OVIS_AI_FRAME_RATE_AUTO) != 0) {
 		snprintf(error, error_size, "无法生成输出服务或 AI 资源配置");
 		return -1;
 	}
@@ -2085,6 +2113,9 @@ int config_apply_defaults(char *message, size_t message_size, int *rolled_back)
 
 int config_ensure_runtime(char *error, size_t error_size)
 {
+	char runtime_error[256] = "未找到运行配置";
+	char backup_error[256] = "未找到备份配置";
+	char default_error[256] = "未知错误";
 	int migration_result = 0;
 
 	ensure_dir("/mnt/cfg");
@@ -2093,24 +2124,34 @@ int config_ensure_runtime(char *error, size_t error_size)
 		return -1;
 	}
 	unlink(OVIS_CONFIG_PENDING);
-	if (access(OVIS_CONFIG_FILE, F_OK) == 0)
+	if (access(OVIS_CONFIG_FILE, F_OK) == 0) {
 		migration_result = migrate_runtime_config(OVIS_CONFIG_FILE);
-	if (migration_result == 0 &&
-	    config_validate_file(OVIS_CONFIG_FILE, error, error_size) == 0)
-		return 0;
+		if (migration_result != 0)
+			snprintf(runtime_error, sizeof(runtime_error), "运行配置迁移失败");
+		else if (config_validate_file(OVIS_CONFIG_FILE, runtime_error,
+				sizeof(runtime_error)) == 0)
+			return 0;
+	}
 	if (access(OVIS_CONFIG_FILE, F_OK) == 0)
 		rename(OVIS_CONFIG_FILE, OVIS_CONFIG_FILE ".corrupt");
-	if (access(OVIS_CONFIG_BACKUP, F_OK) == 0)
+	if (access(OVIS_CONFIG_BACKUP, F_OK) == 0) {
 		migration_result = migrate_runtime_config(OVIS_CONFIG_BACKUP);
-	else
-		migration_result = -1;
-	if (migration_result == 0 &&
-	    config_validate_file(OVIS_CONFIG_BACKUP, error, error_size) == 0 &&
-	    atomic_copy(OVIS_CONFIG_BACKUP, OVIS_CONFIG_FILE) == 0)
-		return 0;
-	if (config_validate_file(OVIS_DEFAULT_CONFIG, error, error_size) == 0 &&
-	    atomic_copy(OVIS_DEFAULT_CONFIG, OVIS_CONFIG_FILE) == 0)
-		return 0;
-	snprintf(error, error_size, "没有可用的默认或备份配置");
+		if (migration_result != 0) {
+			snprintf(backup_error, sizeof(backup_error), "备份配置迁移失败");
+		} else if (config_validate_file(OVIS_CONFIG_BACKUP, backup_error,
+				sizeof(backup_error)) == 0) {
+			if (atomic_copy(OVIS_CONFIG_BACKUP, OVIS_CONFIG_FILE) == 0)
+				return 0;
+			snprintf(backup_error, sizeof(backup_error), "无法恢复备份配置");
+		}
+	}
+	if (config_validate_file(OVIS_DEFAULT_CONFIG, default_error,
+			sizeof(default_error)) == 0) {
+		if (atomic_copy(OVIS_DEFAULT_CONFIG, OVIS_CONFIG_FILE) == 0)
+			return 0;
+		snprintf(default_error, sizeof(default_error), "无法复制默认配置");
+	}
+	snprintf(error, error_size, "默认配置不可用: %s；运行配置: %s；备份配置: %s",
+		default_error, runtime_error, backup_error);
 	return -1;
 }

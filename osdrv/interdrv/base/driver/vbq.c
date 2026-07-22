@@ -582,8 +582,14 @@ int32_t vb_qbuf(mmf_chn_s chn, enum chn_type_e chn_type, struct vb_jobs_t *jobs,
 		if (FIFO_FULL(&jobs->waitq)) {
                   	osal_atomic_dec(&vb->usr_cnt);
 			osal_mutex_unlock(&jobs->lock);
-			TRACE_BASE(DBG_ERR, "%s dev(%d) chn(%d) waitq is full. drop new one.\n"
-				     , sys_get_modname(chn.mod_id), chn.dev_id, chn.chn_id);
+			if (chn.mod_id == ID_VENC)
+				TRACE_BASE(DBG_DEBUG,
+					"%s dev(%d) chn(%d) waitq is full. drop new one.\n",
+					sys_get_modname(chn.mod_id), chn.dev_id, chn.chn_id);
+			else
+				TRACE_BASE(DBG_ERR,
+					"%s dev(%d) chn(%d) waitq is full. drop new one.\n",
+					sys_get_modname(chn.mod_id), chn.dev_id, chn.chn_id);
 			return OSAL_ENOBUFS;
 		}
 		FIFO_PUSH(&jobs->waitq, vb);
@@ -693,5 +699,4 @@ int32_t vb_done_handler(mmf_chn_s chn, enum chn_type_e chn_type, struct vb_jobs_
 	return ret;
 }
 osal_module_export(vb_done_handler);
-
 

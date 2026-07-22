@@ -175,6 +175,24 @@ int32_t TDL_SetModelThreshold(TDLHandle handle, const TDLModel model_id,
   return 0;
 }
 
+int32_t TDL_GetModelPerformance(TDLHandle handle, const TDLModel model_id,
+                                TDLModelPerformance *performance) {
+  if (performance == nullptr) {
+    return -1;
+  }
+  std::shared_ptr<BaseModel> model = get_model(handle, model_id);
+  if (model == nullptr) {
+    return -1;
+  }
+
+  ModelPerformance model_performance = model->getLastPerformance();
+  performance->preprocess_ms = model_performance.preprocess_ms;
+  performance->tpu_ms = model_performance.tpu_ms;
+  performance->postprocess_ms = model_performance.postprocess_ms;
+  performance->total_ms = model_performance.total_ms;
+  return 0;
+}
+
 int32_t TDL_GetPreprocessParameters(TDLHandle handle, const TDLModel model_id,
                                     TDLPreprocessParams *pre_param) {
   TDLContext *context = (TDLContext *)handle;

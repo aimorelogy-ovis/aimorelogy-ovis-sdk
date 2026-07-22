@@ -182,6 +182,16 @@ int32_t TDL_CloseModel(TDLHandle handle, const TDLModel model_id);
 int32_t TDL_SetModelThreshold(TDLHandle handle, const TDLModel model_id,
                               float threshold);
 /**
+ * @brief 获取模型最近一次推理的分段耗时
+ *
+ * @param handle 已初始化的 TDLHandle 对象
+ * @param model_id 已加载的模型类型
+ * @param performance 输出最近一次预处理、TPU、后处理和总耗时
+ * @return 成功返回 0，失败返回 -1
+ */
+int32_t TDL_GetModelPerformance(TDLHandle handle, const TDLModel model_id,
+                                TDLModelPerformance *performance);
+/**
  * @brief 获取模型预处理参数
  *
  * @param handle 已初始化的 TDLHandle 对象
