@@ -40,6 +40,7 @@ INCS-$(CONFIG_MODULE_AI_MD) += -I$(TDL_PATH)/install/include/cvi_md
 
 INCS-$(CONFIG_MODULE_AI) += -I$(APP_PREBUILT_DIR)/jpegturbo/include
 DEFS-$(CONFIG_MODULE_AI) += -DAI_SUPPORT
+DEFS-$(CONFIG_MODULE_AI_BNR) += -DAI_BNR_SUPPORT
 INCS-$(CONFIG_MODULE_AI) += -I$(TDL_PATH)/install/CV184X/include
 INCS-$(CONFIG_MODULE_AI) += -I$(TDL_PATH)/install/CV184X/include/c_apis
 INCS-$(CONFIG_MODULE_AI) += -I$(TDL_PATH)/include/framework

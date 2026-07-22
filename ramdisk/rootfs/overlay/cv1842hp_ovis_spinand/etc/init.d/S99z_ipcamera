@@ -8,8 +8,9 @@ DAEMON="$APP_DIR/ipcamera"
 MANAGER=/usr/sbin/ovis-managerd
 PARAM_CONFIG=/mnt/cfg/ipcamera/param_config.ini
 PIDFILE=/var/run/ipcamera.pid
+READYFILE=${IPCAMERA_READY_FILE:-/var/run/ipcamera.ready}
 NCM_ADDRESS_FILE=/var/run/ovis-ncm-address
-START_TIMEOUT=3
+START_TIMEOUT=${IPCAMERA_START_TIMEOUT:-20}
 STOP_TIMEOUT=15
 
 read_pid() {
@@ -66,10 +67,14 @@ start() {
 		return 0
 	fi
 	if is_running; then
-		echo "ipcamera is already running (PID $pid)"
-		return 0
+		if [ -e "$READYFILE" ]; then
+			echo "ipcamera is already running and ready (PID $pid)"
+			return 0
+		fi
+		echo "ipcamera is running but not ready (PID $pid)"
+		return 1
 	fi
-	rm -f "$PIDFILE"
+	rm -f "$PIDFILE" "$READYFILE"
 	prepare_config || {
 		echo "ipcamera parameter config is unavailable"
 		return 1
@@ -81,20 +86,29 @@ start() {
 	"$DAEMON" -i "$PARAM_CONFIG" </dev/null >/dev/console 2>&1 &
 	pid=$!
 	echo "$pid" > "$PIDFILE"
-	sleep "$START_TIMEOUT"
-	if is_running; then
-		echo "ipcamera started (PID $pid)"
-		return 0
-	fi
-	rm -f "$PIDFILE"
-	echo "ipcamera exited during startup"
+	count=0
+	while [ "$count" -lt "$START_TIMEOUT" ]; do
+		if ! is_running; then
+			rm -f "$PIDFILE" "$READYFILE"
+			echo "ipcamera exited during startup"
+			return 1
+		fi
+		if [ -e "$READYFILE" ]; then
+			echo "ipcamera started and ready (PID $pid)"
+			return 0
+		fi
+		sleep 1
+		count=$((count + 1))
+	done
+	echo "ipcamera readiness timeout"
+	stop
 	return 1
 }
 
 stop() {
 	printf "Stopping ipcamera: "
 	if ! is_running; then
-		rm -f "$PIDFILE"
+		rm -f "$PIDFILE" "$READYFILE"
 		echo "not running"
 		return 0
 	fi
@@ -111,7 +125,7 @@ stop() {
 		echo "FAIL (timeout waiting for PID $pid)"
 		return 1
 	fi
-	rm -f "$PIDFILE"
+	rm -f "$PIDFILE" "$READYFILE"
 	echo "OK"
 }
 
@@ -121,6 +135,7 @@ status() {
 		return 0
 	fi
 	read_pid && rm -f "$PIDFILE"
+	rm -f "$READYFILE"
 	echo "ipcamera is not running"
 	return 1
 }

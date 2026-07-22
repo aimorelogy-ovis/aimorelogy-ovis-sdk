@@ -162,6 +162,14 @@ config MODULE_AI
 	help
 		enable ai in applicant
 
+config MODULE_AI_BNR
+	bool "enable AI ISP BNR"
+	default n
+	depends on MODULE_MEDIA_VI && MODULE_AI
+	select RESOURCE_INSTALL_TEAISP_BNR_MODEL
+	help
+		enable TEAISP AI BNR integration
+
 config MODULE_AI_MD
 	bool "enable module ai md"
 	default n

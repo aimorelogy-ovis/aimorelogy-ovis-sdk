@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <getopt.h>
 #include "minIni.h"
 #include "app_ipcam_paramparse.h"
@@ -30,6 +31,29 @@ const char *dynamic_range[DYNAMIC_RANGE_MAX] = {
     [DYNAMIC_RANGE_SLF] = "DYNAMIC_RANGE_SLF",
     [DYNAMIC_RANGE_XDR] = "DYNAMIC_RANGE_XDR"
 };
+
+static int load_bool_value(const char *section, const char *key,
+    CVI_BOOL default_value, CVI_BOOL *value, const char *file)
+{
+    char text[16] = {0};
+    char *end = NULL;
+    long parsed;
+
+    ini_gets(section, key, default_value ? "1" : "0", text, sizeof(text), file);
+    errno = 0;
+    parsed = strtol(text, &end, 10);
+    while (end != NULL && (*end == ' ' || *end == '\t'))
+        end++;
+    if (errno != 0 || end == text || (end != NULL && *end != '\0') ||
+        (parsed != 0 && parsed != 1)) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "[%s][%s] invalid boolean value [%s]\n",
+            section, key, text);
+        return CVI_FAILURE;
+    }
+
+    *value = parsed ? CVI_TRUE : CVI_FALSE;
+    return CVI_SUCCESS;
+}
 
 const char *rx_mac_clk[RX_MAC_CLK_BUTT] = {
     [RX_MAC_CLK_200M] = "RX_MAC_CLK_200M",
@@ -209,6 +233,10 @@ int Load_Param_Vi(const char *file)
         memset(tmp_section, 0, sizeof(tmp_section));
         snprintf(tmp_section, sizeof(tmp_section), "vi_cfg_isp%d", i);
         pViIniCfg->astIspCfg[i].bAfFliter = ini_getl(tmp_section, "af_filter", 0, file);
+        ret = load_bool_value(tmp_section, "teaisp_bnr_enable", CVI_FALSE,
+            &pViIniCfg->astIspCfg[i].stTeaispBnrCfg.bEnable, file);
+        if (ret != CVI_SUCCESS)
+            return ret;
     }
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading vi config ------------------> done \n\n");

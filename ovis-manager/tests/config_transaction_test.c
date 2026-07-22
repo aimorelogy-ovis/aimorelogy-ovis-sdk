@@ -266,6 +266,7 @@ static void stage_and_apply(int fps, int bitrate, int sensitivity, int sub_enabl
 
 int main(void)
 {
+	char capabilities[8192];
 	char error[256];
 	char revision_before[33];
 	char revision_after[33];
@@ -281,6 +282,14 @@ int main(void)
 		fail("unable to create test directory");
 	if (config_ensure_runtime(error, sizeof(error)) != 0)
 		fail(error);
+	if (!active_config_value_equals("vi_cfg_isp0", "teaisp_bnr_enable", "0"))
+		fail("AI BNR migration did not preserve the default disabled state");
+	if (config_capabilities_json(capabilities, sizeof(capabilities)) != 0 ||
+	    strstr(capabilities, "\"schema_version\":5") == NULL ||
+	    strstr(capabilities, "\"ai_isp\"") == NULL ||
+	    strstr(capabilities, "\"required_main_fps\":30") == NULL ||
+	    strstr(capabilities, "\"supported\":false") == NULL)
+		fail("AI BNR capability contract is invalid");
 	if (!active_config_value_equals("ai_object_track_config", "sot_vpss_grp", "0") ||
 	    !active_config_value_equals("ai_object_track_config", "sot_vpss_chn", "2") ||
 	    !active_config_value_equals("ai_object_track_config",

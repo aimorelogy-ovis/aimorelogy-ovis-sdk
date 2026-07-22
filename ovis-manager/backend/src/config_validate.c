@@ -18,6 +18,7 @@ struct config_field {
 };
 
 static const struct config_field required_fields[] = {
+	{ "ai_bnr_enabled", "vi_cfg_isp0", "teaisp_bnr_enable", VALUE_INTEGER, 0, 1 },
 	{ "rtsp_enabled", "output_config", "rtsp_enable", VALUE_INTEGER, 0, 1 },
 	{ "uvc_enabled", "output_config", "uvc_enable", VALUE_INTEGER, 0, 1 },
 	{ "desired_sub_enabled", "output_config", "sub_enable", VALUE_INTEGER, 0, 1 },
@@ -335,6 +336,7 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	long motion_enabled = 0;
 	long human_pose_enabled = 0;
 	long object_tracking_enabled = 0;
+	long ai_bnr_enabled = 0;
 	long ai_source_enabled = 0;
 	long shared_ai_pool_enabled = 0;
 	long object_pool_enabled = 0;
@@ -409,6 +411,8 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 				found[i] = 1;
 				if (strcmp(required_fields[i].id, "rtsp_enabled") == 0)
 					rtsp_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "ai_bnr_enabled") == 0)
+					ai_bnr_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "uvc_enabled") == 0)
 					uvc_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "desired_sub_enabled") == 0)
@@ -520,6 +524,15 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	}
 	if (active_tpu_features > 1) {
 		snprintf(error, error_size, "TPU AI 功能最多只能启用一项");
+		return -1;
+	}
+	if (ai_bnr_enabled && (person_enabled || face_enabled || motion_enabled ||
+			human_pose_enabled || object_tracking_enabled)) {
+		snprintf(error, error_size, "AI_BNR_FEATURE_CONFLICT");
+		return -1;
+	}
+	if (ai_bnr_enabled && !config_ai_bnr_supported()) {
+		snprintf(error, error_size, "AI_BNR_UNSUPPORTED");
 		return -1;
 	}
 	if (person_enabled != person_vpss_enabled ||

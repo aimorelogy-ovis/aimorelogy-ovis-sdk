@@ -14,6 +14,8 @@
 #include <unistd.h>
 
 struct config_values {
+	int ai_bnr_enabled;
+	int ai_bnr_present;
 	int rtsp_enabled;
 	int uvc_enabled;
 	int main_fps;
@@ -207,7 +209,9 @@ static int load_values(const char *path, struct config_values *values)
 	int motion_threshold;
 
 	memset(values, 0, sizeof(*values));
-	if (read_int(path, "output_config", "rtsp_enable", &values->rtsp_enabled) != 0 ||
+	if (read_int(path, "vi_cfg_isp0", "teaisp_bnr_enable",
+			&values->ai_bnr_enabled) != 0 ||
+	    read_int(path, "output_config", "rtsp_enable", &values->rtsp_enabled) != 0 ||
 	    read_int(path, "output_config", "uvc_enable", &values->uvc_enabled) != 0 ||
 	    read_int(path, "vencchn0", "dst_framerate", &values->main_fps) != 0 ||
 	    read_int(path, "vencchn0", "bit_rate", &values->main_bitrate) != 0 ||
@@ -263,7 +267,23 @@ static int load_values(const char *path, struct config_values *values)
 			values->object_model_path[length - 2] = '\0';
 	}
 	values->motion_sensitivity = threshold_to_sensitivity(motion_threshold);
+	values->ai_bnr_present = 1;
 	return 0;
+}
+
+int config_ai_bnr_supported(void)
+{
+#if defined(OVIS_AI_BNR_SUPPORT) && defined(OVIS_AI_BNR_CERTIFIED)
+	int default_enabled;
+
+	return read_int(OVIS_DEFAULT_CONFIG, "vi_cfg_isp0", "teaisp_bnr_enable",
+			&default_enabled) == 0 &&
+		(default_enabled == 0 || default_enabled == 1) &&
+		access(OVIS_AI_BNR_MODEL, R_OK) == 0 &&
+		access(OVIS_AI_BNR_PQ_BIN, R_OK) == 0;
+#else
+	return 0;
+#endif
 }
 
 int config_get_output_flags(int *rtsp_enabled, int *uvc_enabled)
@@ -365,6 +385,8 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON *main_stream;
 	cJSON *sub_stream;
 	cJSON *overlay;
+	cJSON *ai_isp;
+	cJSON *bnr;
 	cJSON *detection;
 	cJSON *object;
 	cJSON *face;
@@ -381,13 +403,15 @@ static cJSON *values_to_json(const struct config_values *values)
 	main_stream = cJSON_AddObjectToObject(video, "main");
 	sub_stream = cJSON_AddObjectToObject(video, "sub");
 	overlay = cJSON_AddObjectToObject(root, "overlay");
+	ai_isp = cJSON_AddObjectToObject(root, "ai_isp");
+	bnr = cJSON_AddObjectToObject(ai_isp, "bnr");
 	detection = cJSON_AddObjectToObject(root, "detection");
 	object = cJSON_AddObjectToObject(detection, "object");
 	face = cJSON_AddObjectToObject(detection, "face");
 	motion = cJSON_AddObjectToObject(detection, "motion");
 	human_pose = cJSON_AddObjectToObject(detection, "human_pose");
 	object_tracking = cJSON_AddObjectToObject(detection, "object_tracking");
-	if (uvc == NULL || object_tracking == NULL) {
+	if (uvc == NULL || bnr == NULL || object_tracking == NULL) {
 		cJSON_Delete(root);
 		return NULL;
 	}
@@ -401,6 +425,7 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON_AddNumberToObject(sub_stream, "fps", values->sub_fps);
 	cJSON_AddNumberToObject(sub_stream, "bitrate_kbps", values->sub_bitrate);
 	cJSON_AddBoolToObject(overlay, "enabled", values->osd_enabled);
+	cJSON_AddBoolToObject(bnr, "enabled", values->ai_bnr_enabled);
 	cJSON_AddBoolToObject(object, "enabled", values->object_enabled);
 	cJSON_AddNumberToObject(object, "threshold", values->object_threshold);
 	add_processing_size(object, "processing_size", values->object_width,
@@ -435,7 +460,7 @@ static cJSON *values_to_json(const struct config_values *values)
 int config_capabilities_json(char *json, size_t size)
 {
 	static const char capabilities[] =
-		"{\"schema_version\":4,\"outputs\":{"
+		"{\"schema_version\":5,\"outputs\":{"
 		"\"rtsp\":{\"supported\":true,\"default_enabled\":false},"
 		"\"uvc\":{\"supported\":true,\"default_enabled\":true,"
 		"\"profile\":{\"codec\":\"mjpeg\",\"width\":1920,\"height\":1080,\"fps\":30}}},"
@@ -469,11 +494,38 @@ int config_capabilities_json(char *json, size_t size)
 		"\"detection_processing_size\":{\"fixed\":true,\"width\":640,\"height\":384},"
 		"\"tracking_processing_size\":{\"fixed\":true,\"width\":1920,\"height\":1080}}],"
 		"\"motion_detection\":true}}";
+	cJSON *root = cJSON_Parse(capabilities);
+	cJSON *ai_isp;
+	cJSON *bnr;
+	cJSON *exclusive;
+	static const char *features[] = {
+		"object", "face", "motion", "human_pose", "object_tracking"
+	};
+	size_t index;
 
-	if (strlen(capabilities) + 1 > size)
+	if (root == NULL)
 		return -1;
-	snprintf(json, size, "%s", capabilities);
-	return 0;
+	ai_isp = cJSON_AddObjectToObject(root, "ai_isp");
+	if (ai_isp == NULL) {
+		cJSON_Delete(root);
+		return -1;
+	}
+	bnr = cJSON_AddObjectToObject(ai_isp, "bnr");
+	if (bnr == NULL) {
+		cJSON_Delete(root);
+		return -1;
+	}
+	exclusive = cJSON_AddArrayToObject(bnr, "exclusive_with");
+	if (exclusive == NULL) {
+		cJSON_Delete(root);
+		return -1;
+	}
+	cJSON_AddBoolToObject(bnr, "supported", config_ai_bnr_supported());
+	cJSON_AddStringToObject(bnr, "apply_mode", "ipcamera_restart");
+	cJSON_AddNumberToObject(bnr, "required_main_fps", 30);
+	for (index = 0; index < sizeof(features) / sizeof(features[0]); index++)
+		cJSON_AddItemToArray(exclusive, cJSON_CreateString(features[index]));
+	return json_print(root, json, size);
 }
 
 int config_read_json(char *json, size_t size)
@@ -563,6 +615,8 @@ static int parse_payload(const char *body, struct config_values *values,
 	cJSON *main_stream;
 	cJSON *sub_stream;
 	cJSON *overlay;
+	cJSON *ai_isp;
+	cJSON *bnr;
 	cJSON *detection;
 	cJSON *object;
 	cJSON *face;
@@ -586,6 +640,17 @@ static int parse_payload(const char *body, struct config_values *values,
 	main_stream = object_item(video, "main");
 	sub_stream = object_item(video, "sub");
 	overlay = object_item(values_json, "overlay");
+	ai_isp = values_json == NULL ? NULL :
+		cJSON_GetObjectItemCaseSensitive(values_json, "ai_isp");
+	bnr = NULL;
+	if (ai_isp != NULL) {
+		if (!cJSON_IsObject(ai_isp))
+			goto done;
+		bnr = object_item(ai_isp, "bnr");
+		if (bool_item(bnr, "enabled", &values->ai_bnr_enabled) != 0)
+			goto done;
+		values->ai_bnr_present = 1;
+	}
 	detection = object_item(values_json, "detection");
 	object = object_item(detection, "object");
 	face = object_item(detection, "face");
@@ -685,7 +750,14 @@ static cJSON *validate_values(const struct config_values *values)
 	cJSON *errors = cJSON_CreateArray();
 	int active_tpu_features = values->object_enabled + values->face_enabled +
 		values->human_pose_enabled + values->object_tracking_enabled;
+	int active_business_ai = active_tpu_features + values->motion_enabled;
 
+	if (values->ai_bnr_enabled && !config_ai_bnr_supported())
+		add_issue(errors, "ai_isp.bnr.enabled", "AI_BNR_UNSUPPORTED",
+			"当前固件的 AI BNR 模型或 PQ 资源尚未通过认证");
+	if (values->ai_bnr_enabled && active_business_ai > 0)
+		add_issue(errors, "ai_isp.bnr.enabled", "AI_BNR_FEATURE_CONFLICT",
+			"AI BNR 不能与目标、人脸、移动、人体姿态或目标跟踪同时启用");
 	if (values->rtsp_enabled == values->uvc_enabled)
 		add_issue(errors, "outputs", "OUTPUT_MODE_CONFLICT",
 			"UVC 和 RTSP 必须且只能启用一项");
@@ -762,6 +834,8 @@ int config_validate_json(const char *body, char *json, size_t size,
 		snprintf(error, error_size, "配置已被其他操作修改，请重新读取");
 		return -2;
 	}
+	if (!values.ai_bnr_present)
+		values.ai_bnr_enabled = active_values.ai_bnr_enabled;
 	root = cJSON_CreateObject();
 	errors = validate_values(&values);
 	warnings = cJSON_CreateArray();
@@ -1331,6 +1405,8 @@ static int migrate_runtime_config(const char *path)
 	if (ensure_ini_key(path, "ai_pd_config", "model_path_cfg",
 			"\"/usr/share/ipcamera/model_factory.json\"") != 0)
 		return -1;
+	if (ensure_ini_key(path, "vi_cfg_isp0", "teaisp_bnr_enable", "0") != 0)
+		return -1;
 	if (read_ini_value(path, "ai_pd_config", "model_path", value,
 			sizeof(value)) == 0 && strstr(value, OVIS_MODEL_STORE_DIR "/") != NULL)
 		snprintf(updates[1].value, sizeof(updates[1].value), "%s", value);
@@ -1613,6 +1689,7 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "vpssgrp2", "dst_framerate", "", 0 },
 		{ "vencchn3", "src_dev_id", "0", 0 },
 		{ "vencchn3", "vpss_grp", "0", 0 },
+		{ "vi_cfg_isp0", "teaisp_bnr_enable", "", 0 },
 	};
 	char validation_error[256];
 	int runtime_sub_enabled;
@@ -1668,6 +1745,8 @@ static int stage_values(const struct config_values *values, char revision[17],
 		sizeof(updates[STAGE_UVC_SOURCE_FPS_UPDATE_INDEX].value), "%d",
 		values->main_fps == 60 ? 60 : 30);
 	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vi_cfg_isp0", "teaisp_bnr_enable", values->ai_bnr_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"output_config", "rtsp_enable", values->rtsp_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"output_config", "uvc_enable", values->uvc_enabled) != 0 ||
@@ -1791,6 +1870,7 @@ int config_stage_json(const char *body, char *json, size_t size,
 	char *error, size_t error_size)
 {
 	struct config_values values;
+	struct config_values active_values;
 	char requested_revision[33];
 	char active_revision[17];
 	char staged_revision[17];
@@ -1800,6 +1880,12 @@ int config_stage_json(const char *body, char *json, size_t size,
 	error[0] = '\0';
 	if (parse_payload(body, &values, requested_revision, error, error_size) != 0)
 		return -1;
+	if (load_values(OVIS_CONFIG_FILE, &active_values) != 0) {
+		snprintf(error, error_size, "无法读取当前配置");
+		return -3;
+	}
+	if (!values.ai_bnr_present)
+		values.ai_bnr_enabled = active_values.ai_bnr_enabled;
 	issues = validate_values(&values);
 	if (issues == NULL) {
 		snprintf(error, error_size, "内存不足");

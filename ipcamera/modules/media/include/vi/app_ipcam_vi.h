@@ -106,8 +106,13 @@ typedef struct APP_PARAM_SNAP_INFO_S {
     VI_VPSS_MODE_E enSnapPipeMode;
 } APP_PARAM_SNAP_INFO_T;
 
+typedef struct APP_PARAM_TEAISP_BNR_CFG_T {
+    CVI_BOOL bEnable;
+} APP_PARAM_TEAISP_BNR_CFG_S;
+
 typedef struct APP_PARAM_ISP_CFG_T {
     CVI_BOOL bAfFliter;
+    APP_PARAM_TEAISP_BNR_CFG_S stTeaispBnrCfg;
 } APP_PARAM_ISP_CFG_S;
 
 typedef struct APP_PARAM_VI_CFG_T {
