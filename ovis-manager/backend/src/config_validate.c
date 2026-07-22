@@ -81,7 +81,7 @@ static const struct config_field required_fields[] = {
 	{ "object_tracking_enabled", "ai_object_track_config", "object_track_enable", VALUE_INTEGER, 0, 1 },
 	{ "object_tracking_search_type", "ai_object_track_config", "search_type", VALUE_INTEGER, 0, 3 },
 	{ "object_tracking_use_kalman", "ai_object_track_config", "use_kalman", VALUE_INTEGER, 0, 1 },
-	{ "object_tracking_score_threshold", "ai_object_track_config", "tracking_score_threshold", VALUE_DECIMAL, 0, 1 },
+	{ "object_tracking_score_threshold", "ai_object_track_config", "sot_min_observed_score", VALUE_DECIMAL, 0, 1 },
 	{ "object_tracking_det_width", "ai_object_track_config", "grp_width", VALUE_INTEGER, 640, 640 },
 	{ "object_tracking_det_height", "ai_object_track_config", "grp_height", VALUE_INTEGER, 384, 384 },
 	{ "object_tracking_sot_group", "ai_object_track_config", "sot_vpss_grp", VALUE_INTEGER, 0, 0 },

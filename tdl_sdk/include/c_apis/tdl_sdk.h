@@ -546,6 +546,15 @@ int32_t TDL_SetSingleObjectTrackingThreshold(TDLHandle handle,
                                              float threshold);
 
 /**
+ * @brief 为单目标跟踪设置全局运动搜索先验
+ *
+ * 该提示只调整搜索窗口，不直接修改跟踪框、模板或滤波状态；获得可靠
+ * 观测后自动清除。
+ */
+int32_t TDL_SetSingleObjectTrackingSearchMotionHint(
+    TDLHandle handle, float dx, float dy, float confidence);
+
+/**
  * @brief 提前准备单目标跟踪使用的目标搜索模型
  *
  * 应在获取实时 VPSS 帧之前调用，避免首次目标选择时同步加载模型并长期占帧。

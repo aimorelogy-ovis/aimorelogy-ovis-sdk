@@ -246,7 +246,7 @@ static int load_values(const char *path, struct config_values *values)
 		&values->object_tracking_search_type) != 0 ||
 	    read_int(path, "ai_object_track_config", "use_kalman",
 		&values->object_tracking_use_kalman) != 0 ||
-	    read_double(path, "ai_object_track_config", "tracking_score_threshold",
+	    read_double(path, "ai_object_track_config", "sot_min_observed_score",
 		&values->object_tracking_score_threshold) != 0 ||
 	    read_int(path, "ai_object_track_config", "grp_width",
 		&values->object_tracking_det_width) != 0 ||
@@ -1240,7 +1240,10 @@ static int append_missing_runtime_sections(const char *path)
 			"threshold_reappear = 2.0\n"
 			"search_type       = 3\n"
 			"use_kalman        = 1\n"
-			"tracking_score_threshold = 0.5\n"
+			"sot_gmc_enable    = 1\n"
+			"sot_gmc_interval  = 2\n"
+			"sot_min_observed_score = 0.12\n"
+			"tracking_score_threshold = 0.12\n"
 			"debug_log_enable  = 0\n", file);
 	}
 	if (need_sot_pool) {
@@ -1542,6 +1545,10 @@ static int migrate_runtime_config(const char *path)
 		return -1;
 	if (ensure_ini_key(path, "ai_object_track_config", "config_version", "1") != 0)
 		return -1;
+	if (ensure_ini_key(path, "ai_object_track_config", "sot_gmc_enable", "1") != 0 ||
+	    ensure_ini_key(path, "ai_object_track_config", "sot_gmc_interval", "2") != 0 ||
+	    ensure_ini_key(path, "ai_object_track_config", "sot_min_observed_score", "0.12") != 0)
+		return -1;
 	if (read_int(path, "ai_pd_config", "pd_enable", &enabled[0]) != 0 ||
 	    read_int(path, "ai_fd_config", "fd_enable", &enabled[1]) != 0 ||
 	    read_int(path, "ai_md_config", "md_enable", &motion_enabled) != 0 ||
@@ -1766,7 +1773,7 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "ai_object_track_config", "object_track_enable", "", 0 },
 		{ "ai_object_track_config", "search_type", "", 0 },
 		{ "ai_object_track_config", "use_kalman", "", 0 },
-		{ "ai_object_track_config", "tracking_score_threshold", "", 0 },
+		{ "ai_object_track_config", "sot_min_observed_score", "", 0 },
 		{ "sensor_config0", "sns_type", "", 0 },
 		{ "vencchn0", "src_framerate", "", 0 },
 		{ "vpssgrp2", "grp_enable", "", 0 },

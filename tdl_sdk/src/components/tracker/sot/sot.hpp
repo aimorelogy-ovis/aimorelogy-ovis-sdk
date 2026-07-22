@@ -50,6 +50,7 @@ class SOT : public Tracker {
 
   void setUseKalmanFilter(bool use) override { use_kalman_filter_ = use; }
   int32_t setScoreThreshold(float threshold) override;
+  int32_t setSearchMotionHint(float dx, float dy, float confidence) override;
   int32_t prepareTargetSearch(int frame_type,
                               const std::string& model_path) override;
 
@@ -68,6 +69,10 @@ class SOT : public Tracker {
                         std::vector<int>& context) const;
 
   void updateScoreLst(float score);
+
+  void recordPerformance(uint64_t context_us, uint64_t model_us,
+                         uint64_t map_us, uint64_t kalman_us,
+                         uint64_t state_us, uint64_t total_us);
 
   // 计算跟踪结果置信度
   void getStatus(const std::vector<float>& bbox,
@@ -93,11 +98,11 @@ class SOT : public Tracker {
   int instance_size_ = 256;           // 实例大小
   int template_size_ = 128;           // 模板大小
   float template_bbox_offset_ = 0.2;  // 模板边界框偏移
-  float search_bbox_offset_ = 3.0;    // 搜索边界框偏移
+  float search_bbox_offset_ = 2.0;    // 正常态搜索边界框偏移
   int kalman_update_count_ = 25;      // 卡尔曼开始更新的帧数
   float size_ratio_threshold_ = 1;    // 宽高比阈值
-  float max_expand_ratio_ = 2.0;      // 目标丢失时最大外扩比例
-  float tracking_score_threshold_ = 0.5;  // 有效跟踪结果最低得分
+  float max_expand_ratio_ = 1.4;      // 目标丢失时最大外扩比例
+  float tracking_score_threshold_ = 0.12f;  // FearTrack最低观测得分
 
   // 判断目标是否丢失相关参数
   float occluded_score_ratio_threshold_ = 0.9;  // 目标丢失时得分比率阈值
@@ -118,6 +123,7 @@ class SOT : public Tracker {
   std::shared_ptr<BaseImage> template_image_;
 
   // 是否已初始化
+  int init_diagnostic_frames_ = 0;
   bool is_initialized_ = false;
   uint64_t frame_id_ = 0;
   std::deque<float> score_lst_;
@@ -127,9 +133,23 @@ class SOT : public Tracker {
   float prev_w_h_ratio_ = 0.0f;
   TrackStatus status_ = TrackStatus::TRACKED;
   std::vector<float> last_reliable_template_bbox_;
+  std::vector<float> size_anchor_bbox_;
+  std::vector<float> search_prior_bbox_;
+  std::vector<float> shadow_bbox_;
+  bool search_prior_valid_ = false;
+  int shadow_good_frames_ = 0;
+  int unstable_frames_ = 0;
   int lost_frames_ = 0;
 
   // 中间结果
   SOTInfo sot_info_;
   bool use_kalman_filter_ = false;
+  uint64_t perf_window_start_us_ = 0;
+  uint64_t perf_frames_ = 0;
+  uint64_t perf_context_us_ = 0;
+  uint64_t perf_model_us_ = 0;
+  uint64_t perf_map_us_ = 0;
+  uint64_t perf_kalman_us_ = 0;
+  uint64_t perf_state_us_ = 0;
+  uint64_t perf_total_us_ = 0;
 };

@@ -75,6 +75,12 @@ class Tracker {
 
   virtual void setUseKalmanFilter(bool use) {}
   virtual int32_t setScoreThreshold(float threshold);
+  virtual int32_t setSearchMotionHint(float dx, float dy, float confidence) {
+    (void)dx;
+    (void)dy;
+    (void)confidence;
+    return -1;
+  }
 
   virtual int32_t prepareTargetSearch(int frame_type,
                                       const std::string& model_path);

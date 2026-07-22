@@ -1,28 +1,113 @@
 #include "feartrack.hpp"
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include "utils/tdl_log.hpp"
+
+namespace {
+uint64_t feartrack_time_us() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+}
+}  // namespace
 
 template <typename T>
 inline void parse_score_data(T* p_score_ptr, int score_size, float qscale,
                              float* max_score, int* max_i, int* max_j) {
-  float best_score = -1;
-  int best_i = -1, best_j = -1;
+  float peak_score = -1.0f;
+  int peak_i = -1;
+  int peak_j = -1;
 
-  // 遍历整个score map (16x16)，使用argmax与Python对齐
   for (int i = 0; i < score_size; i++) {
     for (int j = 0; j < score_size; j++) {
-      float score =
+      const float score =
           static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
-      if (score > best_score) {
-        best_score = score;
-        best_i = i;
-        best_j = j;
+      if (score > peak_score) {
+        peak_score = score;
+        peak_i = i;
+        peak_j = j;
       }
     }
   }
 
-  *max_score = best_score;
-  *max_i = best_i;
-  *max_j = best_j;
+  float second_score = -1.0f;
+  for (int i = 0; i < score_size; i++) {
+    for (int j = 0; j < score_size; j++) {
+      if (std::abs(i - peak_i) <= 1 && std::abs(j - peak_j) <= 1) {
+        continue;
+      }
+      const float score =
+          static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
+      second_score = std::max(second_score, score);
+    }
+  }
+
+  float best_average = -1.0f;
+  int average_i = -1;
+  int average_j = -1;
+  for (int i = 0; i < score_size; i++) {
+    for (int j = 0; j < score_size; j++) {
+      const float center_score =
+          static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
+      if (center_score <= 0.2f) {
+        continue;
+      }
+
+      float sum = 0.0f;
+      int count = 0;
+      for (int dy = -2; dy <= 2; dy++) {
+        const int y = i + dy;
+        if (y < 0 || y >= score_size) {
+          continue;
+        }
+        for (int dx = -2; dx <= 2; dx++) {
+          const int x = j + dx;
+          if (x < 0 || x >= score_size) {
+            continue;
+          }
+          sum += static_cast<float>(p_score_ptr[y * score_size + x]) * qscale;
+          count++;
+        }
+      }
+      const float average = sum / std::max(count, 1);
+      if (average > best_average) {
+        best_average = average;
+        average_i = i;
+        average_j = j;
+      }
+    }
+  }
+
+  const bool confident_peak = peak_score >= 0.35f &&
+                              peak_score - second_score >= 0.08f;
+  if (confident_peak || average_i < 0) {
+    *max_score = peak_score;
+    *max_i = peak_i;
+    *max_j = peak_j;
+    return;
+  }
+
+  float local_peak_score = -1.0f;
+  int local_peak_i = peak_i;
+  int local_peak_j = peak_j;
+  for (int i = std::max(0, average_i - 2);
+       i <= std::min(score_size - 1, average_i + 2); i++) {
+    for (int j = std::max(0, average_j - 2);
+         j <= std::min(score_size - 1, average_j + 2); j++) {
+      const float score =
+          static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
+      if (score > local_peak_score) {
+        local_peak_score = score;
+        local_peak_i = i;
+        local_peak_j = j;
+      }
+    }
+  }
+  *max_score = local_peak_score;
+  *max_i = local_peak_i;
+  *max_j = local_peak_j;
 }
 
 template <typename T>
@@ -64,7 +149,68 @@ FearTrack::FearTrack() {
 
 FearTrack::~FearTrack() {}
 
-void FearTrack::invalidateInputCache() { template_input_cached_ = false; }
+void FearTrack::invalidateInputCache() {
+  template_input_cached_ = false;
+  perf_window_start_us_ = 0;
+  perf_frames_ = 0;
+  perf_template_cache_hits_ = 0;
+  perf_template_us_ = 0;
+  perf_search_us_ = 0;
+  perf_input_sync_us_ = 0;
+  perf_forward_us_ = 0;
+  perf_output_sync_us_ = 0;
+  perf_post_us_ = 0;
+  perf_total_us_ = 0;
+}
+
+void FearTrack::recordPerformance(uint64_t template_us, uint64_t search_us,
+                                  uint64_t input_sync_us, uint64_t forward_us,
+                                  uint64_t output_sync_us, uint64_t post_us,
+                                  uint64_t total_us,
+                                  bool template_cache_hit) {
+  uint64_t now_us = feartrack_time_us();
+
+  if (perf_window_start_us_ == 0) {
+    perf_window_start_us_ = now_us;
+  }
+  perf_frames_++;
+  perf_template_cache_hits_ += template_cache_hit ? 1 : 0;
+  perf_template_us_ += template_us;
+  perf_search_us_ += search_us;
+  perf_input_sync_us_ += input_sync_us;
+  perf_forward_us_ += forward_us;
+  perf_output_sync_us_ += output_sync_us;
+  perf_post_us_ += post_us;
+  perf_total_us_ += total_us;
+  if (now_us - perf_window_start_us_ < 1000ULL * 1000ULL) {
+    return;
+  }
+
+  const double frames = static_cast<double>(perf_frames_);
+  const double seconds =
+      static_cast<double>(now_us - perf_window_start_us_) / 1000000.0;
+  LOGI("FearTrack PERF fps=%.2f template=%.3fms search_pre=%.3fms "
+       "input_sync=%.3fms forward=%.3fms output_sync=%.3fms "
+       "post=%.3fms total=%.3fms template_cache_hit=%.1f%%",
+       frames / seconds, perf_template_us_ / frames / 1000.0,
+       perf_search_us_ / frames / 1000.0,
+       perf_input_sync_us_ / frames / 1000.0,
+       perf_forward_us_ / frames / 1000.0,
+       perf_output_sync_us_ / frames / 1000.0,
+       perf_post_us_ / frames / 1000.0,
+       perf_total_us_ / frames / 1000.0,
+       perf_template_cache_hits_ * 100.0 / frames);
+  perf_window_start_us_ = now_us;
+  perf_frames_ = 0;
+  perf_template_cache_hits_ = 0;
+  perf_template_us_ = 0;
+  perf_search_us_ = 0;
+  perf_input_sync_us_ = 0;
+  perf_forward_us_ = 0;
+  perf_output_sync_us_ = 0;
+  perf_post_us_ = 0;
+  perf_total_us_ = 0;
+}
 
 int32_t FearTrack::onModelOpened() {
   // 获取输入输出层信息
@@ -94,6 +240,16 @@ int32_t FearTrack::inference(
     return -1;
   }
 
+  const uint64_t total_start_us = feartrack_time_us();
+  uint64_t stage_start_us;
+  uint64_t template_us = 0;
+  uint64_t search_us = 0;
+  uint64_t input_sync_us = 0;
+  uint64_t forward_us = 0;
+  uint64_t output_sync_us = 0;
+  uint64_t post_us = 0;
+  const bool template_cache_hit = template_input_cached_;
+
   const std::vector<std::string>& input_names = net_->getInputNames();
   if (input_names.size() != 2) {
     LOGE("FearTrack input count mismatch: %zu", input_names.size());
@@ -110,6 +266,7 @@ int32_t FearTrack::inference(
   }
 
   model_timer_.TicToc("runstart");
+  stage_start_us = feartrack_time_us();
   if (!template_input_cached_) {
     int32_t ret = preprocessor_->preprocessToTensor(
         images[0][0], preprocess_params_[input_names[0]], 0,
@@ -120,6 +277,7 @@ int32_t FearTrack::inference(
     }
     template_input_cached_ = true;
   }
+  template_us = feartrack_time_us() - stage_start_us;
 
   PreprocessParams search_params = preprocess_params_[input_names[1]];
   const auto crop_x = parameters.find("search_crop_x");
@@ -135,39 +293,53 @@ int32_t FearTrack::inference(
     search_params.keep_aspect_ratio = false;
   }
 
+  stage_start_us = feartrack_time_us();
   int32_t ret = preprocessor_->preprocessToTensor(
       images[0][1], search_params, 0, search_tensor);
   if (ret != 0) {
     LOGE("FearTrack search preprocess failed with %#x", ret);
     return ret;
   }
+  search_us = feartrack_time_us() - stage_start_us;
   model_timer_.TicToc("preprocess");
 
+  stage_start_us = feartrack_time_us();
   ret = net_->updateInputTensors();
   if (ret != 0) {
     LOGE("FearTrack update input tensors failed with %#x", ret);
     return ret;
   }
+  input_sync_us = feartrack_time_us() - stage_start_us;
+  stage_start_us = feartrack_time_us();
   ret = net_->forward();
   if (ret != 0) {
     LOGE("FearTrack inference failed with %#x", ret);
     return ret;
   }
+  forward_us = feartrack_time_us() - stage_start_us;
   model_timer_.TicToc("tpu");
 
+  stage_start_us = feartrack_time_us();
   ret = net_->updateOutputTensors();
   if (ret != 0) {
     LOGE("FearTrack update output tensors failed with %#x", ret);
     return ret;
   }
+  output_sync_us = feartrack_time_us() - stage_start_us;
   std::vector<std::shared_ptr<ModelOutputInfo>> results;
+  stage_start_us = feartrack_time_us();
   ret = outputParse(images, results);
   if (ret != 0) {
     LOGE("FearTrack output parse failed with %#x", ret);
     return ret;
   }
+  post_us = feartrack_time_us() - stage_start_us;
   model_timer_.TicToc("post");
   out_datas.insert(out_datas.end(), results.begin(), results.end());
+  recordPerformance(template_us, search_us, input_sync_us, forward_us,
+                    output_sync_us, post_us,
+                    feartrack_time_us() - total_start_us,
+                    template_cache_hit);
   return 0;
 }
 

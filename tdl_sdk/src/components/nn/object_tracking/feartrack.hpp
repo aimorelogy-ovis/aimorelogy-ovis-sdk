@@ -25,6 +25,10 @@ class FearTrack final : public BaseModel {
  private:
   // 生成网格坐标
   void makeGrid();
+  void recordPerformance(uint64_t template_us, uint64_t search_us,
+                         uint64_t input_sync_us, uint64_t forward_us,
+                         uint64_t output_sync_us, uint64_t post_us,
+                         uint64_t total_us, bool template_cache_hit);
 
   // // 模型参数
   int instance_size_ = 256;           // 实例大小
@@ -38,4 +42,14 @@ class FearTrack final : public BaseModel {
   std::vector<std::vector<int>> grid_x_;
   std::vector<std::vector<int>> grid_y_;
   bool template_input_cached_ = false;
+  uint64_t perf_window_start_us_ = 0;
+  uint64_t perf_frames_ = 0;
+  uint64_t perf_template_cache_hits_ = 0;
+  uint64_t perf_template_us_ = 0;
+  uint64_t perf_search_us_ = 0;
+  uint64_t perf_input_sync_us_ = 0;
+  uint64_t perf_forward_us_ = 0;
+  uint64_t perf_output_sync_us_ = 0;
+  uint64_t perf_post_us_ = 0;
+  uint64_t perf_total_us_ = 0;
 };

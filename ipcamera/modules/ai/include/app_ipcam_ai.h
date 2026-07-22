@@ -169,7 +169,9 @@ typedef struct APP_PARAM_AI_OBJECT_TRACK_CFG_T
     float threshold_reappear;
     TDLTargetSearchTypeE search_type;
     CVI_BOOL use_kalman;
-    float tracking_score_threshold;
+    CVI_BOOL sot_gmc_enable;
+    CVI_U32 sot_gmc_interval;
+    float sot_min_observed_score;
     CVI_BOOL debug_log_enable;
 } APP_PARAM_AI_OBJECT_TRACK_CFG_S;
 

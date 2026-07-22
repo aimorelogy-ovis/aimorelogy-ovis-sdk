@@ -1685,6 +1685,17 @@ int32_t TDL_SetSingleObjectTrackingThreshold(TDLHandle handle,
   return context->single_object_tracker->setScoreThreshold(threshold);
 }
 
+int32_t TDL_SetSingleObjectTrackingSearchMotionHint(
+    TDLHandle handle, float dx, float dy, float confidence) {
+  TDLContext *context = (TDLContext *)handle;
+  if (context == nullptr ||
+      ensure_single_object_tracker(handle, context) != 0) {
+    return -1;
+  }
+  return context->single_object_tracker->setSearchMotionHint(
+      dx, dy, confidence);
+}
+
 int32_t TDL_PrepareSingleObjectTrackingTargetSearch(
     TDLHandle handle, TDLTargetSearchTypeE frame_type,
     const char *model_path) {

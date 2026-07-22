@@ -12,6 +12,7 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
     APP_PARAM_AI_OBJECT_TRACK_CFG_S *Ai = app_ipcam_Ai_Object_Track_Param_Get();
     int enum_num = 0;
     int ret = 0;
+    float legacy_tracking_score_threshold = 0.12f;
     char tmp_section[32] = {0};
     char tmp_buff[128] = {0};
     char str_name[PARAM_STRING_NAME_LEN] = {0};
@@ -35,7 +36,25 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
     Ai->threshold_reappear      = ini_getf(tmp_section, "threshold_reappear", 2.0, file);
     Ai->search_type             = ini_getl(tmp_section, "search_type", 3, file);
     Ai->use_kalman              = ini_getl(tmp_section, "use_kalman", 1, file);
-    Ai->tracking_score_threshold = ini_getf(tmp_section, "tracking_score_threshold", 0.5, file);
+    Ai->sot_gmc_enable          = ini_getl(tmp_section, "sot_gmc_enable", 0, file);
+    Ai->sot_gmc_interval        = ini_getl(tmp_section, "sot_gmc_interval", 2, file);
+    if (Ai->sot_gmc_interval < 1 || Ai->sot_gmc_interval > 8) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN,
+            "[%s][sot_gmc_interval] invalid value %u, fallback to 2\n",
+            tmp_section, Ai->sot_gmc_interval);
+        Ai->sot_gmc_interval = 2;
+    }
+    legacy_tracking_score_threshold = ini_getf(
+        tmp_section, "tracking_score_threshold", 0.12, file);
+    Ai->sot_min_observed_score = ini_getf(
+        tmp_section, "sot_min_observed_score",
+        legacy_tracking_score_threshold, file);
+    if (Ai->sot_min_observed_score < 0.0f || Ai->sot_min_observed_score > 1.0f) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN,
+            "[%s][sot_min_observed_score] invalid value %.3f, fallback to 0.12\n",
+            tmp_section, Ai->sot_min_observed_score);
+        Ai->sot_min_observed_score = 0.12f;
+    }
     Ai->debug_log_enable        = ini_getl(tmp_section, "debug_log_enable", 0, file);
 
     ini_gets(tmp_section, "model_id_sot", " ", str_name, PARAM_STRING_NAME_LEN, file);
