@@ -16,6 +16,8 @@ class FastSAMSegmentor {
   FastSAMSegmentor() = default;
   explicit FastSAMSegmentor(const std::string& model_path);
 
+  bool isReady() const { return model_od_ != nullptr; }
+
   int segment(std::shared_ptr<BaseImage> image, cv::Point seed_point,
               cvtdl_fastsam_result_t* result,
               const cv::Rect* hint_bbox = nullptr);

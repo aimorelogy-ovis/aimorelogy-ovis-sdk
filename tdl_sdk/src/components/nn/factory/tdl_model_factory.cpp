@@ -379,7 +379,7 @@ std::shared_ptr<BaseModel> TDLModelFactory::getModelImpl(
          static_cast<int>(model_type));
     return nullptr;
   }
-  if (mem_addrs.size() != mem_addrs.size()) {
+  if (mem_addrs.size() != mem_sizes.size()) {
     LOGE("mem_addrs size is not equal to mem_sizes size");
     return nullptr;
   }

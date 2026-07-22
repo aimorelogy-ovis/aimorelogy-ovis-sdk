@@ -30,7 +30,6 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
     Ai->SotVpssChn              = ini_getl(tmp_section, "sot_vpss_chn", Ai->VpssChn, file);
     Ai->u32SotGrpWidth          = ini_getl(tmp_section, "sot_grp_width", Ai->u32GrpWidth, file);
     Ai->u32SotGrpHeight         = ini_getl(tmp_section, "sot_grp_height", Ai->u32GrpHeight, file);
-    Ai->bDetInputPreprocessed   = ini_getl(tmp_section, "det_input_preprocessed", 0, file);
     Ai->bSotRefineSelectedDet   = ini_getl(tmp_section, "sot_refine_selected_det", 0, file);
     Ai->threshold_occluded      = ini_getf(tmp_section, "threshold_occluded", 0.1, file);
     Ai->threshold_reappear      = ini_getf(tmp_section, "threshold_reappear", 2.0, file);
@@ -38,15 +37,6 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
     Ai->use_kalman              = ini_getl(tmp_section, "use_kalman", 1, file);
     Ai->tracking_score_threshold = ini_getf(tmp_section, "tracking_score_threshold", 0.5, file);
     Ai->debug_log_enable        = ini_getl(tmp_section, "debug_log_enable", 0, file);
-
-    ini_gets(tmp_section, "model_id_det", " ", str_name, PARAM_STRING_NAME_LEN, file);
-    ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
-    if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_det] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
-    } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_det] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
-        Ai->model_id_det = enum_num;
-    }
 
     ini_gets(tmp_section, "model_id_sot", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
@@ -56,9 +46,6 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
         APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_sot] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Ai->model_id_sot = enum_num;
     }
-
-    ini_gets(tmp_section, "model_path_det", " ", tmp_buff, 128, file);
-    app_ipcam_Param_CopyString(Ai->model_path_det, sizeof(Ai->model_path_det), tmp_buff);
 
     ini_gets(tmp_section, "model_path_sot", " ", tmp_buff, 128, file);
     app_ipcam_Param_CopyString(Ai->model_path_sot, sizeof(Ai->model_path_sot), tmp_buff);

@@ -159,8 +159,9 @@ static char *make_payload(cJSON *document, int fps, int bitrate, int sensitivity
 	cJSON *sub_stream = cJSON_GetObjectItemCaseSensitive(video, "sub");
 	cJSON *detection = cJSON_GetObjectItemCaseSensitive(values, "detection");
 	cJSON *motion = cJSON_GetObjectItemCaseSensitive(detection, "motion");
+	cJSON *tracking = cJSON_GetObjectItemCaseSensitive(values, "tracking");
 	cJSON *object_tracking = cJSON_GetObjectItemCaseSensitive(
-		detection, "object_tracking");
+		tracking, "single_object");
 	char *json;
 
 	cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(main_stream, "fps"), fps);
@@ -180,6 +181,24 @@ static char *make_payload(cJSON *document, int fps, int bitrate, int sensitivity
 		cJSON_CreateBool(object_tracking_enabled));
 	cJSON_AddItemToObject(payload, "revision", cJSON_Duplicate(revision, 1));
 	cJSON_AddItemToObject(payload, "values", values);
+	json = cJSON_PrintUnformatted(payload);
+	cJSON_Delete(payload);
+	return json;
+}
+
+static char *make_frontend_payload(cJSON *document, int fps,
+	int object_tracking_enabled)
+{
+	char *json = make_payload(document, fps, 10000, 50, 0, 0, 1, 0,
+		object_tracking_enabled);
+	cJSON *payload = cJSON_Parse(json);
+	cJSON *values = cJSON_GetObjectItemCaseSensitive(payload, "values");
+	cJSON *detection = cJSON_GetObjectItemCaseSensitive(values, "detection");
+	cJSON *object = cJSON_GetObjectItemCaseSensitive(detection, "object");
+
+	free(json);
+	cJSON_ReplaceItemInObjectCaseSensitive(object, "model",
+		cJSON_CreateString("builtin.person_detection"));
 	json = cJSON_PrintUnformatted(payload);
 	cJSON_Delete(payload);
 	return json;
@@ -288,6 +307,8 @@ int main(void)
 	    strstr(capabilities, "\"schema_version\":5") == NULL ||
 	    strstr(capabilities, "\"ai_isp\"") == NULL ||
 	    strstr(capabilities, "\"required_main_fps\":30") == NULL ||
+	    strstr(capabilities, "\"exclusive_with\":[\"object\",\"face\",\"motion\","
+		    "\"human_pose\",\"single_object_tracking\"]") == NULL ||
 	    strstr(capabilities, "\"supported\":false") == NULL)
 		fail("AI BNR capability contract is invalid");
 	if (!active_config_value_equals("ai_object_track_config", "sot_vpss_grp", "0") ||
@@ -355,6 +376,13 @@ int main(void)
 	    !active_config_value_equals("output_config", "rtsp_enable", "0") ||
 	    !active_config_value_equals("output_config", "uvc_enable", "1"))
 		fail("ObjectTrack VPSS topology migration failed");
+	document = read_document(revision_before, sizeof(revision_before));
+	payload = make_frontend_payload(document, 60, 1);
+	if (config_validate_json(payload, validation, sizeof(validation), error,
+			sizeof(error)) != 0)
+		fail("frontend string model payload was rejected");
+	free(payload);
+	cJSON_Delete(document);
 
 	stage_and_apply(30, 9000, 80, 0, 1, 0, 1, 0, 0, 1, 0);
 	if (!active_config_value_equals("vpssgrp2", "grp_enable", "0") ||

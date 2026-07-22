@@ -146,13 +146,16 @@ PUT  /api/v1/config
 POST /api/v1/config/apply
 POST /api/v1/config/reset
 GET  /api/v1/tasks/{task_id}
+GET  /api/v1/tracking/status
+POST /api/v1/tracking/target
+DELETE /api/v1/tracking/target
 ```
 
-配置白名单包括互斥的 RTSP/UVC 输出模式、主码流帧率和码率、子码流开关/帧率/码率、OSD、AI BNR、目标检测、人脸检测、人体姿态、目标检测与跟踪和移动检测。UVC 和 RTSP 必须且只能启用一项，默认启用 UVC；旧版双开或双关配置会在迁移时归一化为 UVC。各 AI 功能通过 `processing_size` 设置送入对应 AI 管线的图像帧尺寸；该字段不改变 BModel 编译时固定的 Tensor 尺寸。目标跟踪分别返回固定的 `detection_processing_size` 和 `tracking_processing_size`。主码流分辨率仍使用板端公布的固定 profile。主码流选择 60 fps 时，接口会同步切换 SC235HAI 到 1080p60 sensor 模式；选择 15、25 或 30 fps 时使用 1080p30 sensor 模式，由编码通道按目标帧率输出。CV184X 的离线 VPSS 组只使用物理通道 0：`grp1 ch0` 保留主码流实际帧率供 RTSP 使用，独立的 `grp6 ch0` 供 UVC 使用。UVC 通道在 30 fps sensor 模式配置为 `30 -> 30`，在 60 fps sensor 模式配置为 `60 -> 60`。多条下游链路共享 `grp0 ch0` 的独立公共源池。目标检测、人脸检测和移动检测从该 NV12 帧分别进入独立 VPSS 组；目标检测组使用 `-1 -> -1` 继承上游实际帧率，PD 消费线程在每次推理前丢弃积压帧并只处理最新帧。只有人体姿态或目标跟踪启用时才创建 `grp0 ch2` 的 RGB 通道和 pool1。目标跟踪动态复用 `grp0 ch2`：检测态输出 640x384 C3 并使用 pool1，跟踪态输出 1920x1080 NV12 并使用独立 pool7；遗留 grp5 始终关闭。各 AI 专用 VB 池按功能开关动态启停，TDL 预处理会从剩余编号中动态申请临时 VPSS 组。
+配置白名单包括互斥的 RTSP/UVC 输出模式、主码流帧率和码率、子码流开关/帧率/码率、OSD、AI BNR、目标检测、人脸检测、人体姿态、单目标跟踪和移动检测。UVC 和 RTSP 必须且只能启用一项，默认启用 UVC；旧版双开或双关配置会在迁移时归一化为 UVC。目标检测和单目标跟踪拥有独立开关，但允许同时启用：DET 持续提供检测结果，选中目标后暂停 DET 并交给 FearTrack，目标丢失后恢复 DET。只启用 TRACK 时可通过 FastSAM、颜色提取或直接框选初始化，不会隐式加载检测模型。各 AI 功能通过 `processing_size` 设置送入对应 AI 管线的图像帧尺寸；该字段不改变 BModel 编译时固定的 Tensor 尺寸。主码流分辨率仍使用板端公布的固定 profile。
 
-能力接口使用 schema version 5，输出开关位于 `values.outputs.rtsp.enabled` 和 `values.outputs.uvc.enabled`；AI BNR 位于 `values.ai_isp.bnr.enabled`，能力由 `ai_isp.bnr.supported`、`apply_mode`、`required_main_fps` 和 `exclusive_with` 描述。目标检测位于 `values.detection.object`，其中 `model` 明确返回 `builtin` 或 `custom` 来源及模型 ID。关闭 RTSP 时同步关闭 RTSP Server、VENC0/1/2、VPSS grp1、子码流通道和 pool6，但保留 `video.sub.enabled` 的用户设置；关闭 UVC 时同步关闭 VENC3、VPSS grp6/chn0 和 pool8，并在重启后从 USB 复合设备中移除 UVC Function。校验响应在 UVC 状态变化时额外返回 `usb_gadget_restart` 和 `management_reconnect`。板端保存 UVC 状态后会延迟重启，不在当前 NCM 管理连接上热拆重建 USB Gadget。
+能力接口使用 schema version 5，输出开关位于 `values.outputs.rtsp.enabled` 和 `values.outputs.uvc.enabled`；AI BNR 位于 `values.ai_isp.bnr.enabled`，能力由 `ai_isp.bnr.supported`、`apply_mode`、`required_main_fps` 和 `exclusive_with` 描述。目标检测位于 `values.detection.object`，单目标跟踪位于 `values.tracking.single_object`。目标检测的内置模型包括人员检测和人员/车辆检测，自定义模型继续通过模型管理接口部署。TRACK 返回固定的 1920x1080 `processing_size`、默认目标来源和无 DET 时使用的后备目标来源。旧版 `values.detection.object_tracking` 请求仍可写入，但读取统一返回新结构。
 
-AI BNR 与目标检测、人脸检测、移动检测、人体姿态和目标跟踪严格互斥。旧客户端请求缺少 `ai_isp` 时，Manager 保留 active INI 中的 BNR 状态后再执行统一校验。能力接口通过 `required_main_fps: 30` 告知 Web 端仅在 SC235HAI 30 fps sensor 模式下开放开关；Manager 本地接口不额外限制 BNR 帧率。固件未同时具备已认证模型元数据、可读 BModel 和 SDR PQ Bin 时，能力接口返回 `supported: false`，默认配置始终保持关闭。旧 CFG 缺少 `teaisp_bnr_enable` 时会自动补为 `0`。
+AI BNR 与目标检测、人脸检测、移动检测、人体姿态和单目标跟踪严格互斥。旧客户端请求缺少 `ai_isp` 时，Manager 保留 active INI 中的 BNR 状态后再执行统一校验。能力接口通过 `required_main_fps: 30` 告知 Web 端仅在 SC235HAI 30 fps sensor 模式下开放开关；Manager 本地接口不额外限制 BNR 帧率。固件未同时具备已认证模型元数据、可读 BModel 和 SDR PQ Bin 时，能力接口返回 `supported: false`，默认配置始终保持关闭。旧 CFG 缺少 `teaisp_bnr_enable` 时会自动补为 `0`。
 
 UVC 使用 high-speed isochronous 传输，并保留动态 30/60 fps 描述符。内核 UVC
 gadget 分配 128 个 ISO request，约覆盖 16 ms 的 high-speed microframe；该深度用于吸收
@@ -162,7 +165,7 @@ gadget 分配 128 个 ISO request，约覆盖 16 ms 的 high-speed microframe；
 DQBUF 时，会输出 QBUF/DQBUF 和帧缓存深度，并最多执行 3 次本地 V4L2 流恢复；恢复
 过程不解绑 USB gadget，也不影响 NCM 和 RTSP。
 
-目标跟踪通过 `/tmp/track` 接收一次性选择命令，命令被消费后文件会自动删除。坐标以预览画布为基准，板端会换算到检测输入尺寸：
+目标跟踪通过 `/api/v1/tracking/target` 接收前端请求，Manager 会原子写入 `/tmp/track`。坐标使用 `0~1` 归一化值；旧的一次性文件命令继续兼容：
 
 ```sh
 # 点击选择：x、y、预览宽、预览高
@@ -178,11 +181,11 @@ printf 'stop\n' > /tmp/track.tmp
 mv /tmp/track.tmp /tmp/track
 ```
 
-`default` 和 `point` 始终按 `search_method` 使用颜色分割或 FastSAM，`box` 使用显式框作为搜索提示；只有 `id <track_id>` 会选择对应的完整检测框。兼容旧命令 `echo 1 > /tmp/track`，其含义是对画面中心点执行搜索。生产调用应像示例一样先写临时文件再原子重命名，避免读取到未写完的命令。
+接口的 `source` 支持 `detection`、`fastsam`、`color` 和 `box`。带来源命令可用 `fastsam point ...`、`color box ...` 或 `direct box ...` 临时覆盖配置中的默认提取方式；`id <track_id>` 保留 DET 到 TRACK 的检测目标交接。兼容旧命令 `echo 1 > /tmp/track`，其含义是对画面中心点执行搜索。
 
 关闭子码流时，Manager 会同时关闭 `vpssgrp0.chn1`、子码流编码通道、依赖该 VPSS 通道的 JPEG 抓图通道以及第二路 OSD；重新开启子码流时会原子恢复这些依赖项。前端只需继续提交 `video.sub.enabled`，不需要增加额外字段。
 
-能力接口同时公布板端实际安装的 AI 工作负载。目标检测、人脸检测、人体姿态和目标跟踪最多启用一项；移动检测不占用 TPU，可独立同时开启。目标跟踪支持 `color` 和 `fastsam` 两种搜索方式。
+能力接口同时公布板端实际安装的 AI 工作负载。目标检测和单目标跟踪是允许的联动组合；该组合不能再与人脸检测或人体姿态同时启用。移动检测不占用 TPU，可独立同时开启。TRACK 支持 DET 结果交接、`color`、`fastsam` 和直接框选四种目标来源。
 
 固件升级时，Manager 会补齐旧运行配置缺少的 AI 参数段，将旧 `/mnt/sd` 模型路径迁移到 `/usr/share/ipcamera/cv184x`，消除旧配置中同时开启多个 TPU 功能的冲突，并同步各 AI 功能对应的 VPSS 处理组开关，不覆盖已有视频参数。
 

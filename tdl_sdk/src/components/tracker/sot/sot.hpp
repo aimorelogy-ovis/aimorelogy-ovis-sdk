@@ -36,6 +36,11 @@ class SOT : public Tracker {
                      const std::vector<ObjectBoxInfo>& detect_boxes, float x,
                      float y, uint64_t frame_id, int frame_type,
                      const std::string& model_path = "") override;
+  int32_t initializePoint(
+      const std::shared_ptr<BaseImage>& image,
+      const std::vector<ObjectBoxInfo>& detect_boxes, float x, float y,
+      const ObjectBoxInfo* hint_bbox, uint64_t frame_id, int frame_type,
+      const std::string& model_path = "") override;
   int32_t initialize(const std::shared_ptr<BaseImage>& image,
                      const std::vector<ObjectBoxInfo>& detect_boxes, int index,
                      uint64_t frame_id,
@@ -44,6 +49,9 @@ class SOT : public Tracker {
                 TrackerInfo& tracker_info) override;
 
   void setUseKalmanFilter(bool use) override { use_kalman_filter_ = use; }
+  int32_t setScoreThreshold(float threshold) override;
+  int32_t prepareTargetSearch(int frame_type,
+                              const std::string& model_path) override;
 
  private:
   // 预处理图像，提取模板和搜索区域
@@ -89,6 +97,7 @@ class SOT : public Tracker {
   int kalman_update_count_ = 25;      // 卡尔曼开始更新的帧数
   float size_ratio_threshold_ = 1;    // 宽高比阈值
   float max_expand_ratio_ = 2.0;      // 目标丢失时最大外扩比例
+  float tracking_score_threshold_ = 0.5;  // 有效跟踪结果最低得分
 
   // 判断目标是否丢失相关参数
   float occluded_score_ratio_threshold_ = 0.9;  // 目标丢失时得分比率阈值
@@ -98,7 +107,7 @@ class SOT : public Tracker {
 
   // 判断目标是否重现相关参数
   float reappear_score_threshold_ = 0.3;      // 目标重现时得分阈值
-  int reappear_score_ratio_threshold_ = 0.3;  // 目标重现时得分比率阈值
+  float reappear_score_ratio_threshold_ = 0.3;  // 目标重现时得分比率阈值
   float reappear_iou_threshold_ = 0.3;        // 目标重现时IoU阈值
   float reappear_threshold_ = 2;              // 重现阈值
 

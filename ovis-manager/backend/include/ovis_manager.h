@@ -141,6 +141,9 @@ int config_apply_staged(const char *revision, char *message, size_t message_size
 	int *rolled_back);
 int config_apply_defaults(char *message, size_t message_size, int *rolled_back);
 int config_validate_file(const char *path, char *error, size_t error_size);
+int tracking_status_json(char *json, size_t size);
+int tracking_target_set(const char *body, char *error, size_t error_size);
+int tracking_target_clear(char *error, size_t error_size);
 int config_stage_detection_model(const char *model_id, const char *model_path,
 	const char *model_config_path, double threshold, int processing_width,
 	int processing_height, int enabled,

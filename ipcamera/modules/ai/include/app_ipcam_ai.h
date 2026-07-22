@@ -160,11 +160,8 @@ typedef struct APP_PARAM_AI_OBJECT_TRACK_CFG_T
     VPSS_CHN SotVpssChn;
     CVI_U32 u32SotGrpWidth;
     CVI_U32 u32SotGrpHeight;
-    CVI_BOOL bDetInputPreprocessed;
     CVI_BOOL bSotRefineSelectedDet;
-    TDLModel model_id_det;
     TDLModel model_id_sot;
-    char model_path_det[MODEL_PATH_LEN];
     char model_path_sot[MODEL_PATH_LEN];
     char model_path_sam[MODEL_PATH_LEN];
     char model_path_cfg[MODEL_PATH_LEN];
@@ -191,7 +188,11 @@ typedef struct APP_PARAM_AI_IMG_TXT_CLIP_CFG_T
     char txt_dir[MODEL_PATH_LEN];
 } APP_PARAM_AI_IMG_TXT_CLIP_S;
 
-typedef enum { DETECTION = 0, TRACKING = 1 } APP_PARAM_OBJECT_TRACK_MODE;
+typedef enum {
+    DETECTION = 0,
+    TRACKING = 1,
+    WAIT_TARGET = 2,
+} APP_PARAM_OBJECT_TRACK_MODE;
 
 typedef struct APP_PARAM_AI_KEYPOINT_HAND_GESTURE_CFG_S {
     CVI_BOOL bEnable;
@@ -226,6 +227,13 @@ typedef struct APP_PARAM_AI_LPR_CFG_T {
 #endif
 
 /* Personnel detection function */
+typedef struct APP_AI_RESULT_FRAME_INFO_T {
+    CVI_U32 sequence;
+    CVI_U32 time_ref;
+    CVI_U64 pts;
+    CVI_U64 publish_time_us;
+} APP_AI_RESULT_FRAME_INFO_S;
+
 APP_PARAM_AI_PD_CFG_S *app_ipcam_Ai_PD_Param_Get(void);
 CVI_VOID app_ipcam_Ai_PD_ProcStatus_Set(CVI_BOOL flag);
 CVI_BOOL app_ipcam_Ai_PD_ProcStatus_Get(void);
@@ -235,6 +243,8 @@ int app_ipcam_Ai_PD_Rect_Draw(VIDEO_FRAME_INFO_S *pstVencFrame);
 int app_ipcam_Ai_PD_Start(void);
 int app_ipcam_Ai_PD_Stop(void);
 int app_ipcam_Ai_PD_ObjDrawInfo_Get(TDLObject *pstAiObj);
+int app_ipcam_Ai_PD_ObjDrawInfo_GetWithFrame(
+    TDLObject *pstAiObj, APP_AI_RESULT_FRAME_INFO_S *pstFrameInfo);
 CVI_U32 app_ipcam_Ai_PD_ProcFps_Get(void);
 CVI_S32 app_ipcam_Ai_PD_ProcTime_Get(void);
 CVI_S32 app_ipcam_Pd_threshold_Set(float threshold);

@@ -16,6 +16,8 @@
  **************************************************************************/
 SMT_MUTEXAUTOLOCK_INIT(g_PDMutex);
 static pthread_mutex_t g_PDStatusMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_PDStatusCond = PTHREAD_COND_INITIALIZER;
+static CVI_BOOL g_bPDFrameActive = CVI_FALSE;
 /**************************************************************************
  *                           C O N S T A N T S                            *
  **************************************************************************/
@@ -30,6 +32,7 @@ typedef struct {
     CVI_U64 drain_us;
     CVI_U64 wrap_us;
     CVI_U64 inference_us;
+    CVI_U64 tracking_us;
     CVI_U64 release_us;
     CVI_U64 publish_us;
     CVI_U64 loop_us;
@@ -69,6 +72,7 @@ static volatile bool g_bPDPause = CVI_FALSE;
 static pthread_t g_PDThreadHandle;
 static TDLHandle g_PDAiHandle = NULL;
 static TDLObject g_stPDObjDraw;
+static APP_AI_RESULT_FRAME_INFO_S g_stPDResultFrame;
 static pfpInferenceFunc g_pfpPDInference;
 
 /**************************************************************************
@@ -98,6 +102,9 @@ CVI_VOID app_ipcam_Ai_PD_Pause_Set(CVI_BOOL flag)
 {
     pthread_mutex_lock(&g_PDStatusMutex);
     g_bPDPause = flag;
+    while (flag && g_bPDFrameActive) {
+        pthread_cond_wait(&g_PDStatusCond, &g_PDStatusMutex);
+    }
     pthread_mutex_unlock(&g_PDStatusMutex);
 }
 
@@ -130,6 +137,14 @@ static CVI_U64 app_ipcam_Ai_PD_TimeUs(CVI_VOID)
         (CVI_U64)time.tv_nsec / 1000ULL;
 }
 
+static CVI_VOID app_ipcam_Ai_PD_FrameActive_Clear(CVI_VOID)
+{
+    pthread_mutex_lock(&g_PDStatusMutex);
+    g_bPDFrameActive = CVI_FALSE;
+    pthread_cond_broadcast(&g_PDStatusCond);
+    pthread_mutex_unlock(&g_PDStatusMutex);
+}
+
 static CVI_VOID app_ipcam_Ai_PD_ProfileLog(
     CVI_U32 frame_count, const APP_PD_PROFILE_S *profile)
 {
@@ -145,13 +160,15 @@ static CVI_VOID app_ipcam_Ai_PD_ProfileLog(
     APP_PROF_LOG_PRINT(LEVEL_INFO,
         "PD PERF frame=%u seq=%u ref=%u pts=%llu drop=%u "
         "wait=%.2f drain=%.2f wrap=%.2f pre=%.2f tpu=%.2f post=%.2f "
-        "tdl=%.2f api=%.2f release=%.2f publish=%.2f loop=%.2f fps=%.2f\n",
+        "tdl=%.2f api=%.2f mot=%.2f release=%.2f publish=%.2f "
+        "loop=%.2f fps=%.2f\n",
         frame_count, profile->sequence, profile->time_ref,
         (unsigned long long)profile->pts, profile->dropped_frames,
         profile->wait_us / 1000.0, profile->drain_us / 1000.0,
         profile->wrap_us / 1000.0, profile->model.preprocess_ms,
         profile->model.tpu_ms, profile->model.postprocess_ms,
         profile->model.total_ms, profile->inference_us / 1000.0,
+        profile->tracking_us / 1000.0,
         profile->release_us / 1000.0, profile->publish_us / 1000.0,
         loop_ms, fps);
 }
@@ -172,6 +189,7 @@ static CVI_S32 app_ipcam_Ai_InferenceFunc_Get(TDLModel model_id)
     switch (model_id)
     {
         case TDL_MODEL_YOLOV8N_DET_MONITOR_PERSON:
+        case TDL_MODEL_YOLOV8N_DET_PERSON_VEHICLE:
         case TDL_MODEL_YOLOV5:
         case TDL_MODEL_YOLOV6:
         case TDL_MODEL_YOLOV7:
@@ -248,6 +266,16 @@ static CVI_S32 app_ipcam_Ai_PD_Proc_Init(CVI_VOID)
         return s32Ret;
     }
 
+    s32Ret = TDL_SetMultiObjectTrackingThreshold(
+        g_PDAiHandle, g_pstPdCfg->threshold);
+    if (s32Ret != CVI_SUCCESS)
+    {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "TDL_SetMultiObjectTrackingThreshold failed with %#x!\n",
+            s32Ret);
+        return s32Ret;
+    }
+
     {
         SMT_MutexAutoLock(g_PDMutex, lock);
         if (g_stPDObjDraw.info == NULL) {
@@ -262,6 +290,7 @@ static CVI_S32 app_ipcam_Ai_PD_Proc_Init(CVI_VOID)
         g_stPDObjDraw.size = 0;
         g_stPDObjDraw.width = 0;
         g_stPDObjDraw.height = 0;
+        memset(&g_stPDResultFrame, 0, sizeof(g_stPDResultFrame));
     }
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "AI PD init ------------------> done \n");
@@ -293,19 +322,20 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
         CVI_U64 u64StageStart;
 
         pthread_mutex_lock(&g_PDStatusMutex);
-        s32Ret = app_ipcam_Ai_PD_Pause_Get();
-        
-        if (s32Ret) {
+        if (g_bPDPause) {
             pthread_mutex_unlock(&g_PDStatusMutex);
-            usleep(1000*1000);
+            usleep(10 * 1000);
             continue;
-        } 
+        }
+        g_bPDFrameActive = CVI_TRUE;
+        pthread_mutex_unlock(&g_PDStatusMutex);
+
         u64StageStart = app_ipcam_Ai_PD_TimeUs();
         s32Ret = CVI_VPSS_GetChnFrame(VpssGrp, VpssChn, &stfdFrame, 3000);
         stProfile.wait_us = app_ipcam_Ai_PD_TimeUs() - u64StageStart;
         if (s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "Grp(%d)-Chn(%d) get frame failed with %#x\n", VpssGrp, VpssChn, s32Ret); 
-            pthread_mutex_unlock(&g_PDStatusMutex);
+            app_ipcam_Ai_PD_FrameActive_Clear();
             usleep(100*1000);
             continue;
         }
@@ -349,8 +379,6 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
         image_handle = TDL_WrapFrame((void*)&stfdFrame, false, false);
         stProfile.wrap_us = app_ipcam_Ai_PD_TimeUs() - u64StageStart;
 
-        pthread_mutex_unlock(&g_PDStatusMutex);  
-
         TDLObject obj_meta;
         memset(&obj_meta, 0, sizeof(TDLObject));
         u64StageStart = app_ipcam_Ai_PD_TimeUs();
@@ -371,6 +399,7 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
                 VpssGrp, VpssChn, s32ReleaseRet);
         }
         TDL_DestroyImage(image_handle);
+        app_ipcam_Ai_PD_FrameActive_Clear();
         stProfile.release_us = app_ipcam_Ai_PD_TimeUs() - u64StageStart;
 
         if (s32Ret != CVI_SUCCESS) {
@@ -401,6 +430,25 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
             continue;
         }
 
+        {
+            TDLTracker stTrackMeta = {0};
+            CVI_S32 s32TrackRet;
+
+            u64StageStart = app_ipcam_Ai_PD_TimeUs();
+            s32TrackRet = TDL_Tracking(
+                g_PDAiHandle, stProfile.sequence, &obj_meta, &stTrackMeta);
+            stProfile.tracking_us =
+                app_ipcam_Ai_PD_TimeUs() - u64StageStart;
+            if (s32TrackRet != CVI_SUCCESS &&
+                (u32FrameCount == 1 ||
+                 (u32FrameCount % APP_PD_DIAG_INTERVAL) == 0)) {
+                APP_PROF_LOG_PRINT(LEVEL_WARN,
+                    "PD MOT failed: frame=%u ret=%#x\n",
+                    u32FrameCount, s32TrackRet);
+            }
+            TDL_ReleaseTrackMeta(&stTrackMeta);
+        }
+
         u64StageStart = app_ipcam_Ai_PD_TimeUs();
         {
             SMT_MutexAutoLock(g_PDMutex, lock);
@@ -412,7 +460,15 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
                     obj_meta.size : APP_PD_MAX_DRAW_OBJECTS;
                 memcpy(g_stPDObjDraw.info, obj_meta.info,
                     g_stPDObjDraw.size * sizeof(TDLObjectInfo));
+                for (CVI_U32 i = 0; i < g_stPDObjDraw.size; i++) {
+                    g_stPDObjDraw.info[i].landmark_size = 0;
+                    g_stPDObjDraw.info[i].landmark_properity = NULL;
+                }
             }
+            g_stPDResultFrame.sequence = stProfile.sequence;
+            g_stPDResultFrame.time_ref = stProfile.time_ref;
+            g_stPDResultFrame.pts = stProfile.pts;
+            g_stPDResultFrame.publish_time_us = app_ipcam_Ai_PD_TimeUs();
         }
         stProfile.publish_us = app_ipcam_Ai_PD_TimeUs() - u64StageStart;
         app_ipcam_Ai_PD_ProfileComplete(
@@ -460,6 +516,7 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
         "PD DIAG stopped: frames=%u detected=%u empty=%u errors=%u stale=%u\n",
         u32FrameCount, u32DetectedFrames, u32EmptyFrames,
         u32InferenceErrors, u32StaleFrames);
+    app_ipcam_Ai_PD_FrameActive_Clear();
 
     pthread_exit(NULL);
 
@@ -467,11 +524,20 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
 }
 
 
-int app_ipcam_Ai_PD_ObjDrawInfo_Get(TDLObject *pstAiObj)
+int app_ipcam_Ai_PD_ObjDrawInfo_GetWithFrame(
+    TDLObject *pstAiObj, APP_AI_RESULT_FRAME_INFO_S *pstFrameInfo)
 {
     static CVI_U32 u32OsdHandoffCount = 0;
 
     _NULL_POINTER_CHECK_(pstAiObj, -1);
+
+    if (app_ipcam_Ai_PD_Pause_Get()) {
+        pstAiObj->size = 0;
+        if (pstFrameInfo != NULL) {
+            memset(pstFrameInfo, 0, sizeof(*pstFrameInfo));
+        }
+        return CVI_SUCCESS;
+    }
 
     if (pstAiObj->info == NULL) {
         pstAiObj->info = malloc(
@@ -486,6 +552,9 @@ int app_ipcam_Ai_PD_ObjDrawInfo_Get(TDLObject *pstAiObj)
     pstAiObj->size = 0;
     pstAiObj->width = g_stPDObjDraw.width;
     pstAiObj->height = g_stPDObjDraw.height;
+    if (pstFrameInfo != NULL) {
+        *pstFrameInfo = g_stPDResultFrame;
+    }
     if (g_stPDObjDraw.size > 0 && g_stPDObjDraw.info != NULL) {
         pstAiObj->size = g_stPDObjDraw.size <= APP_PD_MAX_DRAW_OBJECTS ?
             g_stPDObjDraw.size : APP_PD_MAX_DRAW_OBJECTS;
@@ -503,6 +572,11 @@ int app_ipcam_Ai_PD_ObjDrawInfo_Get(TDLObject *pstAiObj)
         }
     }
     return CVI_SUCCESS;
+}
+
+int app_ipcam_Ai_PD_ObjDrawInfo_Get(TDLObject *pstAiObj)
+{
+    return app_ipcam_Ai_PD_ObjDrawInfo_GetWithFrame(pstAiObj, NULL);
 }
 
 
@@ -539,6 +613,7 @@ int app_ipcam_Ai_PD_Stop(void)
         g_stPDObjDraw.size = 0;
         g_stPDObjDraw.width = 0;
         g_stPDObjDraw.height = 0;
+        memset(&g_stPDResultFrame, 0, sizeof(g_stPDResultFrame));
     }
 
     TDL_CloseModel(g_PDAiHandle, g_pstPdCfg->model_id);

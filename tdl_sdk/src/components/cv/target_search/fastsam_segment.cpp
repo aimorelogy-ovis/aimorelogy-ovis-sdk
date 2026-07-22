@@ -467,16 +467,33 @@ int FastSAMSegmentor::segment(std::shared_ptr<BaseImage> image,
   }
 
   FastSAMPassResult selected_pass;
-  if (runFastSAMPass(model_od_, image, crop_rect, seed_point, hint_bbox,
-                     &selected_pass) != 0) {
+  cv::Rect selected_crop = crop_rect;
+  bool retried = false;
+  int first_ret = runFastSAMPass(model_od_, image, crop_rect, seed_point,
+                                 hint_bbox, &selected_pass);
+  if (first_ret != 0 && crop_rect.width < std::min(img_w, img_h)) {
+    int retry_size = std::min(
+        std::min(img_w, img_h),
+        std::max(crop_rect.width + 160, crop_rect.width * 3 / 2));
+    cv::Rect retry_crop = makeSquareCropAt(
+        img_w, img_h, seed_point, retry_size);
+    FastSAMPassResult retry_pass;
+    if (retry_crop != crop_rect &&
+        runFastSAMPass(model_od_, image, retry_crop, seed_point, hint_bbox,
+                       &retry_pass) == 0) {
+      retried = true;
+      selected_pass = retry_pass;
+      selected_crop = retry_crop;
+      first_ret = 0;
+    }
+  }
+  if (first_ret != 0) {
     LOGW("FastSAM has no foreground mask at seed=(%d,%d)",
          seed_point.x, seed_point.y);
     return -1;
   }
 
-  cv::Rect selected_crop = crop_rect;
-  bool retried = false;
-  if (selected_pass.candidate.touches_crop_border &&
+  if (!retried && selected_pass.candidate.touches_crop_border &&
       crop_rect.width < std::min(img_w, img_h)) {
     int retry_size = std::min(
         std::min(img_w, img_h),

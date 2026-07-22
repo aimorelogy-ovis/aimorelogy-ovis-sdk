@@ -50,6 +50,7 @@ struct config_values {
 	int object_tracking_sot_height;
 	char object_model_id[96];
 	char object_model_path[512];
+	int object_model_update;
 };
 
 struct ini_update {
@@ -368,9 +369,13 @@ static void add_detection_model(cJSON *parent, const struct config_values *value
 		id[16] = '\0';
 		cJSON_AddStringToObject(model, "source", "custom");
 		cJSON_AddStringToObject(model, "id", id);
+	} else if (strcmp(values->object_model_id,
+			"TDL_MODEL_YOLOV8N_DET_PERSON_VEHICLE") == 0) {
+		cJSON_AddStringToObject(model, "source", "builtin");
+		cJSON_AddStringToObject(model, "id", "builtin.person-vehicle");
 	} else {
 		cJSON_AddStringToObject(model, "source", "builtin");
-		cJSON_AddStringToObject(model, "id", "builtin.object-detection");
+		cJSON_AddStringToObject(model, "id", "builtin.monitor-person");
 	}
 	cJSON_AddStringToObject(model, "runtime_model", values->object_model_id);
 }
@@ -392,7 +397,11 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON *face;
 	cJSON *motion;
 	cJSON *human_pose;
-	cJSON *object_tracking;
+	cJSON *tracking;
+	cJSON *single_object;
+	const char *search_method = values->object_tracking_search_type == 3 ?
+		"fastsam" : values->object_tracking_search_type == 2 ?
+		"color" : "box";
 
 	if (root == NULL)
 		return NULL;
@@ -410,8 +419,9 @@ static cJSON *values_to_json(const struct config_values *values)
 	face = cJSON_AddObjectToObject(detection, "face");
 	motion = cJSON_AddObjectToObject(detection, "motion");
 	human_pose = cJSON_AddObjectToObject(detection, "human_pose");
-	object_tracking = cJSON_AddObjectToObject(detection, "object_tracking");
-	if (uvc == NULL || bnr == NULL || object_tracking == NULL) {
+	tracking = cJSON_AddObjectToObject(root, "tracking");
+	single_object = cJSON_AddObjectToObject(tracking, "single_object");
+	if (uvc == NULL || bnr == NULL || single_object == NULL) {
 		cJSON_Delete(root);
 		return NULL;
 	}
@@ -443,16 +453,18 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON_AddNumberToObject(human_pose, "threshold", values->human_pose_threshold);
 	add_processing_size(human_pose, "processing_size", values->human_pose_width,
 		values->human_pose_height);
-	cJSON_AddBoolToObject(object_tracking, "enabled", values->object_tracking_enabled);
-	cJSON_AddStringToObject(object_tracking, "search_method",
-		values->object_tracking_search_type == 3 ? "fastsam" : "color");
-	cJSON_AddBoolToObject(object_tracking, "use_kalman",
+	cJSON_AddBoolToObject(single_object, "enabled", values->object_tracking_enabled);
+	cJSON_AddStringToObject(single_object, "default_target_source",
+		values->object_enabled ? "detection" : search_method);
+	cJSON_AddStringToObject(single_object, "fallback_target_source", search_method);
+	cJSON_AddStringToObject(single_object, "search_method", search_method);
+	cJSON_AddBoolToObject(single_object, "detection_linked",
+		values->object_enabled && values->object_tracking_enabled);
+	cJSON_AddBoolToObject(single_object, "use_kalman",
 		values->object_tracking_use_kalman);
-	cJSON_AddNumberToObject(object_tracking, "score_threshold",
+	cJSON_AddNumberToObject(single_object, "score_threshold",
 		values->object_tracking_score_threshold);
-	add_processing_size(object_tracking, "detection_processing_size",
-		values->object_tracking_det_width, values->object_tracking_det_height);
-	add_processing_size(object_tracking, "tracking_processing_size",
+	add_processing_size(single_object, "processing_size",
 		values->object_tracking_sot_width, values->object_tracking_sot_height);
 	return root;
 }
@@ -471,9 +483,16 @@ int config_capabilities_json(char *json, size_t size)
 		"\"fps_options\":[15,25,30],\"bitrate_min\":128,\"bitrate_max\":4000}]}},"
 		"\"features\":{\"osd\":true,\"object_detection\":true,"
 		"\"face_detection\":true,\"motion_detection\":true,"
-		"\"human_pose\":true,\"object_tracking\":true},"
-		"\"ai\":{\"max_active_tpu_features\":1,\"features\":["
+		"\"human_pose\":true,\"object_tracking\":true,"
+		"\"single_object_tracking\":true},"
+		"\"ai\":{\"max_active_tpu_features\":2,"
+		"\"allowed_tpu_combinations\":[[\"object\"],[\"single_object_tracking\"],"
+		"[\"object\",\"single_object_tracking\"],[\"face\"],[\"human_pose\"]],"
+		"\"features\":["
 		"{\"id\":\"object\",\"name\":\"目标检测\",\"model_selectable\":true,"
+		"\"builtin_models\":["
+		"{\"id\":\"builtin.monitor-person\",\"name\":\"人员检测\"},"
+		"{\"id\":\"builtin.person-vehicle\",\"name\":\"人员/车辆检测\"}],"
 		"\"processing_size\":{\"description\":\"送入 AI 的 VPSS 图像帧尺寸，不改变 BModel Tensor 尺寸\","
 		"\"min_width\":160,\"max_width\":1920,"
 		"\"min_height\":96,\"max_height\":1080,\"step\":2,\"default\":{\"width\":448,\"height\":256}}},"
@@ -489,17 +508,18 @@ int config_capabilities_json(char *json, size_t size)
 		"\"processing_size\":{\"description\":\"送入 AI 的 VPSS 图像帧尺寸，不改变 BModel Tensor 尺寸\","
 		"\"min_width\":160,\"max_width\":640,"
 		"\"min_height\":96,\"max_height\":384,\"step\":2,\"default\":{\"width\":640,\"height\":384}}},"
-		"{\"id\":\"object_tracking\",\"name\":\"目标检测与跟踪\","
-		"\"model\":\"YOLOv8n + FearTrack\",\"search_methods\":[\"color\",\"fastsam\"],"
-		"\"detection_processing_size\":{\"fixed\":true,\"width\":640,\"height\":384},"
-		"\"tracking_processing_size\":{\"fixed\":true,\"width\":1920,\"height\":1080}}],"
+		"{\"id\":\"single_object_tracking\",\"name\":\"单目标跟踪\","
+		"\"model\":\"FearTrack\",\"detection_link\":true,"
+		"\"target_sources\":[\"detection\",\"fastsam\",\"color\",\"box\"],"
+		"\"fallback_target_sources\":[\"fastsam\",\"color\",\"box\"],"
+		"\"processing_size\":{\"fixed\":true,\"width\":1920,\"height\":1080}}],"
 		"\"motion_detection\":true}}";
 	cJSON *root = cJSON_Parse(capabilities);
 	cJSON *ai_isp;
 	cJSON *bnr;
 	cJSON *exclusive;
 	static const char *features[] = {
-		"object", "face", "motion", "human_pose", "object_tracking"
+		"object", "face", "motion", "human_pose", "single_object_tracking"
 	};
 	size_t index;
 
@@ -603,6 +623,62 @@ static int processing_size_item(cJSON *parent, const char *name,
 		int_item(size, "height", height) == 0 ? 0 : -1;
 }
 
+static int select_builtin_detection_model(const char *id,
+	struct config_values *values, char *error, size_t error_size)
+{
+	if (strcmp(id, "builtin.monitor-person") == 0 ||
+	    strcmp(id, "builtin.object-detection") == 0 ||
+	    strcmp(id, "builtin.object_detection") == 0 ||
+	    strcmp(id, "builtin.person-detection") == 0 ||
+	    strcmp(id, "builtin.person_detection") == 0) {
+		snprintf(values->object_model_id, sizeof(values->object_model_id),
+			"TDL_MODEL_YOLOV8N_DET_MONITOR_PERSON");
+		snprintf(values->object_model_path, sizeof(values->object_model_path),
+			"/usr/share/ipcamera/cv184x/"
+			"yolov8n_det_monitor_person_256_448_INT8_cv184x.bmodel");
+	} else if (strcmp(id, "builtin.person-vehicle") == 0 ||
+		   strcmp(id, "builtin.person-vehicle-detection") == 0 ||
+		   strcmp(id, "builtin.person_vehicle_detection") == 0) {
+		snprintf(values->object_model_id, sizeof(values->object_model_id),
+			"TDL_MODEL_YOLOV8N_DET_PERSON_VEHICLE");
+		snprintf(values->object_model_path, sizeof(values->object_model_path),
+			"/usr/share/ipcamera/cv184x/"
+			"yolov8n_det_person_vehicle_384_640_INT8_cv184x.bmodel");
+	} else {
+		snprintf(error, error_size, "不支持的内置目标检测模型");
+		return -1;
+	}
+	values->object_model_update = 1;
+	return 0;
+}
+
+static int parse_detection_model(cJSON *model, struct config_values *values,
+	char *error, size_t error_size)
+{
+	const char *source;
+	const char *id;
+
+	if (cJSON_IsString(model) && model->valuestring != NULL &&
+	    model->valuestring[0] != '\0') {
+		id = model->valuestring;
+		if (strncmp(id, "builtin.", strlen("builtin.")) != 0)
+			return 0;
+		return select_builtin_detection_model(id, values, error, error_size);
+	}
+	if (!cJSON_IsObject(model) ||
+	    string_item(model, "source", &source) != 0 ||
+	    string_item(model, "id", &id) != 0) {
+		snprintf(error, error_size, "目标检测模型选择无效");
+		return -1;
+	}
+	if (strcmp(source, "builtin") == 0)
+		return select_builtin_detection_model(id, values, error, error_size);
+	if (strcmp(source, "custom") == 0)
+		return 0;
+	snprintf(error, error_size, "目标检测模型来源无效");
+	return -1;
+}
+
 static int parse_payload(const char *body, struct config_values *values,
 	char revision[33], char *error, size_t error_size)
 {
@@ -619,14 +695,19 @@ static int parse_payload(const char *body, struct config_values *values,
 	cJSON *bnr;
 	cJSON *detection;
 	cJSON *object;
+	cJSON *object_model;
 	cJSON *face;
 	cJSON *motion;
 	cJSON *human_pose;
+	cJSON *tracking;
+	cJSON *single_object;
 	cJSON *object_tracking;
 	const char *revision_text;
 	const char *main_profile;
 	const char *sub_profile;
 	const char *search_method;
+	const char *default_target_source = NULL;
+	int new_tracking_schema = 0;
 	int result = -1;
 
 	memset(values, 0, sizeof(*values));
@@ -653,10 +734,20 @@ static int parse_payload(const char *body, struct config_values *values,
 	}
 	detection = object_item(values_json, "detection");
 	object = object_item(detection, "object");
+	object_model = object == NULL ? NULL :
+		cJSON_GetObjectItemCaseSensitive(object, "model");
 	face = object_item(detection, "face");
 	motion = object_item(detection, "motion");
 	human_pose = object_item(detection, "human_pose");
-	object_tracking = object_item(detection, "object_tracking");
+	tracking = object_item(values_json, "tracking");
+	single_object = object_item(tracking, "single_object");
+	object_tracking = single_object != NULL ? single_object :
+		object_item(detection, "object_tracking");
+	new_tracking_schema = single_object != NULL;
+	values->object_tracking_det_width = OVIS_AI_TRACK_DET_WIDTH;
+	values->object_tracking_det_height = OVIS_AI_TRACK_DET_HEIGHT;
+	if (parse_detection_model(object_model, values, error, error_size) != 0)
+		goto done;
 	if (string_item(root, "revision", &revision_text) != 0 || strlen(revision_text) > 32 ||
 	    bool_item(rtsp, "enabled", &values->rtsp_enabled) != 0 ||
 	    bool_item(uvc, "enabled", &values->uvc_enabled) != 0 ||
@@ -685,17 +776,35 @@ static int parse_payload(const char *body, struct config_values *values,
 	    processing_size_item(human_pose, "processing_size", &values->human_pose_width,
 		&values->human_pose_height) != 0 ||
 	    bool_item(object_tracking, "enabled", &values->object_tracking_enabled) != 0 ||
-	    string_item(object_tracking, "search_method", &search_method) != 0 ||
+	    string_item(object_tracking, new_tracking_schema ?
+		"fallback_target_source" : "search_method", &search_method) != 0 ||
 	    bool_item(object_tracking, "use_kalman", &values->object_tracking_use_kalman) != 0 ||
 	    double_item(object_tracking, "score_threshold",
-		&values->object_tracking_score_threshold) != 0 ||
-	    processing_size_item(object_tracking, "detection_processing_size",
-		&values->object_tracking_det_width,
-		&values->object_tracking_det_height) != 0 ||
-	    processing_size_item(object_tracking, "tracking_processing_size",
-		&values->object_tracking_sot_width,
-		&values->object_tracking_sot_height) != 0)
+		&values->object_tracking_score_threshold) != 0)
 		goto done;
+	if (new_tracking_schema) {
+		if (string_item(object_tracking, "default_target_source",
+				&default_target_source) != 0 ||
+		    processing_size_item(object_tracking, "processing_size",
+				&values->object_tracking_sot_width,
+				&values->object_tracking_sot_height) != 0)
+			goto done;
+		if (strcmp(default_target_source, "detection") != 0 &&
+		    strcmp(default_target_source, "fastsam") != 0 &&
+		    strcmp(default_target_source, "color") != 0 &&
+		    strcmp(default_target_source, "box") != 0) {
+			snprintf(error, error_size, "默认跟踪目标来源不受支持");
+			goto done;
+		}
+	} else if (processing_size_item(object_tracking,
+			"detection_processing_size",
+			&values->object_tracking_det_width,
+			&values->object_tracking_det_height) != 0 ||
+		    processing_size_item(object_tracking, "tracking_processing_size",
+			&values->object_tracking_sot_width,
+			&values->object_tracking_sot_height) != 0) {
+		goto done;
+	}
 	if (strcmp(main_profile, "1080p") != 0 || strcmp(sub_profile, "768x572") != 0) {
 		snprintf(error, error_size, "配置包含设备不支持的分辨率预设");
 		goto done;
@@ -704,6 +813,8 @@ static int parse_payload(const char *body, struct config_values *values,
 		values->object_tracking_search_type = 2;
 	else if (strcmp(search_method, "fastsam") == 0)
 		values->object_tracking_search_type = 3;
+	else if (strcmp(search_method, "box") == 0)
+		values->object_tracking_search_type = 0;
 	else {
 		snprintf(error, error_size, "目标跟踪搜索方式不受支持");
 		goto done;
@@ -748,9 +859,12 @@ static int processing_size_valid(int width, int height, int max_width,
 static cJSON *validate_values(const struct config_values *values)
 {
 	cJSON *errors = cJSON_CreateArray();
-	int active_tpu_features = values->object_enabled + values->face_enabled +
-		values->human_pose_enabled + values->object_tracking_enabled;
-	int active_business_ai = active_tpu_features + values->motion_enabled;
+	int active_tpu_features =
+		(values->object_enabled || values->object_tracking_enabled) +
+		values->face_enabled + values->human_pose_enabled;
+	int active_business_ai = values->object_enabled + values->face_enabled +
+		values->motion_enabled + values->human_pose_enabled +
+		values->object_tracking_enabled;
 
 	if (values->ai_bnr_enabled && !config_ai_bnr_supported())
 		add_issue(errors, "ai_isp.bnr.enabled", "AI_BNR_UNSUPPORTED",
@@ -795,17 +909,14 @@ static cJSON *validate_values(const struct config_values *values)
 			"人体姿态 AI 输入帧尺寸必须为 160x96 到 640x384 范围内的偶数");
 	if (values->object_tracking_score_threshold < 0 ||
 	    values->object_tracking_score_threshold > 1)
-		add_issue(errors, "detection.object_tracking.score_threshold", "OUT_OF_RANGE", "目标跟踪分数阈值必须在 0 到 1 之间");
-	if (values->object_tracking_det_width != OVIS_AI_TRACK_DET_WIDTH ||
-	    values->object_tracking_det_height != OVIS_AI_TRACK_DET_HEIGHT)
-		add_issue(errors, "detection.object_tracking.detection_processing_size",
-			"FIXED_BY_MODEL", "目标跟踪检测尺寸由当前 BModel 固定为 640x384");
+		add_issue(errors, "tracking.single_object.score_threshold", "OUT_OF_RANGE", "目标跟踪分数阈值必须在 0 到 1 之间");
 	if (values->object_tracking_sot_width != OVIS_AI_TRACK_SOT_WIDTH ||
 	    values->object_tracking_sot_height != OVIS_AI_TRACK_SOT_HEIGHT)
-		add_issue(errors, "detection.object_tracking.tracking_processing_size",
+		add_issue(errors, "tracking.single_object.processing_size",
 			"FIXED_BY_MODEL", "目标跟踪搜索尺寸由当前运行管线固定为 1920x1080");
 	if (active_tpu_features > 1)
-		add_issue(errors, "detection", "AI_FEATURE_CONFLICT", "目标检测、人脸、人体姿态和目标跟踪最多只能启用一项");
+		add_issue(errors, "detection", "AI_FEATURE_CONFLICT",
+			"目标检测可与单目标跟踪联动，但不能与人脸或人体姿态同时启用");
 	return errors;
 }
 
@@ -1107,6 +1218,7 @@ static int append_missing_runtime_sections(const char *path)
 	}
 	if (need_object_tracking) {
 		fputs("\n[ai_object_track_config]\n"
+			"config_version     = 2\n"
 			"object_track_enable = 0\n"
 			"vpss_grp          = 0\n"
 			"vpss_chn          = 2\n"
@@ -1363,6 +1475,8 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp4", "src_chn_id", "0", 0 },
 		{ "output_config", "rtsp_enable", "", 0 },
 		{ "output_config", "uvc_enable", "", 0 },
+		{ "ai_object_track_config", "config_version", "2", 0 },
+		{ "ai_pd_config", "model_id", "", 0 },
 	};
 	char migrated[512];
 	char value[160];
@@ -1378,8 +1492,9 @@ static int migrate_runtime_config(const char *path)
 	int human_pose_width = OVIS_AI_HUMAN_POSE_MAX_WIDTH;
 	int human_pose_height = OVIS_AI_HUMAN_POSE_MAX_HEIGHT;
 	int shared_ai_source_enabled = 0;
+	int tracking_config_version = 0;
+	int legacy_tracking_config = 0;
 	int sub_dependent_enabled[3];
-	int keep = -1;
 	int index;
 	int needs_update;
 	enum {
@@ -1402,13 +1517,18 @@ static int migrate_runtime_config(const char *path)
 
 	if (access(path, F_OK) != 0)
 		return -1;
+	legacy_tracking_config = read_int(path, "ai_object_track_config",
+		"config_version", &tracking_config_version) != 0 ||
+		tracking_config_version < 2;
 	if (ensure_ini_key(path, "ai_pd_config", "model_path_cfg",
 			"\"/usr/share/ipcamera/model_factory.json\"") != 0)
 		return -1;
 	if (ensure_ini_key(path, "vi_cfg_isp0", "teaisp_bnr_enable", "0") != 0)
 		return -1;
 	if (read_ini_value(path, "ai_pd_config", "model_path", value,
-			sizeof(value)) == 0 && strstr(value, OVIS_MODEL_STORE_DIR "/") != NULL)
+			sizeof(value)) == 0 &&
+	    (strstr(value, OVIS_MODEL_STORE_DIR "/") != NULL ||
+	     strstr(value, "yolov8n_det_person_vehicle_384_640_INT8_cv184x.bmodel") != NULL))
 		snprintf(updates[1].value, sizeof(updates[1].value), "%s", value);
 	needs_update = !has_section(path, "output_config") ||
 		!has_section(path, "ai_human_keypoint_config") ||
@@ -1419,6 +1539,8 @@ static int migrate_runtime_config(const char *path)
 		!has_section(path, "vpssgrp6.chn0");
 	if (append_missing_output_config(path) != 0 ||
 	    append_missing_runtime_sections(path) != 0)
+		return -1;
+	if (ensure_ini_key(path, "ai_object_track_config", "config_version", "1") != 0)
 		return -1;
 	if (read_int(path, "ai_pd_config", "pd_enable", &enabled[0]) != 0 ||
 	    read_int(path, "ai_fd_config", "fd_enable", &enabled[1]) != 0 ||
@@ -1440,6 +1562,20 @@ static int migrate_runtime_config(const char *path)
 		rtsp_enabled = 0;
 		uvc_enabled = 1;
 		needs_update = 1;
+	}
+	if (legacy_tracking_config && enabled[3] && !enabled[0]) {
+		enabled[0] = 1;
+		snprintf(updates[1].value, sizeof(updates[1].value),
+			"\"/usr/share/ipcamera/cv184x/"
+			"yolov8n_det_person_vehicle_384_640_INT8_cv184x.bmodel\"");
+		snprintf(updates[sizeof(updates) / sizeof(updates[0]) - 1].value,
+			sizeof(updates[sizeof(updates) / sizeof(updates[0]) - 1].value),
+			"TDL_MODEL_YOLOV8N_DET_PERSON_VEHICLE");
+		needs_update = 1;
+	} else if (read_ini_value(path, "ai_pd_config", "model_id",
+			updates[sizeof(updates) / sizeof(updates[0]) - 1].value,
+			sizeof(updates[sizeof(updates) / sizeof(updates[0]) - 1].value)) != 0) {
+		return -1;
 	}
 	runtime_sub_enabled = rtsp_enabled && sub_enabled &&
 		!(uvc_enabled && main_fps == 60);
@@ -1479,12 +1615,16 @@ static int migrate_runtime_config(const char *path)
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"vpssgrp2", "dst_framerate", OVIS_AI_FRAME_RATE_AUTO) != 0)
 		return -1;
-	if (enabled[0] + enabled[1] + enabled[2] + enabled[3] > 1)
+	if ((enabled[0] || enabled[3]) + enabled[1] + enabled[2] > 1)
 		needs_update = 1;
-	for (index = 0; index < 4; index++) {
-		if (enabled[index] && keep < 0)
-			keep = index;
-		enabled[index] = enabled[index] && keep == index;
+	if (enabled[0]) {
+		enabled[1] = 0;
+		enabled[2] = 0;
+	} else if (enabled[1]) {
+		enabled[2] = 0;
+		enabled[3] = 0;
+	} else if (enabled[2]) {
+		enabled[3] = 0;
 	}
 	shared_ai_source_enabled = enabled[2] || enabled[3];
 	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
@@ -1690,9 +1830,12 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "vencchn3", "src_dev_id", "0", 0 },
 		{ "vencchn3", "vpss_grp", "0", 0 },
 		{ "vi_cfg_isp0", "teaisp_bnr_enable", "", 0 },
+		{ "ai_pd_config", "model_id", "", 0 },
+		{ "ai_pd_config", "model_path", "", 0 },
 	};
 	char validation_error[256];
 	int runtime_sub_enabled;
+	size_t model_update_index = sizeof(updates) / sizeof(updates[0]) - 2;
 	enum {
 		STAGE_AI_SOURCE_UPDATE_INDEX = 29,
 		STAGE_UVC_SOURCE_FPS_UPDATE_INDEX = 30,
@@ -1700,6 +1843,11 @@ static int stage_values(const struct config_values *values, char revision[17],
 
 	runtime_sub_enabled = values->rtsp_enabled && values->sub_enabled &&
 		!(values->uvc_enabled && values->main_fps == 60);
+	if (values->object_model_update &&
+	    access(values->object_model_path, R_OK) != 0) {
+		snprintf(error, error_size, "内置目标检测模型文件不可用");
+		return -1;
+	}
 
 	snprintf(updates[0].value, sizeof(updates[0].value), "%d", values->main_fps);
 	snprintf(updates[1].value, sizeof(updates[1].value), "%d", values->main_bitrate);
@@ -1724,6 +1872,22 @@ static int stage_values(const struct config_values *values, char revision[17],
 	snprintf(updates[18].value, sizeof(updates[18].value), "%d", values->object_tracking_use_kalman);
 	snprintf(updates[19].value, sizeof(updates[19].value), "%.6g",
 		values->object_tracking_score_threshold);
+	if (values->object_model_update) {
+		snprintf(updates[model_update_index].value,
+			sizeof(updates[model_update_index].value), "%s",
+			values->object_model_id);
+		snprintf(updates[model_update_index + 1].value,
+			sizeof(updates[model_update_index + 1].value), "\"%s\"",
+			values->object_model_path);
+	} else if (read_ini_value(OVIS_CONFIG_FILE, "ai_pd_config", "model_id",
+			updates[model_update_index].value,
+			sizeof(updates[model_update_index].value)) != 0 ||
+		   read_ini_value(OVIS_CONFIG_FILE, "ai_pd_config", "model_path",
+			updates[model_update_index + 1].value,
+			sizeof(updates[model_update_index + 1].value)) != 0) {
+		snprintf(error, error_size, "无法读取当前目标检测模型配置");
+		return -1;
+	}
 	snprintf(updates[20].value, sizeof(updates[20].value), "%s",
 		values->main_fps == 60 ? OVIS_SC235HAI_60FPS_SNS_TYPE : OVIS_SC235HAI_30FPS_SNS_TYPE);
 	snprintf(updates[21].value, sizeof(updates[21].value), "%d",
@@ -1951,7 +2115,7 @@ int config_stage_detection_model(const char *model_id, const char *model_path,
 		{ "ai_pd_config", "pd_enable", "", 0 },
 		{ "ai_fd_config", "fd_enable", "0", 0 },
 		{ "ai_human_keypoint_config", "human_keypoint_enable", "0", 0 },
-		{ "ai_object_track_config", "object_track_enable", "0", 0 },
+		{ "ai_object_track_config", "object_track_enable", "", 0 },
 		{ "vpssgrp2", "grp_enable", "", 0 },
 		{ "vpssgrp3", "grp_enable", "0", 0 },
 		{ "vpssgrp0.chn2", "chn_enable", "", 0 },
@@ -1965,14 +2129,15 @@ int config_stage_detection_model(const char *model_id, const char *model_path,
 		{ "vpssgrp0.chn2", "height", "", 0 },
 		{ "vb_pool_1", "frame_width", "", 0 },
 		{ "vb_pool_1", "frame_height", "", 0 },
-		{ "vb_pool_1", "bEnable", "0", 0 },
+		{ "vb_pool_1", "bEnable", "", 0 },
 		{ "vb_pool_2", "bEnable", "", 0 },
 		{ "vb_pool_3", "bEnable", "0", 0 },
 		{ "vb_pool_4", "bEnable", "", 0 },
-		{ "vb_pool_7", "bEnable", "0", 0 },
+		{ "vb_pool_7", "bEnable", "", 0 },
 	};
 	char validation_error[256];
 	int motion_enabled = 0;
+	int object_tracking_enabled = 0;
 	int custom_paths;
 	int builtin_paths;
 	int result = -1;
@@ -1982,8 +2147,10 @@ int config_stage_detection_model(const char *model_id, const char *model_path,
 		strncmp(model_path, OVIS_MODEL_STORE_DIR "/", strlen(OVIS_MODEL_STORE_DIR) + 1) == 0 &&
 		strncmp(model_config_path, OVIS_MODEL_STORE_DIR "/", strlen(OVIS_MODEL_STORE_DIR) + 1) == 0;
 	builtin_paths = model_path != NULL && model_config_path != NULL &&
-		strcmp(model_path,
-			"/usr/share/ipcamera/cv184x/yolov8n_det_monitor_person_256_448_INT8_cv184x.bmodel") == 0 &&
+		(strcmp(model_path,
+			"/usr/share/ipcamera/cv184x/yolov8n_det_monitor_person_256_448_INT8_cv184x.bmodel") == 0 ||
+		 strcmp(model_path,
+			"/usr/share/ipcamera/cv184x/yolov8n_det_person_vehicle_384_640_INT8_cv184x.bmodel") == 0) &&
 		strcmp(model_config_path, "/usr/share/ipcamera/model_factory.json") == 0;
 	if (!model_id_is_valid(model_id)) {
 		snprintf(error, error_size, "检测模型运行类型无效");
@@ -2017,7 +2184,9 @@ int config_stage_detection_model(const char *model_id, const char *model_path,
 	pthread_mutex_lock(&config_lock);
 	if (ensure_ini_key(OVIS_CONFIG_FILE, "ai_pd_config", "model_path_cfg",
 			"\"/usr/share/ipcamera/model_factory.json\"") != 0 ||
-	    read_int(OVIS_CONFIG_FILE, "ai_md_config", "md_enable", &motion_enabled) != 0) {
+	    read_int(OVIS_CONFIG_FILE, "ai_md_config", "md_enable", &motion_enabled) != 0 ||
+	    read_int(OVIS_CONFIG_FILE, "ai_object_track_config",
+			"object_track_enable", &object_tracking_enabled) != 0) {
 		snprintf(error, error_size, "无法准备检测模型运行配置");
 		goto done;
 	}
@@ -2026,8 +2195,11 @@ int config_stage_detection_model(const char *model_id, const char *model_path,
 	snprintf(updates[2].value, sizeof(updates[2].value), "\"%s\"", model_config_path);
 	snprintf(updates[3].value, sizeof(updates[3].value), "%.6g", threshold);
 	snprintf(updates[4].value, sizeof(updates[4].value), "%d", enabled);
+	snprintf(updates[7].value, sizeof(updates[7].value), "%d",
+		object_tracking_enabled);
 	snprintf(updates[8].value, sizeof(updates[8].value), "%d", enabled);
-	snprintf(updates[10].value, sizeof(updates[10].value), "0");
+	snprintf(updates[10].value, sizeof(updates[10].value), "%d",
+		object_tracking_enabled);
 	snprintf(updates[11].value, sizeof(updates[11].value), "%d", processing_width);
 	snprintf(updates[12].value, sizeof(updates[12].value), "%d", processing_height);
 	snprintf(updates[13].value, sizeof(updates[13].value), "%d", processing_width);
@@ -2038,8 +2210,12 @@ int config_stage_detection_model(const char *model_id, const char *model_path,
 	snprintf(updates[18].value, sizeof(updates[18].value), "%d", OVIS_AI_TRACK_DET_HEIGHT);
 	snprintf(updates[19].value, sizeof(updates[19].value), "%d", OVIS_AI_TRACK_DET_WIDTH);
 	snprintf(updates[20].value, sizeof(updates[20].value), "%d", OVIS_AI_TRACK_DET_HEIGHT);
+	snprintf(updates[21].value, sizeof(updates[21].value), "%d",
+		object_tracking_enabled);
 	snprintf(updates[22].value, sizeof(updates[22].value), "%d", enabled);
 	snprintf(updates[24].value, sizeof(updates[24].value), "%d", motion_enabled);
+	snprintf(updates[25].value, sizeof(updates[25].value), "%d",
+		object_tracking_enabled);
 	if (write_updates(OVIS_CONFIG_FILE, OVIS_CONFIG_PENDING, updates,
 			sizeof(updates) / sizeof(updates[0])) != 0) {
 		snprintf(error, error_size, "无法创建检测模型待应用配置");

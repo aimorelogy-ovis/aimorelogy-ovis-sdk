@@ -460,6 +460,12 @@ int32_t TDL_Tracking(TDLHandle handle, uint64_t frame_id, TDLObject *obj_meta,
                      TDLTracker *track_meta);
 
 /**
+ * @brief 设置多目标跟踪接纳检测结果和创建新轨迹的最低得分
+ */
+int32_t TDL_SetMultiObjectTrackingThreshold(TDLHandle handle,
+                                            float threshold);
+
+/**
  * @brief 执行协同跟踪任务（人脸-行人协同跟踪）
  *
  * @param handle TDLHandle 对象
@@ -501,6 +507,18 @@ int32_t TDL_SetSingleObjectTracking(TDLHandle handle, TDLImage image_handle,
                                     const char *model_path);
 
 /**
+ * @brief 使用点提示设置单目标跟踪目标，可附带候选搜索区域
+ *
+ * hint_bbox 只参与分割候选搜索和排序，不会在分割失败时退化为直接框选。
+ * 传入 NULL 时保持原有纯点提示行为。
+ */
+int32_t TDL_SetSingleObjectTrackingByPoint(
+    TDLHandle handle, TDLImage image_handle, TDLObject *object_meta,
+    int32_t point_x, int32_t point_y, const TDLBox *hint_bbox,
+    uint64_t frame_id, TDLTargetSearchTypeE frame_type,
+    const char *model_path);
+
+/**
  * @brief 执行单目追踪
  *
  * @param handle TDLHandle 对象
@@ -520,6 +538,21 @@ int32_t TDL_SingleObjectTracking(TDLHandle handle, TDLImage image_handle,
  * @return 成功返回 0，失败返回-1
  */
 int32_t TDL_SetSingleObjectTrackingUseKalman(TDLHandle handle, bool use_kalman);
+
+/**
+ * @brief 设置单目标跟踪内部状态机的最低有效得分
+ */
+int32_t TDL_SetSingleObjectTrackingThreshold(TDLHandle handle,
+                                             float threshold);
+
+/**
+ * @brief 提前准备单目标跟踪使用的目标搜索模型
+ *
+ * 应在获取实时 VPSS 帧之前调用，避免首次目标选择时同步加载模型并长期占帧。
+ */
+int32_t TDL_PrepareSingleObjectTrackingTargetSearch(
+    TDLHandle handle, TDLTargetSearchTypeE frame_type,
+    const char *model_path);
 
 /**
  * @brief 执行入侵检测
