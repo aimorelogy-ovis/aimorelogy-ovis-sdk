@@ -64,11 +64,11 @@ ovis-manager/install/etc/init.d/S98ovis-manager
 首次启动没有网络配置时，设备只枚举 `PID 0x100E` 的 WebUSB 配置接口，不启用
 NCM、UVC、DHCP 和 Manager。生产网页让用户填写 `192.168.X.1` 中的 `X`，校验当前
 连接设备没有重复网段后提交。第三段保存到 `/mnt/cfg/ovis-manager/ncm-subnet`，设备在
-前端确认写入结果后自动重启，并枚举为 `PID 0x100D` 的 `NCM + UVC` 运行设备。
+前端确认写入结果后自动重启，并枚举为 `PID 0x1010` 的 `NCM + UVC ISO` 运行设备。
 运行期间修改 UVC 输出状态后，Manager 保存配置并安排设备重启，不在当前 NCM 管理
 连接上热拆建 ConfigFS gadget。冷启动时，关闭 UVC 的设备枚举为 `PID 0x100F` 的
 `NCM only` 设备；独立 PID 用于避免 Windows 复用同一 USB 身份下缓存的复合接口布局。
-重新开启 UVC 并重启后恢复为 `PID 0x100D`。
+重新开启 UVC 并重启后恢复为 `PID 0x1010`。
 板端在 gadget 绑定 UDC 后，从 NCM ConfigFS Function 的 `ifname` 属性读取实际网卡名，
 不依赖重载后仍为 `usb0`；DHCP 配置会随实际接口名同步生成。UDC 绑定前出现的
 `(unnamed net_device)` 仅用于配置 MAC，不会作为网络接口名使用。
@@ -76,6 +76,10 @@ NCM、UVC、DHCP 和 Manager。生产网页让用户填写 `192.168.X.1` 中的 
 后续启动根据 UVC 输出配置进入 `NCM + UVC` 或 `NCM only` 运行模式，并恢复地址、
 DHCP 和 Manager，不再加载 FunctionFS WebUSB 接口，也不再要求配置。配置态和运行态
 分离，避免 FunctionFS 影响 Windows 对视频复合设备的描述符枚举。
+
+运行配置、备份配置和固件默认配置均无法通过校验时，设备进入配置恢复模式：仅枚举
+`NCM only`、启动 DHCP 和 Manager，不创建 UVC，也不启动 `ipcamera`。这样视频配置
+异常不会同时切断管理网络，用户仍可通过网页、SSH 或串口恢复默认配置。
 
 USB gadget 的实际开机启动入口是 `S99v_ovis_usb`，位于 `S99user` 加载 MPP 模块之后、
 `S99z_ipcamera` 之前。`S77ncm` 保留为兼容控制入口。未配置网络时 `ipcamera` 延迟
@@ -144,9 +148,17 @@ POST /api/v1/config/reset
 GET  /api/v1/tasks/{task_id}
 ```
 
-配置白名单包括 RTSP/UVC 输出开关、主码流帧率和码率、子码流开关/帧率/码率、OSD、目标检测、人脸检测、人体姿态、目标检测与跟踪和移动检测。各 AI 功能通过 `processing_size` 设置送入对应 AI 管线的图像帧尺寸；该字段不改变 BModel 编译时固定的 Tensor 尺寸。目标跟踪分别返回固定的 `detection_processing_size` 和 `tracking_processing_size`。主码流分辨率仍使用板端公布的固定 profile。主码流选择 60 fps 时，接口会同步切换 SC235HAI 到 1080p60 sensor 模式；选择 15、25 或 30 fps 时使用 1080p30 sensor 模式，由编码通道按目标帧率输出。CV184X 的离线 VPSS 组只使用物理通道 0：`grp1 ch0` 保留主码流实际帧率供 RTSP 使用，独立的 `grp6 ch0` 供 UVC 使用。该通道在 30 fps sensor 模式配置为 `30 -> 30`，在 60 fps sensor 模式配置为 `60 -> 30`，避免非法帧率组合，并避免 60 fps 模式向 USB 推送双倍 MJPEG 帧。多条下游链路共享 `grp0 ch0` 的独立公共源池。目标检测、人脸检测和移动检测从该 NV12 帧分别进入独立 VPSS 组；只有人体姿态或目标跟踪启用时才创建 `grp0 ch2` 的 RGB 通道和 pool1。目标跟踪动态复用 `grp0 ch2`：检测态输出 640x384 C3 并使用 pool1，跟踪态输出 1920x1080 NV12 并使用独立 pool7；遗留 grp5 始终关闭。各 AI 专用 VB 池按功能开关动态启停，TDL 预处理会从剩余编号中动态申请临时 VPSS 组。
+配置白名单包括互斥的 RTSP/UVC 输出模式、主码流帧率和码率、子码流开关/帧率/码率、OSD、目标检测、人脸检测、人体姿态、目标检测与跟踪和移动检测。UVC 和 RTSP 必须且只能启用一项，默认启用 UVC；旧版双开或双关配置会在迁移时归一化为 UVC。各 AI 功能通过 `processing_size` 设置送入对应 AI 管线的图像帧尺寸；该字段不改变 BModel 编译时固定的 Tensor 尺寸。目标跟踪分别返回固定的 `detection_processing_size` 和 `tracking_processing_size`。主码流分辨率仍使用板端公布的固定 profile。主码流选择 60 fps 时，接口会同步切换 SC235HAI 到 1080p60 sensor 模式；选择 15、25 或 30 fps 时使用 1080p30 sensor 模式，由编码通道按目标帧率输出。CV184X 的离线 VPSS 组只使用物理通道 0：`grp1 ch0` 保留主码流实际帧率供 RTSP 使用，独立的 `grp6 ch0` 供 UVC 使用。UVC 通道在 30 fps sensor 模式配置为 `30 -> 30`，在 60 fps sensor 模式配置为 `60 -> 60`。多条下游链路共享 `grp0 ch0` 的独立公共源池。目标检测、人脸检测和移动检测从该 NV12 帧分别进入独立 VPSS 组；目标检测组使用 `-1 -> -1` 继承上游实际帧率，PD 消费线程在每次推理前丢弃积压帧并只处理最新帧。只有人体姿态或目标跟踪启用时才创建 `grp0 ch2` 的 RGB 通道和 pool1。目标跟踪动态复用 `grp0 ch2`：检测态输出 640x384 C3 并使用 pool1，跟踪态输出 1920x1080 NV12 并使用独立 pool7；遗留 grp5 始终关闭。各 AI 专用 VB 池按功能开关动态启停，TDL 预处理会从剩余编号中动态申请临时 VPSS 组。
 
 能力接口使用 schema version 4，输出开关位于 `values.outputs.rtsp.enabled` 和 `values.outputs.uvc.enabled`；目标检测位于 `values.detection.object`，其中 `model` 明确返回 `builtin` 或 `custom` 来源及模型 ID。关闭 RTSP 时同步关闭 RTSP Server、VENC0/1/2、VPSS grp1、子码流通道和 pool6，但保留 `video.sub.enabled` 的用户设置；关闭 UVC 时同步关闭 VENC3、VPSS grp6/chn0 和 pool8，并在重启后从 USB 复合设备中移除 UVC Function。校验响应在 UVC 状态变化时额外返回 `usb_gadget_restart` 和 `management_reconnect`。板端保存 UVC 状态后会延迟重启，不在当前 NCM 管理连接上热拆重建 USB Gadget。
+
+UVC 使用 high-speed isochronous 传输，并保留动态 30/60 fps 描述符。内核 UVC
+gadget 分配 128 个 ISO request，约覆盖 16 ms 的 high-speed microframe；该深度用于吸收
+调度抖动，并保持在 CVITEK DWC2 的 256 descriptor ISO ring 限制以内。
+内核收到 DWC2 上报的 `-EXDEV` 时会统计丢失的 ISO request，并在后续 UVC payload 上
+设置错误位直到该帧 EOF，提示主机丢弃损坏帧。用户态流活动但连续 1 秒没有成功
+DQBUF 时，会输出 QBUF/DQBUF 和帧缓存深度，并最多执行 3 次本地 V4L2 流恢复；恢复
+过程不解绑 USB gadget，也不影响 NCM 和 RTSP。
 
 目标跟踪通过 `/tmp/track` 接收一次性选择命令，命令被消费后文件会自动删除。坐标以预览画布为基准，板端会换算到检测输入尺寸：
 

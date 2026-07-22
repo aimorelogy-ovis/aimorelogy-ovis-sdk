@@ -66,6 +66,7 @@ uvc_cache_t *uvc_cache_get(void);
 int put_node_to_queue(frame_queue_t *q, frame_node_t *node);
 int get_node_from_queue(frame_queue_t *q, frame_node_t **node);
 int wait_node_from_queue(frame_queue_t *q, frame_node_t **node, unsigned int timeout_ms);
+int get_queue_count(frame_queue_t *q);
 void clear_uvc_cache(void);
 void debug_dump_node(frame_node_t *node);
 void debug_dump_queue(frame_queue_t *queue);

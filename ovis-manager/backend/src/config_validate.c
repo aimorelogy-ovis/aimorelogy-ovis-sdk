@@ -47,8 +47,8 @@ static const struct config_field required_fields[] = {
 	{ "object_group_max_width", "vpssgrp2", "max_w", VALUE_INTEGER, 1920, 1920 },
 	{ "object_group_max_height", "vpssgrp2", "max_h", VALUE_INTEGER, 1080, 1080 },
 	{ "object_group_source_channel", "vpssgrp2", "src_chn_id", VALUE_INTEGER, 0, 0 },
-	{ "object_group_src_fps", "vpssgrp2", "src_framerate", VALUE_INTEGER, 30, 60 },
-	{ "object_group_dst_fps", "vpssgrp2", "dst_framerate", VALUE_INTEGER, OVIS_AI_DETECTION_FPS, OVIS_AI_DETECTION_FPS },
+	{ "object_group_src_fps", "vpssgrp2", "src_framerate", VALUE_INTEGER, OVIS_AI_FRAME_RATE_AUTO, OVIS_AI_FRAME_RATE_AUTO },
+	{ "object_group_dst_fps", "vpssgrp2", "dst_framerate", VALUE_INTEGER, OVIS_AI_FRAME_RATE_AUTO, OVIS_AI_FRAME_RATE_AUTO },
 	{ "face_enabled", "ai_fd_config", "fd_enable", VALUE_INTEGER, 0, 1 },
 	{ "face_threshold", "ai_fd_config", "threshold_fd", VALUE_DECIMAL, 0, 1 },
 	{ "face_processing_width", "ai_fd_config", "grp_width", VALUE_INTEGER, OVIS_AI_MIN_WIDTH, OVIS_AI_FACE_MAX_WIDTH },
@@ -117,15 +117,15 @@ static const struct config_field required_fields[] = {
 	{ "uvc_pool_blocks", "vb_pool_8", "blk_cnt", VALUE_INTEGER, 4, 4 },
 	{ "uvc_vpss_group_count", "vpss_config", "vpss_grp", VALUE_INTEGER, 7, 7 },
 	{ "rtsp_channel_count", "vpssgrp1", "chn_cnt", VALUE_INTEGER, 1, 1 },
-	{ "uvc_pool_enabled", "vb_pool_8", "bEnable", VALUE_INTEGER, 0, 1 },
+	{ "uvc_pool_enabled", "vb_pool_8", "bEnable", VALUE_INTEGER, 0, 0 },
 	{ "rtsp_group_enabled", "vpssgrp1", "grp_enable", VALUE_INTEGER, 0, 1 },
-	{ "uvc_group_enabled", "vpssgrp6", "grp_enable", VALUE_INTEGER, 0, 1 },
+	{ "uvc_group_enabled", "vpssgrp6", "grp_enable", VALUE_INTEGER, 0, 0 },
 	{ "uvc_group_device", "vpssgrp6", "vpss_dev", VALUE_INTEGER, 0, 0 },
 	{ "uvc_group_channel_count", "vpssgrp6", "chn_cnt", VALUE_INTEGER, 1, 1 },
 	{ "uvc_group_source_device", "vpssgrp6", "src_dev_id", VALUE_INTEGER, 0, 0 },
 	{ "uvc_group_source_channel", "vpssgrp6", "src_chn_id", VALUE_INTEGER, 0, 0 },
 	{ "uvc_group_destination", "vpssgrp6", "dst_dev_id", VALUE_INTEGER, 6, 6 },
-	{ "uvc_channel_enabled", "vpssgrp6.chn0", "chn_enable", VALUE_INTEGER, 0, 1 },
+	{ "uvc_channel_enabled", "vpssgrp6.chn0", "chn_enable", VALUE_INTEGER, 0, 0 },
 	{ "uvc_channel_width", "vpssgrp6.chn0", "width", VALUE_INTEGER, 1920, 1920 },
 	{ "uvc_channel_height", "vpssgrp6.chn0", "height", VALUE_INTEGER, 1080, 1080 },
 	{ "uvc_channel_src_fps", "vpssgrp6.chn0", "src_framerate", VALUE_INTEGER, 30, 60 },
@@ -133,9 +133,9 @@ static const struct config_field required_fields[] = {
 	{ "uvc_channel_depth", "vpssgrp6.chn0", "depth", VALUE_INTEGER, 0, 0 },
 	{ "uvc_channel_attach", "vpssgrp6.chn0", "attach_en", VALUE_INTEGER, 1, 1 },
 	{ "uvc_channel_pool", "vpssgrp6.chn0", "attach_pool", VALUE_INTEGER, 8, 8 },
-	{ "uvc_venc_source_group", "vencchn3", "src_dev_id", VALUE_INTEGER, 6, 6 },
+	{ "uvc_venc_source_group", "vencchn3", "src_dev_id", VALUE_INTEGER, 0, 0 },
 	{ "uvc_venc_source_channel", "vencchn3", "src_chn_id", VALUE_INTEGER, 0, 0 },
-	{ "uvc_venc_group", "vencchn3", "vpss_grp", VALUE_INTEGER, 6, 6 },
+	{ "uvc_venc_group", "vencchn3", "vpss_grp", VALUE_INTEGER, 0, 0 },
 	{ "uvc_venc_channel", "vencchn3", "vpss_chn", VALUE_INTEGER, 0, 0 },
 	{ "uvc_venc_src_fps", "vencchn3", "src_framerate", VALUE_INTEGER, 30, 60 },
 	{ "uvc_venc_dst_fps", "vencchn3", "dst_framerate", VALUE_INTEGER, 30, 60 },
@@ -322,7 +322,6 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	long uvc_dst_fps = 0;
 	long uvc_venc_src_fps = 0;
 	long uvc_venc_dst_fps = 0;
-	long object_group_src_fps = 0;
 	long rtsp_enabled = 0;
 	long uvc_enabled = 0;
 	long desired_sub_enabled = 0;
@@ -428,8 +427,6 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					uvc_venc_src_fps = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "uvc_venc_dst_fps") == 0)
 					uvc_venc_dst_fps = strtol(value, NULL, 10);
-				else if (strcmp(required_fields[i].id, "object_group_src_fps") == 0)
-					object_group_src_fps = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "sub_enabled") == 0)
 					sub_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "osd_enabled") == 0)
@@ -503,6 +500,10 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 		snprintf(error, error_size, "缺少配置项 sensor_type");
 		return -1;
 	}
+	if (rtsp_enabled == uvc_enabled) {
+		snprintf(error, error_size, "UVC 和 RTSP 必须且只能启用一项");
+		return -1;
+	}
 	if (main_src_fps != (main_fps == 60 ? 60 : 30)) {
 		snprintf(error, error_size, "主码流源帧率与输出帧率不匹配");
 		return -1;
@@ -510,10 +511,6 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	if (uvc_src_fps != main_src_fps || uvc_dst_fps != main_src_fps ||
 	    uvc_venc_src_fps != main_src_fps || uvc_venc_dst_fps != main_src_fps) {
 		snprintf(error, error_size, "UVC 帧率与 sensor 模式不匹配");
-		return -1;
-	}
-	if (object_group_src_fps != main_src_fps) {
-		snprintf(error, error_size, "目标检测 VPSS 源帧率与 sensor 模式不匹配");
 		return -1;
 	}
 	if (sensor_type != strtoul(main_fps == 60 ? OVIS_SC235HAI_60FPS_SNS_TYPE :
@@ -555,8 +552,8 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 		snprintf(error, error_size, "子码流与依赖处理通道开关不匹配");
 		return -1;
 	}
-	if (uvc_pool_enabled != uvc_enabled || uvc_group_enabled != uvc_enabled ||
-	    uvc_channel_enabled != uvc_enabled || uvc_venc_enabled != uvc_enabled) {
+	if (uvc_pool_enabled != 0 || uvc_group_enabled != 0 ||
+	    uvc_channel_enabled != 0 || uvc_venc_enabled != uvc_enabled) {
 		snprintf(error, error_size, "UVC 开关与处理资源状态不匹配");
 		return -1;
 	}

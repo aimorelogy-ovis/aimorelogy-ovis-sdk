@@ -55,6 +55,13 @@ typedef struct {
   float offset_y;
 } TDLRescaleConfig;
 
+typedef struct {
+  float preprocess_ms;
+  float tpu_ms;
+  float postprocess_ms;
+  float total_ms;
+} TDLModelPerformance;
+
 typedef enum {
   TDL_REJECT = 0,
   TDL_GRABCUT = 1,

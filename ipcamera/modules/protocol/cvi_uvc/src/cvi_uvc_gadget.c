@@ -229,6 +229,8 @@ typedef struct tagUVC_DEVICE_CTX_S {
     unsigned long long int dqbuf_count;
     unsigned long long int frame_timeout_count;
     uint32_t consecutive_frame_timeouts;
+    uint64_t last_dqbuf_ms;
+    uint32_t stall_recovery_count;
 
     /* v4l2 device hook */
     struct v4l2_device *vdev;
@@ -259,6 +261,8 @@ struct v4l2_device {
 #define WAITED_NODE_SIZE (3)
 #define UVC_FRAME_WAIT_TIMEOUT_MS (100)
 #define UVC_FIRST_FRAME_WAIT_TIMEOUT_MS (3000)
+#define UVC_STALL_TIMEOUT_MS (1000)
+#define UVC_STALL_RECOVERY_LIMIT (3)
 static frame_node_t *__waited_node[WAITED_NODE_SIZE];
 static void clear_waited_node()
 {
@@ -277,6 +281,18 @@ static void clear_waited_node()
 
 /* forward declarations */
 static int uvc_video_stream(UVC_DEVICE_CTX_S *dev, int enable);
+
+static uint64_t uvc_monotonic_ms(void)
+{
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+        return 0;
+    }
+
+    return (uint64_t)now.tv_sec * 1000U +
+        (uint64_t)now.tv_nsec / 1000000U;
+}
 
 /* ---------------------------------------------------------------------------
  * V4L2 streaming related
@@ -683,6 +699,7 @@ static int32_t UVC_DeviceOpen(const char *devname, UVC_DEVICE_CTX_S *dev) {
     int fd;
     int ret = -EINVAL;
 
+    printf("UVC: opening video device %s\n", devname);
     fd = open(devname, O_RDWR | O_NONBLOCK);
     if (fd == -1) {
         printf("UVC: device open failed: %s (%d).\n", strerror(errno), errno);
@@ -690,6 +707,7 @@ static int32_t UVC_DeviceOpen(const char *devname, UVC_DEVICE_CTX_S *dev) {
     }
     strcpy(dev->uvc_devname, devname);
 
+    printf("UVC: video device opened, querying capabilities\n");
     ret = ioctl(fd, VIDIOC_QUERYCAP, &cap);
     if (ret < 0) {
         printf("UVC: unable to query uvc device: %s (%d)\n", strerror(errno), errno);
@@ -994,6 +1012,7 @@ static int uvc_video_process(UVC_DEVICE_CTX_S *dev) {
         // printf("bytesused:%d, length:%d\n", ubuf.bytesused, ubuf.length);
 
         dev->dqbuf_count++;
+        dev->last_dqbuf_ms = uvc_monotonic_ms();
 #ifdef ENABLE_BUFFER_DEBUG
         printf("DeQueued buffer at UVC side = %d\n", ubuf.index);
 #endif
@@ -1003,11 +1022,10 @@ static int uvc_video_process(UVC_DEVICE_CTX_S *dev) {
         if (ret == -ETIMEDOUT) {
             dev->frame_timeout_count++;
             dev->consecutive_frame_timeouts++;
-            cvi_uvc_stream_set_enabled(true);
             if (dev->consecutive_frame_timeouts == 1 ||
                 (dev->consecutive_frame_timeouts % 30) == 0) {
-                printf("UVC: no fresh encoded frame for %u ms, "
-                    "re-enabling producer (consecutive=%u total=%llu).\n",
+                printf("UVC: waiting for a fresh encoded frame for %u ms "
+                    "(consecutive=%u total=%llu).\n",
                     UVC_FRAME_WAIT_TIMEOUT_MS,
                     dev->consecutive_frame_timeouts,
                     dev->frame_timeout_count);
@@ -1407,6 +1425,7 @@ static int uvc_handle_streamon_event(UVC_DEVICE_CTX_S *dev) {
         }
         dev->first_buffer_queued = 1;
         dev->is_streaming = 1;
+        dev->last_dqbuf_ms = uvc_monotonic_ms();
     }
 
     return 0;
@@ -1422,6 +1441,88 @@ err:
         clear_waited_node();
     }
     return ret;
+}
+
+static int uvc_restart_stalled_stream(UVC_DEVICE_CTX_S *dev)
+{
+    int ret;
+
+    cvi_uvc_stream_set_enabled(false);
+    ret = uvc_video_stream(dev, 0);
+    if (ret < 0) {
+        return ret;
+    }
+
+    if (dev->io == IO_METHOD_MMAP && dev->mem != NULL) {
+        ret = uvc_uninit_device(dev);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    ret = uvc_video_reqbufs(dev, 0);
+    if (ret < 0) {
+        return ret;
+    }
+
+    dev->is_streaming = 0;
+    dev->first_buffer_queued = 0;
+    dev->uvc_shutdown_requested = 0;
+    clear_waited_node();
+    return uvc_handle_streamon_event(dev);
+}
+
+static void uvc_check_stream_progress(UVC_DEVICE_CTX_S *dev)
+{
+    uvc_cache_t *uvc_cache;
+    uint64_t now_ms;
+    int ok_count = -1;
+    int free_count = -1;
+    int ret;
+
+    if (!dev->is_streaming) {
+        return;
+    }
+
+    now_ms = uvc_monotonic_ms();
+    if (now_ms == 0) {
+        return;
+    }
+    if (dev->last_dqbuf_ms == 0) {
+        dev->last_dqbuf_ms = now_ms;
+        return;
+    }
+    if (now_ms - dev->last_dqbuf_ms < UVC_STALL_TIMEOUT_MS) {
+        return;
+    }
+
+    uvc_cache = uvc_cache_get();
+    if (uvc_cache != NULL) {
+        ok_count = get_queue_count(uvc_cache->ok_queue);
+        free_count = get_queue_count(uvc_cache->free_queue);
+    }
+
+    printf("UVC: stream stalled for %llu ms, qbuf=%llu dqbuf=%llu "
+        "cache_ok=%d cache_free=%d recovery=%u/%u.\n",
+        (unsigned long long)(now_ms - dev->last_dqbuf_ms),
+        dev->qbuf_count, dev->dqbuf_count, ok_count, free_count,
+        dev->stall_recovery_count, UVC_STALL_RECOVERY_LIMIT);
+
+    dev->last_dqbuf_ms = now_ms;
+    if (dev->stall_recovery_count >= UVC_STALL_RECOVERY_LIMIT) {
+        return;
+    }
+
+    dev->stall_recovery_count++;
+    ret = uvc_restart_stalled_stream(dev);
+    if (ret < 0) {
+        printf("UVC: local stream recovery %u failed: ret=%d errno=%d (%s).\n",
+            dev->stall_recovery_count, ret, errno, strerror(errno));
+        return;
+    }
+
+    printf("UVC: local stream recovery %u completed.\n",
+        dev->stall_recovery_count);
 }
 
 /* ---------------------------------------------------------------------------
@@ -2033,6 +2134,8 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
         case UVC_EVENT_DISCONNECT:
             cvi_uvc_stream_set_enabled(false);
             dev->consecutive_frame_timeouts = 0;
+            dev->last_dqbuf_ms = 0;
+            dev->stall_recovery_count = 0;
             dev->uvc_shutdown_requested = 1;
             printf("[%s]: UVC_EVENT_DISCONNECT\n", __func__);
             printf(
@@ -2060,6 +2163,7 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
 
         case UVC_EVENT_STREAMON:
             if (!dev->bulk) {
+                dev->stall_recovery_count = 0;
                 uvc_handle_streamon_event(dev);
             }
             return;
@@ -2067,6 +2171,8 @@ static void uvc_events_process(UVC_DEVICE_CTX_S *dev) {
         case UVC_EVENT_STREAMOFF:
             cvi_uvc_stream_set_enabled(false);
             dev->consecutive_frame_timeouts = 0;
+            dev->last_dqbuf_ms = 0;
+            dev->stall_recovery_count = 0;
             /* Stop V4L2 streaming... */
             if (!dev->run_standalone && dev->vdev->is_streaming) {
                 /* UVC - V4L2 integrated path. */
@@ -2157,6 +2263,7 @@ int32_t UVC_GADGET_DeviceCheck(void) {
     }
 
     if (0 == ret) {
+        uvc_check_stream_progress(&s_stUVCDevCtx);
         return ret;
     }
 
@@ -2190,20 +2297,22 @@ int32_t UVC_GADGET_DeviceCheck(void) {
         //     tTimeVal.tv_usec / 1000, tTimeVal.tv_usec % 1000);
     }
 
+    uvc_check_stream_progress(&s_stUVCDevCtx);
+
     return ret;
 }
 
 int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32MaxFrameSize) {
-    int bulk_mode = 1;
+    int bulk_mode = 0;
 
     int nbufs = WAITED_NODE_SIZE;              /* Ping-Pong buffers */
     /* USB speed related params */
-    int mult = 0;
+    int mult = 2;
     int burst = 0;
-    int maxp = 512;
+    int maxp = 1024;
 
     enum usb_device_speed speed = USB_SPEED_HIGH;
-    enum io_method uvc_io_method = IO_METHOD_MMAP;
+    enum io_method uvc_io_method = IO_METHOD_USERPTR;
 
     (void)pstDevCaps;
     (void)u32MaxFrameSize;
@@ -2259,8 +2368,8 @@ int32_t UVC_GADGET_Init(const CVI_UVC_DEVICE_CAP_S *pstDevCaps, u_int32_t u32Max
 
     if (maxp) s_stUVCDevCtx.maxpkt = maxp;
 
-    printf("UVC transport: high-speed bulk payload=%u bytes\n",
-        UVC_BULK_PAYLOAD_SIZE);
+    printf("UVC transport: high-speed isochronous payload=%u bytes\n",
+        s_stUVCDevCtx.maxpkt * (s_stUVCDevCtx.mult + 1));
 
     s_stUVCDevCtx.uvc_fd = -1;
 

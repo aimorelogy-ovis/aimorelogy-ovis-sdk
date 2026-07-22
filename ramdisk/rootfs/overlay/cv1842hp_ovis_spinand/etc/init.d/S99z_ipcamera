@@ -20,11 +20,33 @@ read_pid() {
 	esac
 }
 
-is_running() {
-	read_pid || return 1
+pid_is_ipcamera() {
+	pid=$1
 	kill -0 "$pid" 2>/dev/null || return 1
+	if [ "$(readlink "/proc/$pid/exe" 2>/dev/null)" = "$DAEMON" ]; then
+		return 0
+	fi
 	[ -r "/proc/$pid/cmdline" ] || return 1
-	tr '\000' ' ' < "/proc/$pid/cmdline" | grep -F "$DAEMON" >/dev/null 2>&1
+	[ "$(tr '\000' '\n' < "/proc/$pid/cmdline" | sed -n '1p')" = "$DAEMON" ]
+}
+
+find_running_pid() {
+	for proc in /proc/[0-9]*; do
+		candidate=${proc##*/}
+		if pid_is_ipcamera "$candidate"; then
+			pid=$candidate
+			printf '%s\n' "$pid" > "$PIDFILE"
+			return 0
+		fi
+	done
+	return 1
+}
+
+is_running() {
+	if read_pid && pid_is_ipcamera "$pid"; then
+		return 0
+	fi
+	find_running_pid
 }
 
 prepare_config() {
@@ -76,12 +98,12 @@ stop() {
 		echo "not running"
 		return 0
 	fi
-	kill -TERM "$pid" 2>/dev/null || {
-		echo "FAIL"
-		return 1
-	}
 	count=0
 	while is_running && [ "$count" -lt "$STOP_TIMEOUT" ]; do
+		kill -TERM "$pid" 2>/dev/null || {
+			echo "FAIL"
+			return 1
+		}
 		sleep 1
 		count=$((count + 1))
 	done

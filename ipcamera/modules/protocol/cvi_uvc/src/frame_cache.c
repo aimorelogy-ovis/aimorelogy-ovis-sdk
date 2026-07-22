@@ -388,6 +388,20 @@ ERR:
     return -1;
 }
 
+int get_queue_count(frame_queue_t *q)
+{
+    int count;
+
+    if (q == NULL || q->cache == NULL ||
+        pthread_mutex_lock(&(q->locker)) != 0) {
+        return -1;
+    }
+
+    count = q->cache->count;
+    pthread_mutex_unlock(&(q->locker));
+    return count;
+}
+
 int wait_node_from_queue(frame_queue_t *q, frame_node_t **node, unsigned int timeout_ms)
 {
     struct timespec deadline;

@@ -65,11 +65,8 @@ extern unsigned int uvc_gadget_trace_param;
  * Driver specific constants
  */
 
-/*
- * Keep 16 ms of HS isochronous transfers queued. This absorbs scheduling
- * latency while staying below the CVITEK DWC2 256-descriptor isochronous
- * ring limit.
- */
+/* Request array capacity. The active isochronous queue depth is selected in
+ * uvc_video.c without changing this shared structure layout. */
 #define UVC_NUM_REQUESTS			128
 #define UVC_BULK_REQUEST_SIZE			16383
 #define UVC_MAX_REQUEST_SIZE			64

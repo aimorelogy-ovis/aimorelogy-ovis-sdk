@@ -19,11 +19,11 @@ WEBUSB_READY=/var/run/ovis-webusb-ready
 WEBUSB_LOG=/var/log/ovis-webusb.log
 MANAGER=/usr/sbin/ovis-managerd
 PARAM_CONFIG=/mnt/cfg/ipcamera/param_config.ini
-OPERATIONAL_PID=0x100D
+OPERATIONAL_PID=0x1010
 PROVISIONING_PID=0x100E
 NCM_ONLY_PID=0x100F
 COMPOSITE_MANUFACTURER="AIMORELOGY"
-OPERATIONAL_PRODUCT="OVIS NCM + UVC"
+OPERATIONAL_PRODUCT="OVIS NCM + UVC ISO"
 NCM_ONLY_PRODUCT="OVIS NCM"
 PROVISIONING_PRODUCT="OVIS Network Setup"
 OUTPUT_REBOOT_DELAY=3
@@ -203,6 +203,10 @@ activate_network() {
 	echo "OVIS NCM address: $ncm_address"
 	[ "$start_services" = "no-services" ] && return 0
 	/etc/init.d/S98ovis-manager start || return 1
+	if [ "$start_services" = "manager-only" ]; then
+		echo "OVIS USB recovery mode: ipcamera start skipped due to invalid configuration" >&2
+		return 0
+	fi
 	if ! /etc/init.d/S99z_ipcamera start; then
 		echo "WARNING: ipcamera failed to start; OVIS USB network remains available" >&2
 	fi
@@ -314,8 +318,13 @@ start() {
 	rm -f "$NCM_PENDING_SUBNET_FILE"
 	/etc/uhubon.sh device || return 1
 	if load_network_subnet; then
-		prepare_output_config || return 1
-		setup_operational_gadget
+		if prepare_output_config; then
+			setup_operational_gadget
+		else
+			echo "OVIS USB recovery mode: starting NCM only because runtime configuration is invalid" >&2
+			uvc_enabled=0
+			setup_operational_gadget manager-only
+		fi
 	else
 		setup_provisioning_gadget
 	fi

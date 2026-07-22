@@ -309,20 +309,23 @@ int main(void)
 	    !active_config_value_equals("vb_pool_7", "frame_fmt", "PIXEL_FORMAT_NV12") ||
 	    !active_config_value_equals("vb_pool_7", "blk_cnt", "4") ||
 	    !active_config_value_equals("vb_pool_6", "blk_cnt", "4") ||
+	    !active_config_value_equals("vb_pool_6", "bEnable", "0") ||
 	    !active_config_value_equals("vb_pool_8", "frame_width", "1920") ||
 	    !active_config_value_equals("vb_pool_8", "frame_height", "1080") ||
 	    !active_config_value_equals("vb_pool_8", "blk_cnt", "4") ||
+	    !active_config_value_equals("vb_pool_8", "bEnable", "0") ||
 	    !active_config_value_equals("vpss_config", "vpss_grp", "7") ||
 	    !active_config_value_equals("vpssgrp1", "chn_cnt", "1") ||
-	    !active_config_value_equals("vpssgrp6", "grp_enable", "1") ||
+	    !active_config_value_equals("vpssgrp6", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp6", "src_dev_id", "0") ||
 	    !active_config_value_equals("vpssgrp6", "dst_dev_id", "6") ||
+	    !active_config_value_equals("vpssgrp6.chn0", "chn_enable", "0") ||
 	    !active_config_value_equals("vpssgrp6.chn0", "src_framerate", "30") ||
 	    !active_config_value_equals("vpssgrp6.chn0", "dst_framerate", "30") ||
 	    !active_config_value_equals("vpssgrp6.chn0", "attach_pool", "8") ||
-	    !active_config_value_equals("vencchn3", "src_dev_id", "6") ||
+	    !active_config_value_equals("vencchn3", "src_dev_id", "0") ||
 	    !active_config_value_equals("vencchn3", "src_chn_id", "0") ||
-	    !active_config_value_equals("vencchn3", "vpss_grp", "6") ||
+	    !active_config_value_equals("vencchn3", "vpss_grp", "0") ||
 	    !active_config_value_equals("vencchn3", "vpss_chn", "0") ||
 	    !active_config_value_equals("vencchn3", "src_framerate", "30") ||
 	    !active_config_value_equals("vencchn3", "dst_framerate", "30") ||
@@ -333,16 +336,18 @@ int main(void)
 	    !active_config_value_equals("vpssgrp2", "max_w", "1920") ||
 	    !active_config_value_equals("vpssgrp2", "max_h", "1080") ||
 	    !active_config_value_equals("vpssgrp2", "src_chn_id", "0") ||
-	    !active_config_value_equals("vpssgrp2", "src_framerate", "30") ||
-	    !active_config_value_equals("vpssgrp2", "dst_framerate", "10") ||
+	    !active_config_value_equals("vpssgrp2", "src_framerate", "-1") ||
+	    !active_config_value_equals("vpssgrp2", "dst_framerate", "-1") ||
 	    !active_config_value_equals("vpssgrp2", "pixel_fmt", "PIXEL_FORMAT_NV12") ||
 	    !active_config_value_equals("vpssgrp2.chn0", "chn_pixel_fmt",
 		    "PIXEL_FORMAT_NV12") ||
 	    !active_config_value_equals("vb_pool_2", "frame_fmt", "PIXEL_FORMAT_NV12") ||
-	    !active_config_value_equals("vpssgrp5", "grp_enable", "0"))
+	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
+	    !active_config_value_equals("output_config", "rtsp_enable", "0") ||
+	    !active_config_value_equals("output_config", "uvc_enable", "1"))
 		fail("ObjectTrack VPSS topology migration failed");
 
-	stage_and_apply(30, 9000, 80, 0, 1, 1, 1, 0, 0, 1, 0);
+	stage_and_apply(30, 9000, 80, 0, 1, 0, 1, 0, 0, 1, 0);
 	if (!active_config_value_equals("vpssgrp2", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp3", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp4", "grp_enable", "1") ||
@@ -371,7 +376,7 @@ int main(void)
 		"motion");
 	if (cJSON_GetObjectItemCaseSensitive(motion, "sensitivity")->valueint != 80)
 		fail("motion sensitivity did not round-trip");
-	payload = make_payload(document, 30, 20000, 80, 0, 1, 1, 1, 0);
+	payload = make_payload(document, 30, 20000, 80, 0, 1, 0, 1, 0);
 	if (config_validate_json(payload, validation, sizeof(validation), error,
 			sizeof(error)) != 1 || strstr(validation, "OUT_OF_RANGE") == NULL)
 		fail("out-of-range bitrate was not rejected");
@@ -393,13 +398,13 @@ int main(void)
 	free(payload);
 	cJSON_Delete(document);
 
-	stage_and_apply(30, 8500, 60, 1, 1, 1, 0, 0, 1, 0, 1);
+	stage_and_apply(30, 8500, 60, 1, 1, 0, 0, 0, 1, 0, 1);
 	document = read_document(revision_after, sizeof(revision_after));
 	if (strcmp(revision_before, revision_after) != 0)
 		fail("rollback did not restore the previous file");
 	cJSON_Delete(document);
 
-	stage_and_apply(60, 8800, 60, 1, 1, 1, 0, 0, 0, 1, 0);
+	stage_and_apply(60, 8800, 60, 1, 0, 1, 0, 0, 0, 1, 0);
 	if (!active_config_value_equals("vpssgrp4", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "0"))
 		fail("disabled motion detection left its VPSS group enabled");
@@ -424,41 +429,54 @@ int main(void)
 	    !active_config_value_equals("vpssgrp6.chn0", "dst_framerate", "60") ||
 	    !active_config_value_equals("vencchn3", "src_framerate", "60") ||
 	    !active_config_value_equals("vencchn3", "dst_framerate", "60") ||
-	    !active_config_value_equals("vpssgrp2", "src_framerate", "60") ||
-	    !active_config_value_equals("vpssgrp2", "dst_framerate", "10"))
+	    !active_config_value_equals("vpssgrp2", "src_framerate", "-1") ||
+	    !active_config_value_equals("vpssgrp2", "dst_framerate", "-1"))
 		fail("60 fps did not update the UVC or AI VPSS frame rates");
 	cJSON_Delete(document);
-	stage_and_apply(60, 8800, 60, 1, 1, 1, 0, 1, 0, 1, 0);
+	stage_and_apply(60, 8800, 60, 1, 0, 1, 0, 1, 0, 1, 0);
 	if (!active_config_value_equals("ai_object_track_config",
 			"object_track_enable", "1") ||
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "1"))
 		fail("ObjectTrack enabled the retired VPSS group");
 
+	document = read_document(revision_after, sizeof(revision_after));
+	payload = make_payload(document, 60, 8800, 60, 1, 0, 0, 0, 1);
+	if (config_validate_json(payload, validation, sizeof(validation), error,
+			sizeof(error)) != 1 || strstr(validation, "OUTPUT_MODE_CONFLICT") == NULL)
+		fail("disabled UVC and RTSP outputs were not rejected");
+	free(payload);
+	payload = make_payload(document, 60, 8800, 60, 1, 1, 1, 0, 1);
+	if (config_validate_json(payload, validation, sizeof(validation), error,
+			sizeof(error)) != 1 || strstr(validation, "OUTPUT_MODE_CONFLICT") == NULL)
+		fail("simultaneous UVC and RTSP outputs were not rejected");
+	free(payload);
+	cJSON_Delete(document);
+
 	service_calls = 0;
 	usb_reboot_calls = 0;
-	stage_and_apply(60, 8800, 60, 1, 0, 0, 0, 1, 0, 1, 0);
+	stage_and_apply(60, 8800, 60, 1, 1, 0, 0, 1, 0, 1, 0);
 	if (service_calls != 0 || usb_reboot_calls != 1 ||
-	    !active_config_value_equals("output_config", "rtsp_enable", "0") ||
+	    !active_config_value_equals("output_config", "rtsp_enable", "1") ||
 	    !active_config_value_equals("output_config", "uvc_enable", "0") ||
 	    !active_config_value_equals("output_config", "sub_enable", "1") ||
-	    !active_config_value_equals("vb_pool_6", "bEnable", "0") ||
-	    !active_config_value_equals("vpssgrp1", "grp_enable", "0") ||
-	    !active_config_value_equals("vencchn0", "bEnable", "0") ||
-	    !active_config_value_equals("vencchn1", "bEnable", "0") ||
-	    !active_config_value_equals("vencchn2", "bEnable", "0") ||
+	    !active_config_value_equals("vb_pool_6", "bEnable", "1") ||
+	    !active_config_value_equals("vpssgrp1", "grp_enable", "1") ||
+	    !active_config_value_equals("vencchn0", "bEnable", "1") ||
+	    !active_config_value_equals("vencchn1", "bEnable", "1") ||
+	    !active_config_value_equals("vencchn2", "bEnable", "1") ||
 	    !active_config_value_equals("vb_pool_8", "bEnable", "0") ||
 	    !active_config_value_equals("vpssgrp6", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp6.chn0", "chn_enable", "0") ||
 	    !active_config_value_equals("vencchn3", "bEnable", "0") ||
-	    !active_config_value_equals("rtsp_config", "rtsp_cnt", "0"))
-		fail("disabled outputs left processing resources enabled");
+	    !active_config_value_equals("rtsp_config", "rtsp_cnt", "2"))
+		fail("RTSP output did not enable its processing resources");
 	document = read_document(revision_after, sizeof(revision_after));
 	{
 		cJSON *values = cJSON_GetObjectItemCaseSensitive(document, "values");
 		cJSON *outputs = cJSON_GetObjectItemCaseSensitive(values, "outputs");
 		cJSON *video = cJSON_GetObjectItemCaseSensitive(values, "video");
-		if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(
+		if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(
 				cJSON_GetObjectItemCaseSensitive(outputs, "rtsp"), "enabled")) ||
 		    cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(
 				cJSON_GetObjectItemCaseSensitive(outputs, "uvc"), "enabled")) ||
@@ -494,8 +512,8 @@ int main(void)
 	    !active_config_value_equals("vpssgrp6.chn0", "dst_framerate", "30") ||
 	    !active_config_value_equals("vencchn3", "src_framerate", "30") ||
 	    !active_config_value_equals("vencchn3", "dst_framerate", "30") ||
-	    !active_config_value_equals("vpssgrp2", "src_framerate", "30") ||
-	    !active_config_value_equals("vpssgrp2", "dst_framerate", "10"))
+	    !active_config_value_equals("vpssgrp2", "src_framerate", "-1") ||
+	    !active_config_value_equals("vpssgrp2", "dst_framerate", "-1"))
 		fail("reset did not restore the UVC or AI VPSS frame rates");
 	if (!active_config_value_equals("vpssgrp2", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp3", "grp_enable", "0") ||
@@ -503,10 +521,12 @@ int main(void)
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "chn_enable", "0"))
 		fail("reset did not disable unused VPSS feature groups");
-	if (!active_config_value_equals("vpssgrp0.chn1", "chn_enable", "1") ||
-	    !active_config_value_equals("vencchn2", "bEnable", "1") ||
-	    !active_config_value_equals("osdc_config1", "bShow", "1"))
-		fail("reset did not restore sub stream dependent channels");
+	if (!active_config_value_equals("output_config", "rtsp_enable", "0") ||
+	    !active_config_value_equals("output_config", "uvc_enable", "1") ||
+	    !active_config_value_equals("vpssgrp0.chn1", "chn_enable", "0") ||
+	    !active_config_value_equals("vencchn2", "bEnable", "0") ||
+	    !active_config_value_equals("osdc_config1", "bShow", "0"))
+		fail("reset did not restore the default UVC-only output mode");
 	cJSON_Delete(document);
 	clean_test_directory();
 	puts("config transaction test passed");

@@ -9,6 +9,7 @@
 #include <linux/kernel.h>
 #include <linux/device.h>
 #include <linux/errno.h>
+#include <linux/jiffies.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 #include <linux/usb/video.h>
@@ -23,6 +24,16 @@
 #include "uvc_video.h"
 
 #define UVCG_MAX_SG_NUM		64	// 8ms in 125us interval.
+#define UVCG_ISOC_REQUESTS	16
+
+/* OVIS exposes a single UVC function. Keep diagnostics local to this module
+ * so changing them never changes the cross-object struct uvc_video layout. */
+static u64 uvc_isoc_complete_count;
+static u64 uvc_isoc_frame_count;
+static u64 uvc_isoc_byte_count;
+static u64 uvc_isoc_missed_count;
+static unsigned long uvc_isoc_last_log;
+
 /* --------------------------------------------------------------------------
  * Video codecs
  */
@@ -179,7 +190,7 @@ static int uvcg_video_ep_queue(struct uvc_video *video, struct usb_request *req)
 			 ret);
 
 		/* Isochronous endpoints can't be halted. */
-		if (usb_endpoint_xfer_bulk(video->ep->desc))
+		if (video->uvc->bulk)
 			usb_ep_set_halt(video->ep);
 	}
 
@@ -195,9 +206,35 @@ uvc_video_complete(struct usb_ep *ep, struct usb_request *req)
 
 	switch (req->status) {
 	case 0:
+		if (!video->uvc->bulk) {
+			uvc_isoc_complete_count++;
+			uvc_isoc_byte_count += req->actual;
+			if (req->actual >= 2 &&
+			    (((u8 *)req->buf)[1] & UVC_STREAM_EOF))
+				uvc_isoc_frame_count++;
+
+			if (time_after(jiffies, uvc_isoc_last_log + 5 * HZ)) {
+				uvcg_info(&video->uvc->func,
+					"ISO progress: req=%llu frames=%llu bytes=%llu missed=%llu.\n",
+					(unsigned long long)uvc_isoc_complete_count,
+					(unsigned long long)uvc_isoc_frame_count,
+					(unsigned long long)uvc_isoc_byte_count,
+					(unsigned long long)uvc_isoc_missed_count);
+				uvc_isoc_last_log = jiffies;
+			}
+		}
 		break;
 
 	case -EXDEV:		/* Missed isochronous transaction. */
+		uvc_isoc_complete_count++;
+		uvc_isoc_missed_count++;
+		if (time_after(jiffies, uvc_isoc_last_log + HZ)) {
+			uvcg_warn(&video->uvc->func,
+				"ISO request missed: completed=%llu missed=%llu.\n",
+				(unsigned long long)uvc_isoc_complete_count,
+				(unsigned long long)uvc_isoc_missed_count);
+			uvc_isoc_last_log = jiffies;
+		}
 		break;
 
 	case -ESHUTDOWN:	/* disconnect from host. */
@@ -245,6 +282,7 @@ static int
 uvc_video_alloc_requests(struct uvc_video *video)
 {
 	unsigned int req_size;
+	unsigned int req_count;
 	unsigned int i;
 #if IS_ENABLED(CONFIG_USB_UVCG_SG_TRANSFER)
 	unsigned int j;
@@ -253,14 +291,15 @@ uvc_video_alloc_requests(struct uvc_video *video)
 
 	BUG_ON(video->req_size);
 
-	if (usb_endpoint_xfer_bulk(video->ep->desc))
+	if (video->uvc->bulk)
 		req_size = UVC_BULK_REQUEST_SIZE;
 	else
 		req_size = video->ep->maxpacket
-			 * max_t(unsigned int, video->ep->maxburst, 1)
-			 * video->ep->mult;
+				 * max_t(unsigned int, video->ep->maxburst, 1)
+				 * video->ep->mult;
+	req_count = video->uvc->bulk ? UVC_NUM_REQUESTS : UVCG_ISOC_REQUESTS;
 #if !IS_ENABLED(CONFIG_USB_UVCG_SG_TRANSFER)
-	for (i = 0; i < UVC_NUM_REQUESTS; ++i) {
+	for (i = 0; i < req_count; ++i) {
 		video->req_buffer[i] = kmalloc(req_size, GFP_KERNEL);
 		if (video->req_buffer[i] == NULL)
 			goto error;
@@ -280,7 +319,7 @@ uvc_video_alloc_requests(struct uvc_video *video)
 	video->req_size = req_size;
 #else
 	req_size = ALIGN(req_size, 32);
-	for (i = 0; i < UVC_NUM_REQUESTS; ++i) {
+	for (i = 0; i < req_count; ++i) {
 		video->req_buffer[i] = kmalloc(req_size * UVCG_MAX_SG_NUM, GFP_KERNEL);
 		if (video->req_buffer[i] == NULL)
 			goto error;
@@ -380,7 +419,10 @@ static void uvcg_video_pump(struct work_struct *work)
 
 void uvcg_video_pump_schedule(struct uvc_video *video)
 {
-	queue_work(system_highpri_wq, &video->pump);
+	/* The queued ISO requests already absorb scheduler latency. Running every
+	 * completion on the high-priority workqueue can starve the userspace VENC
+	 * drain thread on hosts that service the endpoint continuously. */
+	schedule_work(&video->pump);
 }
 
 /*
@@ -405,6 +447,15 @@ int uvcg_video_enable(struct uvc_video *video, int enable)
 			if (video->req[i])
 				usb_ep_dequeue(video->ep, video->req[i]);
 
+		if (!video->uvc->bulk &&
+		    uvc_isoc_complete_count != 0)
+			uvcg_info(&video->uvc->func,
+				"ISO summary: req=%llu frames=%llu bytes=%llu missed=%llu.\n",
+				(unsigned long long)uvc_isoc_complete_count,
+				(unsigned long long)uvc_isoc_frame_count,
+				(unsigned long long)uvc_isoc_byte_count,
+				(unsigned long long)uvc_isoc_missed_count);
+
 		uvc_video_free_requests(video);
 		uvcg_queue_enable(&video->queue, 0);
 		return 0;
@@ -412,11 +463,22 @@ int uvcg_video_enable(struct uvc_video *video, int enable)
 
 	if ((ret = uvcg_queue_enable(&video->queue, 1)) < 0)
 		return ret;
+	uvc_isoc_complete_count = 0;
+	uvc_isoc_frame_count = 0;
+	uvc_isoc_byte_count = 0;
+	uvc_isoc_missed_count = 0;
+	uvc_isoc_last_log = jiffies;
 
 	if ((ret = uvc_video_alloc_requests(video)) < 0)
 		return ret;
 
-	if (usb_endpoint_xfer_bulk(video->ep->desc)) {
+	uvcg_info(&video->uvc->func,
+		   "%s request queue: count=%u size=%u bytes.\n",
+		   video->uvc->bulk ? "Bulk" : "ISO",
+		   video->uvc->bulk ? UVC_NUM_REQUESTS : UVCG_ISOC_REQUESTS,
+		   video->req_size);
+
+	if (video->uvc->bulk) {
 		video->max_payload_size = UVC_BULK_REQUEST_SIZE;
 		video->encode = uvc_video_encode_bulk;
 		video->payload_size = 0;
@@ -438,6 +500,11 @@ int uvcg_video_init(struct uvc_video *video, struct uvc_device *uvc)
 	INIT_LIST_HEAD(&video->req_free);
 	spin_lock_init(&video->req_lock);
 	INIT_WORK(&video->pump, uvcg_video_pump);
+	uvc_isoc_complete_count = 0;
+	uvc_isoc_frame_count = 0;
+	uvc_isoc_byte_count = 0;
+	uvc_isoc_missed_count = 0;
+	uvc_isoc_last_log = jiffies;
 
 	video->uvc = uvc;
 	video->fcc = V4L2_PIX_FMT_YUYV;
