@@ -10,6 +10,9 @@
 #include "app_ipcam_ai.h"
 #include "app_ipcam_sys.h"
 #include "app_ipcam_object_track_gmc.h"
+#ifdef OSDC_SUPPORT
+#include "app_ipcam_osd.h"
+#endif
 #include "tdl_sdk.h"
 #include <pthread.h>
 #include <stdio.h>
@@ -29,6 +32,7 @@
 #define OBJECT_TRACK_PIPELINE_READY_RETRIES 5
 #define OBJECT_TRACK_PIPELINE_READY_TIMEOUT_MS 100
 #define OBJECT_TRACK_PIPELINE_DRAIN_LIMIT 8
+#define OBJECT_TRACK_OSD_HOLD_FRAMES 2
 
 /**************************************************************************
  *                           C O N S T A N T S                            *
@@ -156,6 +160,18 @@ static uint64_t app_ipcam_Ai_Object_Track_TimeUs(void)
     }
     return (uint64_t)ts.tv_sec * 1000ULL * 1000ULL +
            (uint64_t)ts.tv_nsec / 1000ULL;
+}
+
+static CVI_VOID app_ipcam_Ai_Object_Track_ObjDraw_Clear(CVI_VOID)
+{
+    {
+        SMT_MutexAutoLock(g_Mutex, lock);
+        g_stObjDraw.size = 0;
+    }
+#ifdef OSDC_SUPPORT
+    app_ipcam_Osdc_ObjectTrackRect_Publish(
+        CVI_FALSE, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
+#endif
 }
 
 static CVI_VOID app_ipcam_Ai_Object_Track_Gmc_Reset(CVI_VOID)
@@ -579,8 +595,7 @@ pipeline_failed:
     }
 
     if (mode == TRACKING) {
-        SMT_MutexAutoLock(g_Mutex, lock);
-        g_stObjDraw.size = 0;
+        app_ipcam_Ai_Object_Track_ObjDraw_Clear();
     }
     g_PipelineMode = mode;
     g_bPipelineInitialized = CVI_TRUE;
@@ -922,6 +937,10 @@ CVI_VOID app_ipcam_Ai_Object_Track_Mode_Set(APP_PARAM_OBJECT_TRACK_MODE mode) {
     g_mode = mode;
     pthread_mutex_unlock(&g_ModeMutex);
 
+    if (mode != TRACKING) {
+        app_ipcam_Ai_Object_Track_ObjDraw_Clear();
+    }
+
     if (pstPdCfg != NULL && pstPdCfg->bEnable && mode == TRACKING) {
         app_ipcam_Ai_PD_Pause_Set(CVI_TRUE);
     }
@@ -1103,10 +1122,7 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                 memset(&cur_det_frame, 0, sizeof(cur_det_frame));
             }
 
-            {
-                SMT_MutexAutoLock(g_Mutex, lock);
-                g_stObjDraw.size = 0;
-            }
+            app_ipcam_Ai_Object_Track_ObjDraw_Clear();
 
             if (pending_request_valid) {
                 uint64_t now_us = app_ipcam_Ai_Object_Track_TimeUs();
@@ -1440,6 +1456,16 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                     g_stObjDraw.info[0].box.x2 = track_meta.info[0].bbox.x2 * scale_x;
                     g_stObjDraw.info[0].box.y1 = track_meta.info[0].bbox.y1 * scale_y;
                     g_stObjDraw.info[0].box.y2 = track_meta.info[0].bbox.y2 * scale_y;
+#ifdef OSDC_SUPPORT
+                    app_ipcam_Osdc_ObjectTrackRect_Publish(
+                        CVI_TRUE,
+                        g_stObjDraw.info[0].box.x1,
+                        g_stObjDraw.info[0].box.y1,
+                        g_stObjDraw.info[0].box.x2,
+                        g_stObjDraw.info[0].box.y2,
+                        g_pstObjTrackCfg->u32GrpWidth,
+                        g_pstObjTrackCfg->u32GrpHeight);
+#endif
                 } else {
                     g_stObjDraw.size = 0;
                 }
@@ -1452,6 +1478,9 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                 }
                 if (sot_unreliable_frames < UINT32_MAX) {
                     sot_unreliable_frames++;
+                }
+                if (sot_unreliable_frames == OBJECT_TRACK_OSD_HOLD_FRAMES) {
+                    app_ipcam_Ai_Object_Track_ObjDraw_Clear();
                 }
                 if (!g_lost_timer_started) {
                     g_lost_start_time = get_time_in_ms();

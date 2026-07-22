@@ -62,6 +62,25 @@ static CVI_BOOL g_bOsdcThreadRun;
 static pthread_t g_pthOsdcRgn;
 static pthread_mutex_t OsdcMutex = PTHREAD_MUTEX_INITIALIZER;
 
+#ifdef OBJECT_TRACK_SUPPORT
+typedef struct APP_OSDC_TRACK_RECT_STATE_T {
+    CVI_BOOL bShow;
+    CVI_FLOAT fX1;
+    CVI_FLOAT fY1;
+    CVI_FLOAT fX2;
+    CVI_FLOAT fY2;
+    CVI_U32 u32SourceWidth;
+    CVI_U32 u32SourceHeight;
+    CVI_U64 u64Generation;
+} APP_OSDC_TRACK_RECT_STATE_S;
+
+static CVI_BOOL g_bOsdcTrackRectThreadRun;
+static pthread_t g_pthOsdcTrackRect;
+static pthread_mutex_t g_OsdcTrackRectMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_OsdcTrackRectCond = PTHREAD_COND_INITIALIZER;
+static APP_OSDC_TRACK_RECT_STATE_S g_stOsdcTrackRectState = {0};
+#endif
+
 static APP_OSDC_CANVAS_CFG_S g_stOsdcCanvasCfg = {0};
 // static OSDC_DRAW_OBJ_S g_ObjsVec[OSDC_OBJS_MAX] = {0};
 static APP_OSDC_OBJS_AI_STR_INFO_S g_objStrAi = {0};
@@ -107,6 +126,26 @@ static APP_OSDC_OBJS_INFO_S *g_pstOsdcPrivacy = &g_stOsdcPrivacy[0];
 APP_OSDC_OBJS_INFO_S *app_ipcam_OsdcPrivacy_Param_Get(void)
 {
     return g_pstOsdcPrivacy;
+}
+#endif
+
+#ifdef OBJECT_TRACK_SUPPORT
+CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
+    CVI_BOOL bShow, CVI_FLOAT fX1, CVI_FLOAT fY1,
+    CVI_FLOAT fX2, CVI_FLOAT fY2,
+    CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight)
+{
+    pthread_mutex_lock(&g_OsdcTrackRectMutex);
+    g_stOsdcTrackRectState.bShow = bShow;
+    g_stOsdcTrackRectState.fX1 = fX1;
+    g_stOsdcTrackRectState.fY1 = fY1;
+    g_stOsdcTrackRectState.fX2 = fX2;
+    g_stOsdcTrackRectState.fY2 = fY2;
+    g_stOsdcTrackRectState.u32SourceWidth = u32SourceWidth;
+    g_stOsdcTrackRectState.u32SourceHeight = u32SourceHeight;
+    g_stOsdcTrackRectState.u64Generation++;
+    pthread_cond_signal(&g_OsdcTrackRectCond);
+    pthread_mutex_unlock(&g_OsdcTrackRectMutex);
 }
 #endif
 
@@ -892,7 +931,8 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
 #ifdef OBJECT_TRACK_SUPPORT
 if (iOsdcIndex == 0 &&
     g_pstOsdcCfg->bShowTrackRect[iOsdcIndex] &&
-    app_ipcam_Ai_Object_Track_ProcStatus_Get()) {
+    app_ipcam_Ai_Object_Track_ProcStatus_Get() &&
+    app_ipcam_Ai_Object_Track_Mode_Get() != TRACKING) {
     app_ipcam_Ai_Object_Track_ObjDrawInfo_Get(&g_objMetaObjectTrack);
 
     s32Ret = app_ipcam_Osd_ObjectTrack_CenterBox_Add(pstObjAttr, &OsdcObjsNum, &g_objMetaObjectTrack);
@@ -1164,6 +1204,162 @@ static void app_ipcam_AiRectShow_Set(int status)
     }
 }
 
+#ifdef OBJECT_TRACK_SUPPORT
+static CVI_BOOL app_ipcam_Osdc_ObjectTrackRect_Build(
+    const APP_OSDC_TRACK_RECT_STATE_S *pstState,
+    VPSS_DRAW_RECT_S *pstDrawRect,
+    VPSS_GRP *pVpssGrp, VPSS_CHN *pVpssChn)
+{
+    CVI_BOOL bEnabled = CVI_FALSE;
+    CVI_U32 u32Width = 0;
+    CVI_U32 u32Height = 0;
+    CVI_S32 s32X1 = 0;
+    CVI_S32 s32Y1 = 0;
+    CVI_S32 s32X2 = 0;
+    CVI_S32 s32Y2 = 0;
+    CVI_U32 u32MinSize = 0;
+    CVI_U16 u16Thick = 4;
+
+    memset(pstDrawRect, 0, sizeof(*pstDrawRect));
+    *pVpssGrp = VPSS_INVALID_GRP;
+    *pVpssChn = VPSS_INVALID_CHN;
+
+    pthread_mutex_lock(&OsdcMutex);
+    if (g_pstOsdcCfg->enable && g_pstOsdcCfg->bShow[0] &&
+        g_pstOsdcCfg->bShowTrackRect[0] &&
+        g_pstOsdcCfg->mmfChn[0].enModId == CVI_ID_VPSS &&
+        g_pstOsdcCfg->mmfChn[0].s32DevId >= 0 &&
+        g_pstOsdcCfg->mmfChn[0].s32DevId < CVI_MAX_VPSS_GRP &&
+        g_pstOsdcCfg->mmfChn[0].s32ChnId >= 0 &&
+        g_pstOsdcCfg->mmfChn[0].s32ChnId < VPSS_MAX_PHY_CHN_NUM) {
+        APP_VPSS_GRP_CFG_T *pstVpssCfg = &app_ipcam_Vpss_Param_Get()->
+            astVpssGrpCfg[g_pstOsdcCfg->mmfChn[0].s32DevId];
+
+        *pVpssGrp = g_pstOsdcCfg->mmfChn[0].s32DevId;
+        *pVpssChn = g_pstOsdcCfg->mmfChn[0].s32ChnId;
+        u32Width = pstVpssCfg->astVpssChnAttr[*pVpssChn].u32Width;
+        u32Height = pstVpssCfg->astVpssChnAttr[*pVpssChn].u32Height;
+        bEnabled = CVI_TRUE;
+    }
+    pthread_mutex_unlock(&OsdcMutex);
+
+    if (!bEnabled) {
+        return CVI_FALSE;
+    }
+    if (!pstState->bShow ||
+        pstState->u32SourceWidth == 0 || pstState->u32SourceHeight == 0 ||
+        u32Width == 0 || u32Height == 0) {
+        return CVI_TRUE;
+    }
+    if (!isfinite(pstState->fX1) || !isfinite(pstState->fY1) ||
+        !isfinite(pstState->fX2) || !isfinite(pstState->fY2)) {
+        return CVI_TRUE;
+    }
+
+    s32X1 = (CVI_S32)lroundf(pstState->fX1 * u32Width /
+                             pstState->u32SourceWidth);
+    s32Y1 = (CVI_S32)lroundf(pstState->fY1 * u32Height /
+                             pstState->u32SourceHeight);
+    s32X2 = (CVI_S32)lroundf(pstState->fX2 * u32Width /
+                             pstState->u32SourceWidth);
+    s32Y2 = (CVI_S32)lroundf(pstState->fY2 * u32Height /
+                             pstState->u32SourceHeight);
+
+    s32X1 = fmax(0, fmin(s32X1, (CVI_S32)u32Width - 1));
+    s32Y1 = fmax(0, fmin(s32Y1, (CVI_S32)u32Height - 1));
+    s32X2 = fmax(s32X1 + 1, fmin(s32X2, (CVI_S32)u32Width));
+    s32Y2 = fmax(s32Y1 + 1, fmin(s32Y2, (CVI_S32)u32Height));
+
+    u32MinSize = fmin(s32X2 - s32X1, s32Y2 - s32Y1);
+    if (u32MinSize < 2) {
+        return CVI_TRUE;
+    }
+    if (u32MinSize < 2 * u16Thick) {
+        u16Thick = u32MinSize / 2;
+    }
+
+    pstDrawRect->astRect[0].bEnable = CVI_TRUE;
+    pstDrawRect->astRect[0].u16Thick = u16Thick;
+    pstDrawRect->astRect[0].u32BgColor = 0x00ff0000;
+    pstDrawRect->astRect[0].stRect.s32X = s32X1;
+    pstDrawRect->astRect[0].stRect.s32Y = s32Y1;
+    pstDrawRect->astRect[0].stRect.u32Width = s32X2 - s32X1;
+    pstDrawRect->astRect[0].stRect.u32Height = s32Y2 - s32Y1;
+    return CVI_TRUE;
+}
+
+static void *Thread_Osdc_ObjectTrackRect_Draw(void *arg)
+{
+    APP_OSDC_TRACK_RECT_STATE_S stState = {0};
+    VPSS_DRAW_RECT_S stDrawRect = {0};
+    VPSS_DRAW_RECT_S stLastDrawRect = {0};
+    VPSS_GRP VpssGrp = 0;
+    VPSS_CHN VpssChn = 0;
+    VPSS_GRP LastVpssGrp = VPSS_INVALID_GRP;
+    VPSS_CHN LastVpssChn = VPSS_INVALID_CHN;
+    CVI_U64 u64LastGeneration = (CVI_U64)-1;
+    CVI_BOOL bTargetValid = CVI_FALSE;
+
+    (void)arg;
+    prctl(PR_SET_NAME, "OSDC_TRACK_RECT", 0, 0, 0);
+
+    while (CVI_TRUE) {
+        pthread_mutex_lock(&g_OsdcTrackRectMutex);
+        while (g_bOsdcTrackRectThreadRun &&
+               u64LastGeneration == g_stOsdcTrackRectState.u64Generation) {
+            pthread_cond_wait(&g_OsdcTrackRectCond, &g_OsdcTrackRectMutex);
+        }
+        if (!g_bOsdcTrackRectThreadRun) {
+            pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+            break;
+        }
+        stState = g_stOsdcTrackRectState;
+        u64LastGeneration = stState.u64Generation;
+        pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+
+        bTargetValid = app_ipcam_Osdc_ObjectTrackRect_Build(
+            &stState, &stDrawRect, &VpssGrp, &VpssChn);
+        if (!bTargetValid) {
+            if (LastVpssGrp != VPSS_INVALID_GRP &&
+                LastVpssChn != VPSS_INVALID_CHN &&
+                stLastDrawRect.astRect[0].bEnable) {
+                memset(&stLastDrawRect, 0, sizeof(stLastDrawRect));
+                CVI_VPSS_SetChnDrawRect(
+                    LastVpssGrp, LastVpssChn, &stLastDrawRect);
+            }
+            continue;
+        }
+        if (VpssGrp == LastVpssGrp && VpssChn == LastVpssChn &&
+            memcmp(&stDrawRect, &stLastDrawRect, sizeof(stDrawRect)) == 0) {
+            continue;
+        }
+
+        if (CVI_VPSS_SetChnDrawRect(VpssGrp, VpssChn, &stDrawRect) !=
+            CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "ObjectTrack hardware OSD update failed, grp=%d chn=%d\n",
+                VpssGrp, VpssChn);
+            continue;
+        }
+        if (stDrawRect.astRect[0].bEnable &&
+            !stLastDrawRect.astRect[0].bEnable) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "ObjectTrack hardware OSD active on VPSS grp=%d chn=%d\n",
+                VpssGrp, VpssChn);
+        }
+        stLastDrawRect = stDrawRect;
+        LastVpssGrp = VpssGrp;
+        LastVpssChn = VpssChn;
+    }
+
+    memset(&stDrawRect, 0, sizeof(stDrawRect));
+    if (LastVpssGrp != VPSS_INVALID_GRP && LastVpssChn != VPSS_INVALID_CHN) {
+        CVI_VPSS_SetChnDrawRect(LastVpssGrp, LastVpssChn, &stDrawRect);
+    }
+    return NULL;
+}
+#endif
+
 void *Thread_Osdc_Draw(void *arg)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
@@ -1233,6 +1429,31 @@ int app_ipcam_Osdc_Init(void)
         return CVI_FAILURE;
     }
 
+#ifdef OBJECT_TRACK_SUPPORT
+    pthread_mutex_lock(&g_OsdcTrackRectMutex);
+    g_bOsdcTrackRectThreadRun = CVI_TRUE;
+    g_stOsdcTrackRectState.u64Generation++;
+    pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+    s32Ret = pthread_create(
+                &g_pthOsdcTrackRect,
+                NULL,
+                Thread_Osdc_ObjectTrackRect_Draw,
+                NULL);
+    if (s32Ret != 0) {
+        pthread_mutex_lock(&g_OsdcTrackRectMutex);
+        g_bOsdcTrackRectThreadRun = CVI_FALSE;
+        pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+        g_bOsdcThreadRun = CVI_FALSE;
+        pthread_join(g_pthOsdcRgn, NULL);
+        g_pthOsdcRgn = 0;
+        app_ipcam_OSDCRgn_Destory();
+        g_stOsdcCanvasCfg.createCanvas = CVI_FALSE;
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "create ObjectTrack hardware OSD thread failed!\n");
+        return CVI_FAILURE;
+    }
+#endif
+
     return CVI_SUCCESS;
 }
 
@@ -1250,6 +1471,19 @@ int app_ipcam_Osdc_DeInit(void)
         APP_PROF_LOG_PRINT(LEVEL_INFO, "draw Osdc Canvas not create!\n");
         return CVI_SUCCESS;
     }
+
+#ifdef OBJECT_TRACK_SUPPORT
+    pthread_mutex_lock(&g_OsdcTrackRectMutex);
+    g_bOsdcTrackRectThreadRun = CVI_FALSE;
+    g_stOsdcTrackRectState.bShow = CVI_FALSE;
+    g_stOsdcTrackRectState.u64Generation++;
+    pthread_cond_signal(&g_OsdcTrackRectCond);
+    pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+    if (g_pthOsdcTrackRect > (pthread_t)0) {
+        pthread_join(g_pthOsdcTrackRect, NULL);
+        g_pthOsdcTrackRect = 0;
+    }
+#endif
 
     g_bOsdcThreadRun = CVI_FALSE;
     if (g_pthOsdcRgn > (pthread_t)0) {
