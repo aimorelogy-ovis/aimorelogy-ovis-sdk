@@ -442,7 +442,8 @@ static CVI_VOID app_ipcam_Ai_Object_Track_ObjDraw_Clear(CVI_VOID)
     }
 #ifdef OSDC_SUPPORT
     app_ipcam_Osdc_ObjectTrackRect_Publish(
-        CVI_FALSE, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
+        CVI_FALSE, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0,
+        0, 0, 0, 0, 0);
 #endif
 }
 
@@ -1344,8 +1345,10 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
         CVI_U32 u32StaleFrames = 0;
         uint64_t frame_wait_start_us = 0;
         uint64_t frame_drain_start_us = 0;
+        uint64_t frame_ready_us = 0;
         uint64_t wrap_start_us = 0;
         uint64_t inference_start_us = 0;
+        uint64_t inference_done_us = 0;
         uint64_t result_start_us = 0;
         uint64_t cleanup_start_us = 0;
         APP_OBJECT_TRACK_GMC_RESULT_S gmc_result = {0};
@@ -1508,6 +1511,7 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
         stPerf.input_frames++;
 
         g_frame_id++;
+        frame_ready_us = app_ipcam_Ai_Object_Track_TimeUs();
 
         if (stFrame.stVFrame.enPixelFormat != PIXEL_FORMAT_NV12 ||
             stFrame.stVFrame.u32Width != g_pstObjTrackCfg->u32SotGrpWidth ||
@@ -1742,6 +1746,7 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
             }
             inference_start_us = app_ipcam_Ai_Object_Track_TimeUs();
             s32Ret = TDL_SingleObjectTracking(g_ObjectTrackTDLHandle, image, &track_meta, g_frame_id);
+            inference_done_us = app_ipcam_Ai_Object_Track_TimeUs();
             if (s32Ret != 0) {
                APP_PROF_LOG_PRINT(LEVEL_ERROR, "TDL_SingleObjectTracking failed with %#x!\n", s32Ret);
                app_ipcam_Ai_Object_Track_Mode_Set(
@@ -1842,7 +1847,12 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                         g_stObjDraw.info[0].box.x2,
                         g_stObjDraw.info[0].box.y2,
                         g_pstObjTrackCfg->u32GrpWidth,
-                        g_pstObjTrackCfg->u32GrpHeight);
+                        g_pstObjTrackCfg->u32GrpHeight,
+                        g_frame_id,
+                        stFrame.stVFrame.u32SeqenceNo,
+                        track_meta.info[0].state,
+                        frame_ready_us,
+                        inference_done_us);
 #endif
                 } else {
                     g_stObjDraw.size = 0;

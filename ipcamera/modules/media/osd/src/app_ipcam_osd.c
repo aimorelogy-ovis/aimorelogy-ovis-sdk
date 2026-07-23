@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <sys/prctl.h>
 #include <math.h>
+#include <time.h>
 #include "cvi_comm_video.h"
 #include "app_ipcam_osd.h"
 #include "app_ipcam_paramparse.h"
@@ -63,6 +64,8 @@ static pthread_t g_pthOsdcRgn;
 static pthread_mutex_t OsdcMutex = PTHREAD_MUTEX_INITIALIZER;
 
 #ifdef OBJECT_TRACK_SUPPORT
+#define OBJECT_TRACK_OSD_PERF_WINDOW_US 1000000ULL
+
 typedef struct APP_OSDC_TRACK_RECT_STATE_T {
     CVI_BOOL bShow;
     CVI_FLOAT fX1;
@@ -72,7 +75,33 @@ typedef struct APP_OSDC_TRACK_RECT_STATE_T {
     CVI_U32 u32SourceWidth;
     CVI_U32 u32SourceHeight;
     CVI_U64 u64Generation;
+    CVI_U64 u64FrameId;
+    CVI_U32 u32FrameSequence;
+    CVI_U32 u32TrackState;
+    CVI_U64 u64FrameReadyUs;
+    CVI_U64 u64InferenceDoneUs;
+    CVI_U64 u64PublishUs;
 } APP_OSDC_TRACK_RECT_STATE_S;
+
+typedef struct APP_OSDC_TRACK_RECT_PERF_T {
+    CVI_U64 u64WindowStartUs;
+    CVI_U64 u64Received;
+    CVI_U64 u64Applied;
+    CVI_U64 u64Coalesced;
+    CVI_U64 u64Unchanged;
+    CVI_U64 u64Failures;
+    CVI_U64 u64ReadyToPublishUs;
+    CVI_U64 u64PublishToWakeUs;
+    CVI_U64 u64BuildUs;
+    CVI_U64 u64SetRectUs;
+    CVI_U64 u64ReadyToApplyUs;
+    CVI_U64 u64InferenceToApplyUs;
+    CVI_U64 u64ReadyToApplyMaxUs;
+    CVI_U64 u64LastFrameId;
+    CVI_U64 u64LastGeneration;
+    CVI_U32 u32LastFrameSequence;
+    CVI_U32 u32LastTrackState;
+} APP_OSDC_TRACK_RECT_PERF_S;
 
 static CVI_BOOL g_bOsdcTrackRectThreadRun;
 static pthread_t g_pthOsdcTrackRect;
@@ -130,10 +159,21 @@ APP_OSDC_OBJS_INFO_S *app_ipcam_OsdcPrivacy_Param_Get(void)
 #endif
 
 #ifdef OBJECT_TRACK_SUPPORT
+static CVI_U64 app_ipcam_Osdc_ObjectTrackRect_TimeUs(CVI_VOID)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (CVI_U64)ts.tv_sec * 1000000ULL + (CVI_U64)ts.tv_nsec / 1000ULL;
+}
+
 CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
     CVI_BOOL bShow, CVI_FLOAT fX1, CVI_FLOAT fY1,
     CVI_FLOAT fX2, CVI_FLOAT fY2,
-    CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight)
+    CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight,
+    CVI_U64 u64FrameId, CVI_U32 u32FrameSequence,
+    CVI_U32 u32TrackState, CVI_U64 u64FrameReadyUs,
+    CVI_U64 u64InferenceDoneUs)
 {
     pthread_mutex_lock(&g_OsdcTrackRectMutex);
     g_stOsdcTrackRectState.bShow = bShow;
@@ -143,9 +183,66 @@ CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
     g_stOsdcTrackRectState.fY2 = fY2;
     g_stOsdcTrackRectState.u32SourceWidth = u32SourceWidth;
     g_stOsdcTrackRectState.u32SourceHeight = u32SourceHeight;
+    g_stOsdcTrackRectState.u64FrameId = u64FrameId;
+    g_stOsdcTrackRectState.u32FrameSequence = u32FrameSequence;
+    g_stOsdcTrackRectState.u32TrackState = u32TrackState;
+    g_stOsdcTrackRectState.u64FrameReadyUs = u64FrameReadyUs;
+    g_stOsdcTrackRectState.u64InferenceDoneUs = u64InferenceDoneUs;
+    g_stOsdcTrackRectState.u64PublishUs =
+        app_ipcam_Osdc_ObjectTrackRect_TimeUs();
     g_stOsdcTrackRectState.u64Generation++;
     pthread_cond_signal(&g_OsdcTrackRectCond);
     pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+}
+
+static CVI_VOID app_ipcam_Osdc_ObjectTrackRect_PerfLog(
+    APP_OSDC_TRACK_RECT_PERF_S *pstPerf, CVI_U64 u64NowUs)
+{
+    if (pstPerf->u64WindowStartUs == 0) {
+        pstPerf->u64WindowStartUs = u64NowUs;
+        return;
+    }
+    if (u64NowUs - pstPerf->u64WindowStartUs <
+        OBJECT_TRACK_OSD_PERF_WINDOW_US) {
+        return;
+    }
+
+    APP_PROF_LOG_PRINT(LEVEL_INFO,
+        "ObjectTrack OSD PERF recv=%llu apply=%llu merge=%llu same=%llu "
+        "fail=%llu ready_publish=%.3fms publish_wake=%.3fms "
+        "build=%.3fms setrect=%.3fms ready_apply=%.3f/%.3fms "
+        "infer_apply=%.3fms frame=%llu seq=%u state=%u gen=%llu\n",
+        (unsigned long long)pstPerf->u64Received,
+        (unsigned long long)pstPerf->u64Applied,
+        (unsigned long long)pstPerf->u64Coalesced,
+        (unsigned long long)pstPerf->u64Unchanged,
+        (unsigned long long)pstPerf->u64Failures,
+        pstPerf->u64Received > 0 ?
+            (double)pstPerf->u64ReadyToPublishUs /
+                pstPerf->u64Received / 1000.0 : 0.0,
+        pstPerf->u64Received > 0 ?
+            (double)pstPerf->u64PublishToWakeUs /
+                pstPerf->u64Received / 1000.0 : 0.0,
+        pstPerf->u64Received > 0 ?
+            (double)pstPerf->u64BuildUs /
+                pstPerf->u64Received / 1000.0 : 0.0,
+        pstPerf->u64Applied > 0 ?
+            (double)pstPerf->u64SetRectUs /
+                pstPerf->u64Applied / 1000.0 : 0.0,
+        pstPerf->u64Applied > 0 ?
+            (double)pstPerf->u64ReadyToApplyUs /
+                pstPerf->u64Applied / 1000.0 : 0.0,
+        (double)pstPerf->u64ReadyToApplyMaxUs / 1000.0,
+        pstPerf->u64Applied > 0 ?
+            (double)pstPerf->u64InferenceToApplyUs /
+                pstPerf->u64Applied / 1000.0 : 0.0,
+        (unsigned long long)pstPerf->u64LastFrameId,
+        pstPerf->u32LastFrameSequence,
+        pstPerf->u32LastTrackState,
+        (unsigned long long)pstPerf->u64LastGeneration);
+
+    memset(pstPerf, 0, sizeof(*pstPerf));
+    pstPerf->u64WindowStartUs = u64NowUs;
 }
 #endif
 
@@ -1298,7 +1395,9 @@ static void *Thread_Osdc_ObjectTrackRect_Draw(void *arg)
     VPSS_GRP LastVpssGrp = VPSS_INVALID_GRP;
     VPSS_CHN LastVpssChn = VPSS_INVALID_CHN;
     CVI_U64 u64LastGeneration = (CVI_U64)-1;
+    CVI_U64 u64PreviousGeneration = (CVI_U64)-1;
     CVI_BOOL bTargetValid = CVI_FALSE;
+    APP_OSDC_TRACK_RECT_PERF_S stPerf = {0};
 
     (void)arg;
     prctl(PR_SET_NAME, "OSDC_TRACK_RECT", 0, 0, 0);
@@ -1314,11 +1413,38 @@ static void *Thread_Osdc_ObjectTrackRect_Draw(void *arg)
             break;
         }
         stState = g_stOsdcTrackRectState;
+        u64PreviousGeneration = u64LastGeneration;
         u64LastGeneration = stState.u64Generation;
         pthread_mutex_unlock(&g_OsdcTrackRectMutex);
 
+        CVI_U64 u64WakeUs = app_ipcam_Osdc_ObjectTrackRect_TimeUs();
+        CVI_U64 u64BuildStartUs = u64WakeUs;
+        CVI_U64 u64ApplyDoneUs = 0;
+        CVI_U64 u64SetRectStartUs = 0;
+
+        stPerf.u64Received++;
+        if (u64PreviousGeneration != (CVI_U64)-1 &&
+            stState.u64Generation > u64PreviousGeneration + 1) {
+            stPerf.u64Coalesced +=
+                stState.u64Generation - u64PreviousGeneration - 1;
+        }
+        if (stState.u64FrameReadyUs > 0 &&
+            stState.u64PublishUs >= stState.u64FrameReadyUs) {
+            stPerf.u64ReadyToPublishUs +=
+                stState.u64PublishUs - stState.u64FrameReadyUs;
+        }
+        if (stState.u64PublishUs > 0 && u64WakeUs >= stState.u64PublishUs) {
+            stPerf.u64PublishToWakeUs += u64WakeUs - stState.u64PublishUs;
+        }
+        stPerf.u64LastFrameId = stState.u64FrameId;
+        stPerf.u32LastFrameSequence = stState.u32FrameSequence;
+        stPerf.u32LastTrackState = stState.u32TrackState;
+        stPerf.u64LastGeneration = stState.u64Generation;
+
         bTargetValid = app_ipcam_Osdc_ObjectTrackRect_Build(
             &stState, &stDrawRect, &VpssGrp, &VpssChn);
+        stPerf.u64BuildUs +=
+            app_ipcam_Osdc_ObjectTrackRect_TimeUs() - u64BuildStartUs;
         if (!bTargetValid) {
             if (LastVpssGrp != VPSS_INVALID_GRP &&
                 LastVpssChn != VPSS_INVALID_CHN &&
@@ -1327,19 +1453,40 @@ static void *Thread_Osdc_ObjectTrackRect_Draw(void *arg)
                 CVI_VPSS_SetChnDrawRect(
                     LastVpssGrp, LastVpssChn, &stLastDrawRect);
             }
-            continue;
+            goto perf_log;
         }
         if (VpssGrp == LastVpssGrp && VpssChn == LastVpssChn &&
             memcmp(&stDrawRect, &stLastDrawRect, sizeof(stDrawRect)) == 0) {
-            continue;
+            stPerf.u64Unchanged++;
+            goto perf_log;
         }
 
+        u64SetRectStartUs = app_ipcam_Osdc_ObjectTrackRect_TimeUs();
         if (CVI_VPSS_SetChnDrawRect(VpssGrp, VpssChn, &stDrawRect) !=
             CVI_SUCCESS) {
+            stPerf.u64Failures++;
             APP_PROF_LOG_PRINT(LEVEL_ERROR,
                 "ObjectTrack hardware OSD update failed, grp=%d chn=%d\n",
                 VpssGrp, VpssChn);
-            continue;
+            goto perf_log;
+        }
+        u64ApplyDoneUs = app_ipcam_Osdc_ObjectTrackRect_TimeUs();
+        stPerf.u64Applied++;
+        stPerf.u64SetRectUs += u64ApplyDoneUs - u64SetRectStartUs;
+        if (stState.u64FrameReadyUs > 0 &&
+            u64ApplyDoneUs >= stState.u64FrameReadyUs) {
+            CVI_U64 u64ReadyToApplyUs =
+                u64ApplyDoneUs - stState.u64FrameReadyUs;
+
+            stPerf.u64ReadyToApplyUs += u64ReadyToApplyUs;
+            if (u64ReadyToApplyUs > stPerf.u64ReadyToApplyMaxUs) {
+                stPerf.u64ReadyToApplyMaxUs = u64ReadyToApplyUs;
+            }
+        }
+        if (stState.u64InferenceDoneUs > 0 &&
+            u64ApplyDoneUs >= stState.u64InferenceDoneUs) {
+            stPerf.u64InferenceToApplyUs +=
+                u64ApplyDoneUs - stState.u64InferenceDoneUs;
         }
         if (stDrawRect.astRect[0].bEnable &&
             !stLastDrawRect.astRect[0].bEnable) {
@@ -1350,6 +1497,10 @@ static void *Thread_Osdc_ObjectTrackRect_Draw(void *arg)
         stLastDrawRect = stDrawRect;
         LastVpssGrp = VpssGrp;
         LastVpssChn = VpssChn;
+
+perf_log:
+        app_ipcam_Osdc_ObjectTrackRect_PerfLog(
+            &stPerf, app_ipcam_Osdc_ObjectTrackRect_TimeUs());
     }
 
     memset(&stDrawRect, 0, sizeof(stDrawRect));
