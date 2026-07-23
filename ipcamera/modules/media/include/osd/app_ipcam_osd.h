@@ -124,10 +124,7 @@ int app_ipcam_Osdc_DeInit(void);
 CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
     CVI_BOOL bShow, CVI_FLOAT fX1, CVI_FLOAT fY1,
     CVI_FLOAT fX2, CVI_FLOAT fY2,
-    CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight,
-    CVI_U64 u64FrameId, CVI_U32 u32FrameSequence,
-    CVI_U32 u32TrackState, CVI_U64 u64FrameReadyUs,
-    CVI_U64 u64InferenceDoneUs);
+    CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight);
 #endif
 
 #ifdef WEB_SOCKET

@@ -70,10 +70,6 @@ class SOT : public Tracker {
 
   void updateScoreLst(float score);
 
-  void recordPerformance(uint64_t context_us, uint64_t model_us,
-                         uint64_t map_us, uint64_t kalman_us,
-                         uint64_t state_us, uint64_t total_us);
-
   // 计算跟踪结果置信度
   void getStatus(const std::vector<float>& bbox,
                  const std::vector<float>& kalman_bbox, float score,
@@ -123,7 +119,6 @@ class SOT : public Tracker {
   std::shared_ptr<BaseImage> template_image_;
 
   // 是否已初始化
-  int init_diagnostic_frames_ = 0;
   bool is_initialized_ = false;
   uint64_t frame_id_ = 0;
   std::deque<float> score_lst_;
@@ -145,12 +140,4 @@ class SOT : public Tracker {
   // 中间结果
   SOTInfo sot_info_;
   bool use_kalman_filter_ = false;
-  uint64_t perf_window_start_us_ = 0;
-  uint64_t perf_frames_ = 0;
-  uint64_t perf_context_us_ = 0;
-  uint64_t perf_model_us_ = 0;
-  uint64_t perf_map_us_ = 0;
-  uint64_t perf_kalman_us_ = 0;
-  uint64_t perf_state_us_ = 0;
-  uint64_t perf_total_us_ = 0;
 };

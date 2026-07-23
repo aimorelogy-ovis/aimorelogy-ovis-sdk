@@ -1,6 +1,5 @@
 #include "sot.hpp"
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -16,13 +15,6 @@ constexpr int kTargetSearchFastSAM = 3;
 constexpr int kSotHysteresisHoldFrames = 10;
 constexpr int kSotCoastingOutputFrames = 12;
 constexpr int kSotRelockConfirmFrames = 2;
-
-uint64_t sot_time_us() {
-  return static_cast<uint64_t>(
-      std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::steady_clock::now().time_since_epoch())
-          .count());
-}
 
 bool sot_bbox_valid(const std::vector<float>& bbox) {
   return bbox.size() >= 4 && bbox[2] > 1.0f && bbox[3] > 1.0f;
@@ -374,46 +366,6 @@ int32_t SOT::setSearchMotionHint(float dx, float dy, float confidence) {
   return 0;
 }
 
-void SOT::recordPerformance(uint64_t context_us, uint64_t model_us,
-                            uint64_t map_us, uint64_t kalman_us,
-                            uint64_t state_us, uint64_t total_us) {
-  uint64_t now_us = sot_time_us();
-
-  if (perf_window_start_us_ == 0) {
-    perf_window_start_us_ = now_us;
-  }
-  perf_frames_++;
-  perf_context_us_ += context_us;
-  perf_model_us_ += model_us;
-  perf_map_us_ += map_us;
-  perf_kalman_us_ += kalman_us;
-  perf_state_us_ += state_us;
-  perf_total_us_ += total_us;
-  if (now_us - perf_window_start_us_ < 1000ULL * 1000ULL) {
-    return;
-  }
-
-  const double frames = static_cast<double>(perf_frames_);
-  const double seconds =
-      static_cast<double>(now_us - perf_window_start_us_) / 1000000.0;
-  LOGI("SOT PERF fps=%.2f context=%.3fms model=%.3fms map=%.3fms "
-       "kalman_predict=%.3fms state=%.3fms total=%.3fms",
-       frames / seconds, perf_context_us_ / frames / 1000.0,
-       perf_model_us_ / frames / 1000.0,
-       perf_map_us_ / frames / 1000.0,
-       perf_kalman_us_ / frames / 1000.0,
-       perf_state_us_ / frames / 1000.0,
-       perf_total_us_ / frames / 1000.0);
-  perf_window_start_us_ = now_us;
-  perf_frames_ = 0;
-  perf_context_us_ = 0;
-  perf_model_us_ = 0;
-  perf_map_us_ = 0;
-  perf_kalman_us_ = 0;
-  perf_state_us_ = 0;
-  perf_total_us_ = 0;
-}
-
 int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
                         const std::vector<ObjectBoxInfo>& detect_boxes,
                         const ObjectBoxInfo& bbox, uint64_t frame_id,
@@ -719,15 +671,6 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
   shadow_good_frames_ = 0;
   unstable_frames_ = 0;
   sot_info_ = SOTInfo{};
-  perf_window_start_us_ = 0;
-  perf_frames_ = 0;
-  perf_context_us_ = 0;
-  perf_model_us_ = 0;
-  perf_map_us_ = 0;
-  perf_kalman_us_ = 0;
-  perf_state_us_ = 0;
-  perf_total_us_ = 0;
-
   float x = init_bbox.x1;
   float y = init_bbox.y1;
   float w = init_bbox.x2 - init_bbox.x1;
@@ -757,7 +700,6 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
     return -1;
   }
   sot_model_->invalidateInputCache();
-  init_diagnostic_frames_ = 5;
   is_initialized_ = true;
   LOGI("跟踪器初始化成功 bbox=[%.1f,%.1f,%.1f,%.1f] "
        "template_context=[%d,%d,%d,%d]",
@@ -767,16 +709,6 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
 
 int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
                    TrackerInfo& tracker_info) {
-  const uint64_t total_start_us = sot_time_us();
-  uint64_t context_start_us = 0;
-  uint64_t context_us = 0;
-  uint64_t model_start_us = 0;
-  uint64_t model_us = 0;
-  uint64_t map_start_us = 0;
-  uint64_t map_us = 0;
-  uint64_t kalman_start_us = 0;
-  uint64_t kalman_us = 0;
-  uint64_t state_start_us = 0;
   tracker_info.status_ = TrackStatus::LOST;
   tracker_info.box_info_.x1 = 0.0f;
   tracker_info.box_info_.y1 = 0.0f;
@@ -804,7 +736,6 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   if (frame_id > frame_id_) {
     frame_gap = std::min<uint64_t>(frame_id - frame_id_, 8);
   }
-  context_start_us = sot_time_us();
   std::vector<int> context;
   context.resize(4);
   const bool use_search_prior =
@@ -832,12 +763,8 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
       {"search_crop_y", static_cast<float>(context[1])},
       {"search_crop_width", static_cast<float>(context[2])},
       {"search_crop_height", static_cast<float>(context[3])}};
-  context_us = sot_time_us() - context_start_us;
-
-  model_start_us = sot_time_us();
   int32_t ret =
       sot_model_->inference(input_images, output_datas, inference_params);
-  model_us = sot_time_us() - model_start_us;
   if (ret != 0) {
     LOGE("跟踪模型推理失败: %#x", ret);
     return ret;
@@ -848,7 +775,6 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
     return -1;
   }
 
-  map_start_us = sot_time_us();
   std::shared_ptr<ModelBoxInfo> track_result =
       std::dynamic_pointer_cast<ModelBoxInfo>(output_datas[0]);
   if (!track_result) {
@@ -857,15 +783,8 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   }
 
   if (track_result->bboxes.empty()) {
-    if (init_diagnostic_frames_ > 0) {
-      LOGW("SOT initial result is empty frame=%llu remaining=%d",
-           static_cast<unsigned long long>(frame_id),
-           init_diagnostic_frames_);
-      init_diagnostic_frames_--;
-    }
     unstable_frames_++;
     std::vector<float> coasting_bbox = search_bbox;
-    kalman_start_us = sot_time_us();
     if (use_kalman_filter_ && kalman_tracker_) {
       std::vector<float> predicted_bbox = kalman_tracker_->predict();
       if (frame_gap > 1) {
@@ -880,7 +799,6 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
         coasting_bbox = predicted_bbox;
       }
     }
-    kalman_us = sot_time_us() - kalman_start_us;
     if (status_ == TrackStatus::TRACKED &&
         unstable_frames_ <= kSotHysteresisHoldFrames &&
         sot_bbox_valid(last_reliable_template_bbox_)) {
@@ -900,9 +818,6 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
       sot_set_tracker_output(&tracker_info, coasting_bbox,
                              last_observed_score_, TrackStatus::NEW);
     }
-    recordPerformance(context_us, model_us, sot_time_us() - map_start_us,
-                      kalman_us,
-                      0, sot_time_us() - total_start_us);
     return 0;
   }
 
@@ -943,10 +858,7 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   bool geom_anomaly = center_displacement > displacement_limit ||
                       area_ratio > 2.2f || area_ratio < 0.35f ||
                       aspect_ratio > 2.0f || aspect_ratio < 0.5f;
-  map_us = sot_time_us() - map_start_us;
-
   std::vector<float> kalman_bbox;
-  kalman_start_us = sot_time_us();
   if (use_kalman_filter_ && kalman_tracker_) {
     kalman_bbox = kalman_tracker_->predict();
     if (frame_gap > 1) {
@@ -956,21 +868,6 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
       }
     }
   }
-  kalman_us = sot_time_us() - kalman_start_us;
-  state_start_us = sot_time_us();
-
-  if (init_diagnostic_frames_ > 0) {
-    LOGI("SOT initial frame=%llu score=%.3f threshold=%.3f "
-         "bbox=[%.1f,%.1f,%.1f,%.1f] displacement=%.1f/%.1f "
-         "area_ratio=%.3f aspect_ratio=%.3f anomaly=%d",
-         static_cast<unsigned long long>(frame_id), score,
-         tracking_score_threshold_, scaled_bbox[0], scaled_bbox[1],
-         scaled_bbox[2], scaled_bbox[3], center_displacement,
-         displacement_limit, area_ratio, aspect_ratio,
-         geom_anomaly ? 1 : 0);
-    init_diagnostic_frames_--;
-  }
-
   if (!use_kalman_filter_ || !kalman_tracker_) {
     if (!geom_anomaly && score >= tracking_score_threshold_) {
       current_bbox_ = scaled_bbox;
@@ -996,9 +893,6 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
       }
     }
     frame_id_ = frame_id;
-    recordPerformance(context_us, model_us, map_us, kalman_us,
-                      sot_time_us() - state_start_us,
-                      sot_time_us() - total_start_us);
     return 0;
   }
 
@@ -1137,8 +1031,5 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   frame_id_ = frame_id;
   LOGD("tracker_info.status_: %d, lost_frames_: %d\n", tracker_info.status_,
        lost_frames_);
-  recordPerformance(context_us, model_us, map_us, kalman_us,
-                    sot_time_us() - state_start_us,
-                    sot_time_us() - total_start_us);
   return 0;
 }
