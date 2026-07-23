@@ -67,6 +67,11 @@ static pthread_mutex_t OsdcMutex = PTHREAD_MUTEX_INITIALIZER;
 #define OBJECT_TRACK_OSD_PERF_WINDOW_US 1000000ULL
 
 typedef struct APP_OSDC_TRACK_RECT_STATE_T {
+    CVI_BOOL bConfigEnabled;
+    VPSS_GRP VpssGrp;
+    VPSS_CHN VpssChn;
+    CVI_U32 u32OutputWidth;
+    CVI_U32 u32OutputHeight;
     CVI_BOOL bShow;
     CVI_FLOAT fX1;
     CVI_FLOAT fY1;
@@ -165,6 +170,43 @@ static CVI_U64 app_ipcam_Osdc_ObjectTrackRect_TimeUs(CVI_VOID)
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (CVI_U64)ts.tv_sec * 1000000ULL + (CVI_U64)ts.tv_nsec / 1000ULL;
+}
+
+static CVI_VOID app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(
+    const APP_PARAM_OSDC_CFG_S *pstOsdcCfg)
+{
+    CVI_BOOL bEnabled = CVI_FALSE;
+    VPSS_GRP VpssGrp = VPSS_INVALID_GRP;
+    VPSS_CHN VpssChn = VPSS_INVALID_CHN;
+    CVI_U32 u32Width = 0;
+    CVI_U32 u32Height = 0;
+
+    if (pstOsdcCfg != NULL && pstOsdcCfg->enable &&
+        pstOsdcCfg->bShow[0] && pstOsdcCfg->bShowTrackRect[0] &&
+        pstOsdcCfg->mmfChn[0].enModId == CVI_ID_VPSS &&
+        pstOsdcCfg->mmfChn[0].s32DevId >= 0 &&
+        pstOsdcCfg->mmfChn[0].s32DevId < CVI_MAX_VPSS_GRP &&
+        pstOsdcCfg->mmfChn[0].s32ChnId >= 0 &&
+        pstOsdcCfg->mmfChn[0].s32ChnId < VPSS_MAX_PHY_CHN_NUM) {
+        APP_VPSS_GRP_CFG_T *pstVpssCfg = &app_ipcam_Vpss_Param_Get()->
+            astVpssGrpCfg[pstOsdcCfg->mmfChn[0].s32DevId];
+
+        VpssGrp = pstOsdcCfg->mmfChn[0].s32DevId;
+        VpssChn = pstOsdcCfg->mmfChn[0].s32ChnId;
+        u32Width = pstVpssCfg->astVpssChnAttr[VpssChn].u32Width;
+        u32Height = pstVpssCfg->astVpssChnAttr[VpssChn].u32Height;
+        bEnabled = u32Width > 0 && u32Height > 0;
+    }
+
+    pthread_mutex_lock(&g_OsdcTrackRectMutex);
+    g_stOsdcTrackRectState.bConfigEnabled = bEnabled;
+    g_stOsdcTrackRectState.VpssGrp = VpssGrp;
+    g_stOsdcTrackRectState.VpssChn = VpssChn;
+    g_stOsdcTrackRectState.u32OutputWidth = u32Width;
+    g_stOsdcTrackRectState.u32OutputHeight = u32Height;
+    g_stOsdcTrackRectState.u64Generation++;
+    pthread_cond_signal(&g_OsdcTrackRectCond);
+    pthread_mutex_unlock(&g_OsdcTrackRectMutex);
 }
 
 CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
@@ -1291,6 +1333,8 @@ static void app_ipcam_AiRectShow_Set(int status)
     }
 
     int iOsdcIndex = 0;
+
+    pthread_mutex_lock(&OsdcMutex);
     for (iOsdcIndex = 0; iOsdcIndex < OSDC_NUM_MAX; iOsdcIndex++) {
         if (g_pstOsdcCfg->bShow[iOsdcIndex]) {
             g_pstOsdcCfg->bShowPdRect[iOsdcIndex] = (APP_AI_PD_RECT_SHOW & showRect);
@@ -1299,6 +1343,10 @@ static void app_ipcam_AiRectShow_Set(int status)
             g_pstOsdcCfg->bShowTrackRect[iOsdcIndex] = (APP_AI_TRACK_RECT_SHOW & showRect);
         }
     }
+#ifdef OBJECT_TRACK_SUPPORT
+    app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(g_pstOsdcCfg);
+#endif
+    pthread_mutex_unlock(&OsdcMutex);
 }
 
 #ifdef OBJECT_TRACK_SUPPORT
@@ -1307,9 +1355,6 @@ static CVI_BOOL app_ipcam_Osdc_ObjectTrackRect_Build(
     VPSS_DRAW_RECT_S *pstDrawRect,
     VPSS_GRP *pVpssGrp, VPSS_CHN *pVpssChn)
 {
-    CVI_BOOL bEnabled = CVI_FALSE;
-    CVI_U32 u32Width = 0;
-    CVI_U32 u32Height = 0;
     CVI_S32 s32X1 = 0;
     CVI_S32 s32Y1 = 0;
     CVI_S32 s32X2 = 0;
@@ -1321,31 +1366,14 @@ static CVI_BOOL app_ipcam_Osdc_ObjectTrackRect_Build(
     *pVpssGrp = VPSS_INVALID_GRP;
     *pVpssChn = VPSS_INVALID_CHN;
 
-    pthread_mutex_lock(&OsdcMutex);
-    if (g_pstOsdcCfg->enable && g_pstOsdcCfg->bShow[0] &&
-        g_pstOsdcCfg->bShowTrackRect[0] &&
-        g_pstOsdcCfg->mmfChn[0].enModId == CVI_ID_VPSS &&
-        g_pstOsdcCfg->mmfChn[0].s32DevId >= 0 &&
-        g_pstOsdcCfg->mmfChn[0].s32DevId < CVI_MAX_VPSS_GRP &&
-        g_pstOsdcCfg->mmfChn[0].s32ChnId >= 0 &&
-        g_pstOsdcCfg->mmfChn[0].s32ChnId < VPSS_MAX_PHY_CHN_NUM) {
-        APP_VPSS_GRP_CFG_T *pstVpssCfg = &app_ipcam_Vpss_Param_Get()->
-            astVpssGrpCfg[g_pstOsdcCfg->mmfChn[0].s32DevId];
-
-        *pVpssGrp = g_pstOsdcCfg->mmfChn[0].s32DevId;
-        *pVpssChn = g_pstOsdcCfg->mmfChn[0].s32ChnId;
-        u32Width = pstVpssCfg->astVpssChnAttr[*pVpssChn].u32Width;
-        u32Height = pstVpssCfg->astVpssChnAttr[*pVpssChn].u32Height;
-        bEnabled = CVI_TRUE;
-    }
-    pthread_mutex_unlock(&OsdcMutex);
-
-    if (!bEnabled) {
+    if (!pstState->bConfigEnabled) {
         return CVI_FALSE;
     }
+    *pVpssGrp = pstState->VpssGrp;
+    *pVpssChn = pstState->VpssChn;
     if (!pstState->bShow ||
         pstState->u32SourceWidth == 0 || pstState->u32SourceHeight == 0 ||
-        u32Width == 0 || u32Height == 0) {
+        pstState->u32OutputWidth == 0 || pstState->u32OutputHeight == 0) {
         return CVI_TRUE;
     }
     if (!isfinite(pstState->fX1) || !isfinite(pstState->fY1) ||
@@ -1353,19 +1381,23 @@ static CVI_BOOL app_ipcam_Osdc_ObjectTrackRect_Build(
         return CVI_TRUE;
     }
 
-    s32X1 = (CVI_S32)lroundf(pstState->fX1 * u32Width /
+    s32X1 = (CVI_S32)lroundf(pstState->fX1 * pstState->u32OutputWidth /
                              pstState->u32SourceWidth);
-    s32Y1 = (CVI_S32)lroundf(pstState->fY1 * u32Height /
+    s32Y1 = (CVI_S32)lroundf(pstState->fY1 * pstState->u32OutputHeight /
                              pstState->u32SourceHeight);
-    s32X2 = (CVI_S32)lroundf(pstState->fX2 * u32Width /
+    s32X2 = (CVI_S32)lroundf(pstState->fX2 * pstState->u32OutputWidth /
                              pstState->u32SourceWidth);
-    s32Y2 = (CVI_S32)lroundf(pstState->fY2 * u32Height /
+    s32Y2 = (CVI_S32)lroundf(pstState->fY2 * pstState->u32OutputHeight /
                              pstState->u32SourceHeight);
 
-    s32X1 = fmax(0, fmin(s32X1, (CVI_S32)u32Width - 1));
-    s32Y1 = fmax(0, fmin(s32Y1, (CVI_S32)u32Height - 1));
-    s32X2 = fmax(s32X1 + 1, fmin(s32X2, (CVI_S32)u32Width));
-    s32Y2 = fmax(s32Y1 + 1, fmin(s32Y2, (CVI_S32)u32Height));
+    s32X1 = fmax(0, fmin(s32X1,
+        (CVI_S32)pstState->u32OutputWidth - 1));
+    s32Y1 = fmax(0, fmin(s32Y1,
+        (CVI_S32)pstState->u32OutputHeight - 1));
+    s32X2 = fmax(s32X1 + 1, fmin(s32X2,
+        (CVI_S32)pstState->u32OutputWidth));
+    s32Y2 = fmax(s32Y1 + 1, fmin(s32Y2,
+        (CVI_S32)pstState->u32OutputHeight));
 
     u32MinSize = fmin(s32X2 - s32X1, s32Y2 - s32Y1);
     if (u32MinSize < 2) {
@@ -1581,6 +1613,7 @@ int app_ipcam_Osdc_Init(void)
     }
 
 #ifdef OBJECT_TRACK_SUPPORT
+    app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(g_pstOsdcCfg);
     pthread_mutex_lock(&g_OsdcTrackRectMutex);
     g_bOsdcTrackRectThreadRun = CVI_TRUE;
     g_stOsdcTrackRectState.u64Generation++;
@@ -1679,6 +1712,9 @@ void app_ipcam_Osdc_Status(APP_PARAM_OSDC_CFG_S *pstOsdcCfg)
     if (g_stOsdcCfg.enable) {
         pthread_mutex_lock(&OsdcMutex);
         memcpy(&g_stOsdcCfg, pstOsdcCfg, sizeof(APP_PARAM_OSDC_CFG_S));
+#ifdef OBJECT_TRACK_SUPPORT
+        app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(&g_stOsdcCfg);
+#endif
         pthread_mutex_unlock(&OsdcMutex);
     }
 }
