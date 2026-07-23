@@ -1241,7 +1241,7 @@ static int append_missing_runtime_sections(const char *path)
 			"search_type       = 3\n"
 			"use_kalman        = 1\n"
 			"sot_gmc_enable    = 1\n"
-			"sot_gmc_interval  = 2\n"
+			"sot_gmc_interval  = 4\n"
 			"sot_min_observed_score = 0.12\n"
 			"tracking_score_threshold = 0.12\n"
 			"debug_log_enable  = 0\n", file);
@@ -1546,7 +1546,7 @@ static int migrate_runtime_config(const char *path)
 	if (ensure_ini_key(path, "ai_object_track_config", "config_version", "1") != 0)
 		return -1;
 	if (ensure_ini_key(path, "ai_object_track_config", "sot_gmc_enable", "1") != 0 ||
-	    ensure_ini_key(path, "ai_object_track_config", "sot_gmc_interval", "2") != 0 ||
+	    ensure_ini_key(path, "ai_object_track_config", "sot_gmc_interval", "4") != 0 ||
 	    ensure_ini_key(path, "ai_object_track_config", "sot_min_observed_score", "0.12") != 0)
 		return -1;
 	if (read_int(path, "ai_pd_config", "pd_enable", &enabled[0]) != 0 ||

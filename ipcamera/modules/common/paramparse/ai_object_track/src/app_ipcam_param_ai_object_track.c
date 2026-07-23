@@ -37,12 +37,12 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
     Ai->search_type             = ini_getl(tmp_section, "search_type", 3, file);
     Ai->use_kalman              = ini_getl(tmp_section, "use_kalman", 1, file);
     Ai->sot_gmc_enable          = ini_getl(tmp_section, "sot_gmc_enable", 0, file);
-    Ai->sot_gmc_interval        = ini_getl(tmp_section, "sot_gmc_interval", 2, file);
+    Ai->sot_gmc_interval        = ini_getl(tmp_section, "sot_gmc_interval", 4, file);
     if (Ai->sot_gmc_interval < 1 || Ai->sot_gmc_interval > 8) {
         APP_PROF_LOG_PRINT(LEVEL_WARN,
-            "[%s][sot_gmc_interval] invalid value %u, fallback to 2\n",
+            "[%s][sot_gmc_interval] invalid value %u, fallback to 4\n",
             tmp_section, Ai->sot_gmc_interval);
-        Ai->sot_gmc_interval = 2;
+        Ai->sot_gmc_interval = 4;
     }
     legacy_tracking_score_threshold = ini_getf(
         tmp_section, "tracking_score_threshold", 0.12, file);

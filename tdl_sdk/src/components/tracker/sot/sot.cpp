@@ -14,6 +14,8 @@ constexpr int kTargetSearchGrabCut = 1;
 constexpr int kTargetSearchColor = 2;
 constexpr int kTargetSearchFastSAM = 3;
 constexpr int kSotHysteresisHoldFrames = 10;
+constexpr int kSotCoastingOutputFrames = 12;
+constexpr int kSotRelockConfirmFrames = 2;
 
 uint64_t sot_time_us() {
   return static_cast<uint64_t>(
@@ -24,6 +26,20 @@ uint64_t sot_time_us() {
 
 bool sot_bbox_valid(const std::vector<float>& bbox) {
   return bbox.size() >= 4 && bbox[2] > 1.0f && bbox[3] > 1.0f;
+}
+
+void sot_set_tracker_output(TrackerInfo* tracker_info,
+                            const std::vector<float>& bbox, float score,
+                            TrackStatus status) {
+  if (tracker_info == nullptr || !sot_bbox_valid(bbox)) {
+    return;
+  }
+  tracker_info->box_info_.x1 = bbox[0];
+  tracker_info->box_info_.y1 = bbox[1];
+  tracker_info->box_info_.x2 = bbox[0] + bbox[2];
+  tracker_info->box_info_.y2 = bbox[1] + bbox[3];
+  tracker_info->box_info_.score = score;
+  tracker_info->status_ = status;
 }
 
 void sot_clamp_bbox_position(std::vector<float>& bbox, float image_width,
@@ -691,6 +707,7 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
   lost_frames_ = 0;
   score_lst_.clear();
   score_ratio_ = 1.0f;
+  last_observed_score_ = 1.0f;
   last_template_update_frame_ = 0;
   template_update_count_ = 0;
   prev_w_h_ratio_ = 0.0f;
@@ -784,10 +801,10 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   }
 
   uint64_t frame_gap = 1;
-  context_start_us = sot_time_us();
   if (frame_id > frame_id_) {
     frame_gap = std::min<uint64_t>(frame_id - frame_id_, 8);
   }
+  context_start_us = sot_time_us();
   std::vector<int> context;
   context.resize(4);
   const bool use_search_prior =
@@ -847,10 +864,23 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
       init_diagnostic_frames_--;
     }
     unstable_frames_++;
-    if (kalman_tracker_) {
+    std::vector<float> coasting_bbox = search_bbox;
+    kalman_start_us = sot_time_us();
+    if (use_kalman_filter_ && kalman_tracker_) {
       std::vector<float> predicted_bbox = kalman_tracker_->predict();
+      if (frame_gap > 1) {
+        for (uint64_t i = 1; i < frame_gap; i++) {
+          kalman_tracker_->update(predicted_bbox, false);
+          predicted_bbox = kalman_tracker_->predict();
+        }
+      }
       kalman_tracker_->update(predicted_bbox, false);
+      if (!use_search_prior &&
+          sot_bbox_consistent(predicted_bbox, search_bbox, true)) {
+        coasting_bbox = predicted_bbox;
+      }
     }
+    kalman_us = sot_time_us() - kalman_start_us;
     if (status_ == TrackStatus::TRACKED &&
         unstable_frames_ <= kSotHysteresisHoldFrames &&
         sot_bbox_valid(last_reliable_template_bbox_)) {
@@ -864,8 +894,14 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
     }
     sot_info_.template_bbox = current_bbox_;
     frame_id_ = frame_id;
-    tracker_info.status_ = TrackStatus::LOST;
-    recordPerformance(context_us, model_us, sot_time_us() - map_start_us, 0,
+    sot_clamp_bbox_position(coasting_bbox, image->getWidth(),
+                            image->getHeight());
+    if (unstable_frames_ <= kSotCoastingOutputFrames) {
+      sot_set_tracker_output(&tracker_info, coasting_bbox,
+                             last_observed_score_, TrackStatus::NEW);
+    }
+    recordPerformance(context_us, model_us, sot_time_us() - map_start_us,
+                      kalman_us,
                       0, sot_time_us() - total_start_us);
     return 0;
   }
@@ -874,14 +910,9 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   float y1 = track_result->bboxes[0].y1;
   float w = track_result->bboxes[0].x2 - x1;
   float h = track_result->bboxes[0].y2 - y1;
-
   float score = track_result->bboxes[0].score;
-
-  // 计算缩放比例
   float w_scale = context[2] / static_cast<float>(instance_size_);
   float h_scale = context[3] / static_cast<float>(instance_size_);
-
-  // 创建边界框
   std::vector<float> scaled_bbox = {x1 * w_scale + context[0],
                                     y1 * h_scale + context[1], w * w_scale,
                                     h * h_scale};
@@ -944,6 +975,7 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
     if (!geom_anomaly && score >= tracking_score_threshold_) {
       current_bbox_ = scaled_bbox;
       last_reliable_template_bbox_ = scaled_bbox;
+      last_observed_score_ = score;
       search_prior_bbox_ = current_bbox_;
       search_prior_valid_ = false;
       lost_frames_ = 0;
@@ -955,8 +987,13 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
       tracker_info.box_info_.score = score;
       tracker_info.status_ = TrackStatus::TRACKED;
     } else {
+      unstable_frames_++;
       lost_frames_++;
       status_ = TrackStatus::LOST;
+      if (unstable_frames_ <= kSotCoastingOutputFrames) {
+        sot_set_tracker_output(&tracker_info, search_bbox,
+                               last_observed_score_, TrackStatus::NEW);
+      }
     }
     frame_id_ = frame_id;
     recordPerformance(context_us, model_us, map_us, kalman_us,
@@ -1007,12 +1044,12 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   const bool response_reliable =
       score >= tracking_score_threshold_ &&
       (score_lst_.size() < 10 || score_ratio_ >= 0.45f);
-
   if (status_ == TrackStatus::TRACKED) {
     if (response_reliable && consistent_with_reliable) {
       status_ = TrackStatus::TRACKED;
       kalman_tracker_->update(scaled_bbox, true);
       last_reliable_template_bbox_ = scaled_bbox;
+      last_observed_score_ = score;
       shadow_bbox_.clear();
       shadow_good_frames_ = 0;
       unstable_frames_ = 0;
@@ -1052,10 +1089,11 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
       shadow_good_frames_ = 0;
     }
 
-    if (shadow_good_frames_ >= 2) {
+    if (shadow_good_frames_ >= kSotRelockConfirmFrames) {
       status_ = TrackStatus::TRACKED;
       kalman_tracker_->update(scaled_bbox, true);
       last_reliable_template_bbox_ = scaled_bbox;
+      last_observed_score_ = score;
       current_bbox_ = scaled_bbox;
       sot_info_.template_bbox = current_bbox_;
       search_prior_bbox_ = current_bbox_;
@@ -1082,11 +1120,19 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   }
 
   if (tracker_info.status_ == TrackStatus::TRACKED) {
-    tracker_info.box_info_.x1 = current_bbox_[0];
-    tracker_info.box_info_.y1 = current_bbox_[1];
-    tracker_info.box_info_.x2 = current_bbox_[0] + current_bbox_[2];
-    tracker_info.box_info_.y2 = current_bbox_[1] + current_bbox_[3];
-    tracker_info.box_info_.score = score;
+    sot_set_tracker_output(&tracker_info, current_bbox_, score,
+                           TrackStatus::TRACKED);
+  } else if (unstable_frames_ + lost_frames_ <=
+                 kSotCoastingOutputFrames) {
+    std::vector<float> coasting_bbox = search_bbox;
+    if (!use_search_prior && sot_bbox_valid(kalman_bbox) &&
+        sot_bbox_consistent(kalman_bbox, search_bbox, true)) {
+      coasting_bbox = kalman_bbox;
+    }
+    sot_clamp_bbox_position(coasting_bbox, image->getWidth(),
+                            image->getHeight());
+    sot_set_tracker_output(&tracker_info, coasting_bbox,
+                           last_observed_score_, TrackStatus::NEW);
   }
   frame_id_ = frame_id;
   LOGD("tracker_info.status_: %d, lost_frames_: %d\n", tracker_info.status_,

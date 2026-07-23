@@ -8,14 +8,15 @@
 #include "cvi_sys.h"
 
 #define GMC_SEARCH_RADIUS 8
-#define GMC_COARSE_STEP_X 8
-#define GMC_COARSE_STEP_Y 4
+#define GMC_COARSE_SHIFT_STEP 2
+#define GMC_COARSE_STEP_X 6
+#define GMC_COARSE_STEP_Y 3
 #define GMC_REFINE_STEP_X 4
 #define GMC_REFINE_STEP_Y 2
-#define GMC_MIN_VALID_SAMPLES 128
+#define GMC_MIN_VALID_SAMPLES 96
 #define GMC_MIN_CONFIDENCE 0.08f
 #define GMC_MIN_MOTION_PIXELS 1.5f
-#define GMC_MAX_SEQUENCE_GAP 8
+#define GMC_MAX_FRAME_GAP 24
 
 static CVI_U64 gmc_time_us(CVI_VOID)
 {
@@ -181,7 +182,7 @@ CVI_VOID app_ipcam_ObjectTrackGmc_Reset(
 CVI_S32 app_ipcam_ObjectTrackGmc_Process(
     APP_OBJECT_TRACK_GMC_STATE_S *state,
     const VIDEO_FRAME_INFO_S *frame,
-    CVI_U32 interval,
+    CVI_U64 frame_id,
     const CVI_S32 exclusion[4],
     APP_OBJECT_TRACK_GMC_RESULT_S *result)
 {
@@ -201,19 +202,14 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
     CVI_S32 coarse_x;
     CVI_S32 coarse_y;
     CVI_U32 best_samples = 0;
+    CVI_U64 frame_gap = 0;
     CVI_S32 shift_y;
 
     if (state == NULL || frame == NULL || result == NULL) {
         return CVI_FAILURE;
     }
     memset(result, 0, sizeof(*result));
-    if (interval == 0) {
-        interval = 1;
-    }
-    state->input_count++;
-    if (state->has_previous && state->input_count % interval != 0) {
-        return CVI_SUCCESS;
-    }
+    result->frame_id = frame_id;
 
     if (frame->stVFrame.enPixelFormat != PIXEL_FORMAT_NV12 ||
         frame->stVFrame.u64PhyAddr[0] == 0 ||
@@ -256,14 +252,15 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
                         current_exclusion);
     result->grid_us = gmc_time_us() - stage_start_us;
 
-    if (!state->has_previous ||
-        frame->stVFrame.u32SeqenceNo <= state->previous_sequence ||
-        frame->stVFrame.u32SeqenceNo - state->previous_sequence >
-            GMC_MAX_SEQUENCE_GAP) {
+    if (state->has_previous && frame_id > state->previous_frame_id) {
+        frame_gap = frame_id - state->previous_frame_id;
+    }
+    if (!state->has_previous || frame_gap == 0 ||
+        frame_gap > GMC_MAX_FRAME_GAP) {
         memcpy(state->previous, state->current, sizeof(state->previous));
         memcpy(state->previous_exclusion, current_exclusion,
                sizeof(state->previous_exclusion));
-        state->previous_sequence = frame->stVFrame.u32SeqenceNo;
+        state->previous_frame_id = frame_id;
         state->has_previous = CVI_TRUE;
         if (mapped_address != NULL) {
             CVI_SYS_Munmap(mapped_address, luma_length);
@@ -271,6 +268,7 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
         result->total_us = gmc_time_us() - start_us;
         return CVI_SUCCESS;
     }
+    result->frame_gap = (CVI_U32)frame_gap;
 
     {
         CVI_U64 sum = 0;
@@ -283,10 +281,10 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
 
     stage_start_us = gmc_time_us();
     for (shift_y = -GMC_SEARCH_RADIUS; shift_y <= GMC_SEARCH_RADIUS;
-         shift_y++) {
+         shift_y += GMC_COARSE_SHIFT_STEP) {
         CVI_S32 shift_x;
         for (shift_x = -GMC_SEARCH_RADIUS; shift_x <= GMC_SEARCH_RADIUS;
-             shift_x++) {
+             shift_x += GMC_COARSE_SHIFT_STEP) {
             CVI_U64 cost = gmc_cost(
                 state->previous, state->current, previous_mean, current_mean,
                 shift_x, shift_y, GMC_COARSE_STEP_X, GMC_COARSE_STEP_Y,
@@ -371,21 +369,26 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
             sub_y = gmc_subpixel(up, best_cost, down);
         }
 
-        result->dx = -(best_x + sub_x) * frame->stVFrame.u32Width /
-                     APP_OBJECT_TRACK_GMC_GRID_WIDTH;
-        result->dy = -(best_y + sub_y) * frame->stVFrame.u32Height /
-                     APP_OBJECT_TRACK_GMC_GRID_HEIGHT;
+        CVI_FLOAT total_dx =
+            -(best_x + sub_x) * frame->stVFrame.u32Width /
+            APP_OBJECT_TRACK_GMC_GRID_WIDTH;
+        CVI_FLOAT total_dy =
+            -(best_y + sub_y) * frame->stVFrame.u32Height /
+            APP_OBJECT_TRACK_GMC_GRID_HEIGHT;
+
+        result->dx = total_dx / frame_gap;
+        result->dy = total_dy / frame_gap;
         result->confidence = improvement * 0.75f + separation * 0.25f;
         result->sampled_points = best_samples;
         result->valid = result->confidence >= GMC_MIN_CONFIDENCE &&
-            (fabsf(result->dx) >= GMC_MIN_MOTION_PIXELS ||
-             fabsf(result->dy) >= GMC_MIN_MOTION_PIXELS);
+            (fabsf(total_dx) >= GMC_MIN_MOTION_PIXELS ||
+             fabsf(total_dy) >= GMC_MIN_MOTION_PIXELS);
     }
 
     memcpy(state->previous, state->current, sizeof(state->previous));
     memcpy(state->previous_exclusion, current_exclusion,
            sizeof(state->previous_exclusion));
-    state->previous_sequence = frame->stVFrame.u32SeqenceNo;
+    state->previous_frame_id = frame_id;
     if (mapped_address != NULL) {
         CVI_SYS_Munmap(mapped_address, luma_length);
     }

@@ -1658,6 +1658,8 @@ int32_t TDL_SingleObjectTracking(TDLHandle handle, TDLImage image_handle,
     track_meta->info[0].bbox.x2 = tracker_info.box_info_.x2;
     track_meta->info[0].bbox.y2 = tracker_info.box_info_.y2;
     track_meta->info[0].score = tracker_info.box_info_.score;
+    track_meta->info[0].state = tracker_info.status_ == TrackStatus::NEW ?
+        TDL_TRACK_STATE_PREDICTED : TDL_TRACK_STATE_TRACKED;
   } else {
     LOGD("tracker_info.status_ is LOST");
   }

@@ -128,6 +128,7 @@ class SOT : public Tracker {
   uint64_t frame_id_ = 0;
   std::deque<float> score_lst_;
   float score_ratio_ = 1.0f;
+  float last_observed_score_ = 1.0f;
   int last_template_update_frame_ = 0;
   int template_update_count_ = 0;
   float prev_w_h_ratio_ = 0.0f;
