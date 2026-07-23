@@ -36,6 +36,11 @@ class SOT : public Tracker {
                      const std::vector<ObjectBoxInfo>& detect_boxes, float x,
                      float y, uint64_t frame_id, int frame_type,
                      const std::string& model_path = "") override;
+  int32_t initializePoint(
+      const std::shared_ptr<BaseImage>& image,
+      const std::vector<ObjectBoxInfo>& detect_boxes, float x, float y,
+      const ObjectBoxInfo* hint_bbox, uint64_t frame_id, int frame_type,
+      const std::string& model_path = "") override;
   int32_t initialize(const std::shared_ptr<BaseImage>& image,
                      const std::vector<ObjectBoxInfo>& detect_boxes, int index,
                      uint64_t frame_id,
@@ -44,6 +49,10 @@ class SOT : public Tracker {
                 TrackerInfo& tracker_info) override;
 
   void setUseKalmanFilter(bool use) override { use_kalman_filter_ = use; }
+  int32_t setScoreThreshold(float threshold) override;
+  int32_t setSearchMotionHint(float dx, float dy, float confidence) override;
+  int32_t prepareTargetSearch(int frame_type,
+                              const std::string& model_path) override;
 
  private:
   // 预处理图像，提取模板和搜索区域
@@ -85,10 +94,11 @@ class SOT : public Tracker {
   int instance_size_ = 256;           // 实例大小
   int template_size_ = 128;           // 模板大小
   float template_bbox_offset_ = 0.2;  // 模板边界框偏移
-  float search_bbox_offset_ = 3.0;    // 搜索边界框偏移
+  float search_bbox_offset_ = 2.0;    // 正常态搜索边界框偏移
   int kalman_update_count_ = 25;      // 卡尔曼开始更新的帧数
   float size_ratio_threshold_ = 1;    // 宽高比阈值
-  float max_expand_ratio_ = 2.0;      // 目标丢失时最大外扩比例
+  float max_expand_ratio_ = 1.4;      // 目标丢失时最大外扩比例
+  float tracking_score_threshold_ = 0.12f;  // FearTrack最低观测得分
 
   // 判断目标是否丢失相关参数
   float occluded_score_ratio_threshold_ = 0.9;  // 目标丢失时得分比率阈值
@@ -98,7 +108,7 @@ class SOT : public Tracker {
 
   // 判断目标是否重现相关参数
   float reappear_score_threshold_ = 0.3;      // 目标重现时得分阈值
-  int reappear_score_ratio_threshold_ = 0.3;  // 目标重现时得分比率阈值
+  float reappear_score_ratio_threshold_ = 0.3;  // 目标重现时得分比率阈值
   float reappear_iou_threshold_ = 0.3;        // 目标重现时IoU阈值
   float reappear_threshold_ = 2;              // 重现阈值
 
@@ -113,11 +123,18 @@ class SOT : public Tracker {
   uint64_t frame_id_ = 0;
   std::deque<float> score_lst_;
   float score_ratio_ = 1.0f;
+  float last_observed_score_ = 1.0f;
   int last_template_update_frame_ = 0;
   int template_update_count_ = 0;
   float prev_w_h_ratio_ = 0.0f;
   TrackStatus status_ = TrackStatus::TRACKED;
   std::vector<float> last_reliable_template_bbox_;
+  std::vector<float> size_anchor_bbox_;
+  std::vector<float> search_prior_bbox_;
+  std::vector<float> shadow_bbox_;
+  bool search_prior_valid_ = false;
+  int shadow_good_frames_ = 0;
+  int unstable_frames_ = 0;
   int lost_frames_ = 0;
 
   // 中间结果

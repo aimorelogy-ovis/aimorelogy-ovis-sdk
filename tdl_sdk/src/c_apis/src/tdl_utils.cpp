@@ -334,16 +334,34 @@ int32_t TDL_ReleaseFeatureMeta(TDLFeature *feature_meta) {
 }
 
 int32_t TDL_InitTrackMeta(TDLTracker *track_meta, int num_track) {
-  if (track_meta->info) return 0;
-  track_meta->info =
-      (TDLTrackerInfo *)malloc(num_track * sizeof(TDLTrackerInfo));
+  if (track_meta == nullptr || num_track < 0) return -1;
+  if (num_track == 0) {
+    free(track_meta->info);
+    track_meta->info = nullptr;
+    track_meta->size = 0;
+    track_meta->out_num = 0;
+    return 0;
+  }
+
+  if (track_meta->info == nullptr ||
+      track_meta->size != static_cast<uint32_t>(num_track)) {
+    TDLTrackerInfo *new_info = static_cast<TDLTrackerInfo *>(
+        realloc(track_meta->info, num_track * sizeof(TDLTrackerInfo)));
+    if (new_info == nullptr) return -1;
+    track_meta->info = new_info;
+  }
+  memset(track_meta->info, 0, num_track * sizeof(TDLTrackerInfo));
+  track_meta->size = num_track;
   track_meta->out_num = num_track;
   return 0;
 }
 
 int32_t TDL_ReleaseTrackMeta(TDLTracker *track_meta) {
+  if (track_meta == nullptr) return -1;
   free(track_meta->info);
   track_meta->info = NULL;
+  track_meta->size = 0;
+  track_meta->out_num = 0;
   return 0;
 }
 

@@ -16,6 +16,12 @@ menu "ai models resource"
 
 menu "CV184X"
 
+config RESOURCE_INSTALL_TEAISP_BNR_MODEL
+	bool "install TEAISP BNR model"
+	default n
+	help
+		"install the fixed TEAISP BNR model"
+
 config RESOURCE_INSTALL_YOLOV8N_DET_MONITOR_PERSON
 	bool "install yolov8n_det_monitor_person"
 	default n

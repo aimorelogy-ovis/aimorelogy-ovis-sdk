@@ -1,10 +1,142 @@
 #include "sot.hpp"
+#include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include "cv/target_search/color_segment.hpp"
 #include "cv/target_search/grabcut_segment.hpp"
 #include "utils/mot_box_helper.hpp"
 #include "utils/tdl_log.hpp"
+
+namespace {
+constexpr int kTargetSearchGrabCut = 1;
+constexpr int kTargetSearchColor = 2;
+constexpr int kTargetSearchFastSAM = 3;
+constexpr int kSotHysteresisHoldFrames = 10;
+constexpr int kSotCoastingOutputFrames = 12;
+constexpr int kSotRelockConfirmFrames = 2;
+
+bool sot_bbox_valid(const std::vector<float>& bbox) {
+  return bbox.size() >= 4 && bbox[2] > 1.0f && bbox[3] > 1.0f;
+}
+
+void sot_set_tracker_output(TrackerInfo* tracker_info,
+                            const std::vector<float>& bbox, float score,
+                            TrackStatus status) {
+  if (tracker_info == nullptr || !sot_bbox_valid(bbox)) {
+    return;
+  }
+  tracker_info->box_info_.x1 = bbox[0];
+  tracker_info->box_info_.y1 = bbox[1];
+  tracker_info->box_info_.x2 = bbox[0] + bbox[2];
+  tracker_info->box_info_.y2 = bbox[1] + bbox[3];
+  tracker_info->box_info_.score = score;
+  tracker_info->status_ = status;
+}
+
+void sot_clamp_bbox_position(std::vector<float>& bbox, float image_width,
+                             float image_height) {
+  if (!sot_bbox_valid(bbox) || image_width <= 1.0f || image_height <= 1.0f) {
+    return;
+  }
+  bbox[2] = std::min(bbox[2], image_width);
+  bbox[3] = std::min(bbox[3], image_height);
+  bbox[0] = std::max(0.0f, std::min(bbox[0], image_width - bbox[2]));
+  bbox[1] = std::max(0.0f, std::min(bbox[1], image_height - bbox[3]));
+}
+
+float sot_bbox_area(const std::vector<float>& bbox) {
+  return sot_bbox_valid(bbox) ? bbox[2] * bbox[3] : 0.0f;
+}
+
+float sot_bbox_center_distance2(const std::vector<float>& lhs,
+                                const std::vector<float>& rhs) {
+  if (!sot_bbox_valid(lhs) || !sot_bbox_valid(rhs)) {
+    return std::numeric_limits<float>::max();
+  }
+  const float dx = lhs[0] + lhs[2] * 0.5f -
+                   (rhs[0] + rhs[2] * 0.5f);
+  const float dy = lhs[1] + lhs[3] * 0.5f -
+                   (rhs[1] + rhs[3] * 0.5f);
+  return dx * dx + dy * dy;
+}
+
+bool sot_bbox_consistent(const std::vector<float>& candidate,
+                         const std::vector<float>& reference, bool loose) {
+  const float candidate_area = sot_bbox_area(candidate);
+  const float reference_area = sot_bbox_area(reference);
+  if (candidate_area <= 1.0f || reference_area <= 1.0f) {
+    return false;
+  }
+
+  const float area_ratio = candidate_area / reference_area;
+  if (area_ratio < (loose ? 0.25f : 0.45f) ||
+      area_ratio > (loose ? 3.0f : 2.0f)) {
+    return false;
+  }
+  const float max_side = std::max(reference[2], reference[3]);
+  const float max_distance =
+      std::max(loose ? 28.0f : 14.0f,
+               max_side * (loose ? 5.0f : 2.0f));
+  return sot_bbox_center_distance2(candidate, reference) <=
+         max_distance * max_distance;
+}
+
+void sot_stabilize_bbox_size(std::vector<float>& candidate,
+                             const std::vector<float>& reference,
+                             const std::vector<float>& size_anchor,
+                             float score, float image_width,
+                             float image_height) {
+  if (!sot_bbox_valid(candidate) || !sot_bbox_valid(reference) ||
+      !sot_bbox_valid(size_anchor)) {
+    return;
+  }
+
+  const float center_x = candidate[0] + candidate[2] * 0.5f;
+  const float center_y = candidate[1] + candidate[3] * 0.5f;
+  const float bounded_w =
+      std::max(size_anchor[2] * 0.72f,
+               std::min(candidate[2], size_anchor[2] * 1.38f));
+  const float bounded_h =
+      std::max(size_anchor[3] * 0.72f,
+               std::min(candidate[3], size_anchor[3] * 1.38f));
+  const float learning_rate =
+      0.06f + std::max(0.0f, std::min(score, 1.0f)) * 0.08f;
+
+  candidate[2] = reference[2] +
+                 (bounded_w - reference[2]) * learning_rate;
+  candidate[3] = reference[3] +
+                 (bounded_h - reference[3]) * learning_rate;
+  candidate[2] = std::max(size_anchor[2] * 0.72f,
+                          std::min(candidate[2], size_anchor[2] * 1.38f));
+  candidate[3] = std::max(size_anchor[3] * 0.72f,
+                          std::min(candidate[3], size_anchor[3] * 1.38f));
+  candidate[0] = center_x - candidate[2] * 0.5f;
+  candidate[1] = center_y - candidate[3] * 0.5f;
+  sot_clamp_bbox_position(candidate, image_width, image_height);
+}
+
+float sot_dynamic_search_offset(float base_offset, TrackStatus status,
+                                int unstable_frames, int lost_frames,
+                                bool have_shadow, float max_expand_ratio) {
+  float offset = base_offset;
+  const float base_crop_ratio = 1.0f + 2.0f * base_offset;
+  const float max_crop_ratio =
+      base_crop_ratio * std::max(1.0f, max_expand_ratio);
+  const float max_offset =
+      std::max(base_offset, (max_crop_ratio - 1.0f) * 0.5f);
+
+  if (status == TrackStatus::LOST || lost_frames > 0) {
+    offset += std::min(1.25f, 0.35f + lost_frames * 0.12f);
+  } else if (unstable_frames > 0) {
+    offset += std::min(0.8f, unstable_frames * 0.25f);
+  }
+  if (have_shadow) {
+    offset += 0.25f;
+  }
+  return std::min(offset, max_offset);
+}
+}  // namespace
 
 SOT::SOT() {
   preprocessor_ =
@@ -18,6 +150,12 @@ SOT::~SOT() {}
 void SOT::getStatus(const std::vector<float>& bbox,
                     const std::vector<float>& kalman_bbox, float score,
                     float score_ratio, float iou, float size_ratio) {
+  sot_info_.bbox = bbox;
+  sot_info_.kalman_bbox = kalman_bbox;
+  sot_info_.score = score;
+  sot_info_.score_ratio = score_ratio;
+  sot_info_.iou = iou;
+  sot_info_.size_ratio = size_ratio;
   float size_ratio_abs = std::abs(size_ratio - size_ratio_threshold_);
   // 实际得分与丢失得分阈值的差值
   float score_abs = std::max(occluded_score_threshold_ - score, 0.0f);
@@ -38,6 +176,8 @@ void SOT::getStatus(const std::vector<float>& bbox,
   float confidence_of_reappear = 2 * reappear_score_abs +
                                  2 * reappear_score_ratio_abs +
                                  0.1 * reappear_iou_abs - 0.2 * size_ratio_abs;
+  sot_info_.confidence_of_occluded = confidence_of_occluded;
+  sot_info_.confidence_of_reappear = confidence_of_reappear;
   sot_info_.is_occluded = confidence_of_occluded > occluded_threshold_;
   sot_info_.is_reappear = confidence_of_reappear > reappear_threshold_;
 }
@@ -175,6 +315,57 @@ int32_t SOT::setModel(std::shared_ptr<BaseModel> sot_model) {
   return 0;
 }
 
+int32_t SOT::prepareTargetSearch(int frame_type,
+                                 const std::string& model_path) {
+  if (frame_type != kTargetSearchFastSAM) {
+    return 0;
+  }
+  if (model_path.empty()) {
+    LOGE("FastSAM模型路径为空");
+    return -1;
+  }
+  if (fastsam_segmentor_ && fastsam_segmentor_->isReady()) {
+    return 0;
+  }
+
+  std::shared_ptr<FastSAMSegmentor> segmentor =
+      std::make_shared<FastSAMSegmentor>(model_path);
+  if (!segmentor->isReady()) {
+    LOGE("FastSAM模型准备失败");
+    return -1;
+  }
+  fastsam_segmentor_ = segmentor;
+  return 0;
+}
+
+int32_t SOT::setScoreThreshold(float threshold) {
+  if (threshold < 0.0f || threshold > 1.0f) {
+    LOGE("跟踪得分阈值超出范围: %.3f", threshold);
+    return -1;
+  }
+  tracking_score_threshold_ = threshold;
+  return 0;
+}
+
+int32_t SOT::setSearchMotionHint(float dx, float dy, float confidence) {
+  if (!std::isfinite(dx) || !std::isfinite(dy) ||
+      !std::isfinite(confidence) || confidence < 0.0f || confidence > 1.0f) {
+    return -1;
+  }
+  if (confidence < 0.05f || !sot_bbox_valid(current_bbox_)) {
+    return 0;
+  }
+  if (!sot_bbox_valid(search_prior_bbox_)) {
+    search_prior_bbox_ = current_bbox_;
+  }
+  const float max_dx = std::max(12.0f, current_bbox_[2]);
+  const float max_dy = std::max(12.0f, current_bbox_[3]);
+  search_prior_bbox_[0] += std::max(-max_dx, std::min(dx, max_dx));
+  search_prior_bbox_[1] += std::max(-max_dy, std::min(dy, max_dy));
+  search_prior_valid_ = true;
+  return 0;
+}
+
 int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
                         const std::vector<ObjectBoxInfo>& detect_boxes,
                         const ObjectBoxInfo& bbox, uint64_t frame_id,
@@ -300,6 +491,9 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
     area_bbox.y1 = static_cast<float>(result.bbox.y);
     area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
     area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
+    LOGI("FastSAM selected target seed=[%d,%d] bbox=[%.1f,%.1f,%.1f,%.1f]",
+         seed.x, seed.y, area_bbox.x1, area_bbox.y1,
+         area_bbox.x2, area_bbox.y2);
     initBBox(image, area_bbox);
   } else if (frame_type == 2) {
     cv::Point seed;
@@ -352,150 +546,91 @@ int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
                         const std::vector<ObjectBoxInfo>& detect_boxes, float x,
                         float y, uint64_t frame_id, int frame_type,
                         const std::string& model_path) {
-  frame_id_ = frame_id;
-  // 如果检测框为空，直接使用目标框选算法
-  if (detect_boxes.empty()) {
-    if (frame_type == 1) {
-      cv::Point seed;
-      cvtdl_grabcut_result_t result;
-      GrabCutSegmentor segmentor;
-      seed.x = x;
-      seed.y = y;
-      int ret = segmentor.segment(image, seed, &result);
-      if (ret != 0) {
-        LOGE("该位置无检测框");
-        return -1;
-      }
-      ObjectBoxInfo area_bbox;
-      area_bbox.x1 = static_cast<float>(result.bbox.x);
-      area_bbox.y1 = static_cast<float>(result.bbox.y);
-      area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
-      area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      initBBox(image, area_bbox);
-    } else if (frame_type == 2) {
-      cv::Point seed;
-      cvtdl_color_result_t result;
-      ColorSegmentor segmentor;
-      seed.x = x;
-      seed.y = y;
-      int ret = segmentor.segment(image, seed, &result);
-      if (ret != 0) {
-        LOGE("该位置无检测框");
-        return -1;
-      }
-      ObjectBoxInfo area_bbox;
-      area_bbox.x1 = static_cast<float>(result.bbox.x);
-      area_bbox.y1 = static_cast<float>(result.bbox.y);
-      area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
-      area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      initBBox(image, area_bbox);
-    } else if (frame_type == 3) {
-      cv::Point seed;
-      cvtdl_fastsam_result_t result;
-      if (!fastsam_segmentor_) {
-        fastsam_segmentor_ = std::make_shared<FastSAMSegmentor>(model_path);
-      }
-      seed.x = static_cast<int>(x);
-      seed.y = static_cast<int>(y);
-      int ret = fastsam_segmentor_->segment(image, seed, &result);
-      if (ret != 0) {
-        LOGE("该位置无检测框");
-        return -1;
-      }
-      ObjectBoxInfo area_bbox;
-      area_bbox.x1 = static_cast<float>(result.bbox.x);
-      area_bbox.y1 = static_cast<float>(result.bbox.y);
-      area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
-      area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      initBBox(image, area_bbox);
-    } else if (frame_type == 0) {
-      LOGE("该位置无检测框");
-      return -1;
-    } else {
-      LOGE("目标框选类型设置错误");
-      return -1;
-    }
-    return 0;
+  return initializePoint(image, detect_boxes, x, y, nullptr, frame_id,
+                         frame_type, model_path);
+}
+
+int32_t SOT::initializePoint(
+    const std::shared_ptr<BaseImage>& image,
+    const std::vector<ObjectBoxInfo>& detect_boxes, float x, float y,
+    const ObjectBoxInfo* hint_bbox, uint64_t frame_id, int frame_type,
+    const std::string& model_path) {
+  if (!image || x < 0.0f || y < 0.0f || x >= image->getWidth() ||
+      y >= image->getHeight()) {
+    LOGE("目标点超出图像范围");
+    return -1;
   }
+  frame_id_ = frame_id;
 
   // 查找包含点 (x, y) 的检测框
-  bool found_overlap = false;
   for (auto& detect_box : detect_boxes) {
     if (detect_box.x1 <= x && detect_box.x2 >= x && detect_box.y1 <= y &&
         detect_box.y2 >= y) {
-      initBBox(image, detect_box);
-      found_overlap = true;
-      return 0;
+      return initBBox(image, detect_box);
     }
   }
 
-  // 如果没有重叠（没有检测框包含该点），使用目标框选算法
-  if (!found_overlap) {
-    if (frame_type == 1) {
-      cv::Point seed;
-      cvtdl_grabcut_result_t result;
-      GrabCutSegmentor segmentor;
-      seed.x = x;
-      seed.y = y;
-      int ret = segmentor.segment(image, seed, &result);
-      if (ret != 0) {
-        LOGE("该位置无检测框");
-        return -1;
-      }
-      ObjectBoxInfo area_bbox;
-      area_bbox.x1 = static_cast<float>(result.bbox.x);
-      area_bbox.y1 = static_cast<float>(result.bbox.y);
-      area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
-      area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      initBBox(image, area_bbox);
-    } else if (frame_type == 2) {
-      cv::Point seed;
-      cvtdl_color_result_t result;
-      ColorSegmentor segmentor;
-      seed.x = x;
-      seed.y = y;
-      int ret = segmentor.segment(image, seed, &result);
-      if (ret != 0) {
-        LOGE("该位置无检测框");
-        return -1;
-      }
-      ObjectBoxInfo area_bbox;
-      area_bbox.x1 = static_cast<float>(result.bbox.x);
-      area_bbox.y1 = static_cast<float>(result.bbox.y);
-      area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
-      area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      initBBox(image, area_bbox);
-    } else if (frame_type == 3) {
-      cv::Point seed;
-      cvtdl_fastsam_result_t result;
-      if (!fastsam_segmentor_) {
-        fastsam_segmentor_ = std::make_shared<FastSAMSegmentor>(model_path);
-      }
-      seed.x = static_cast<int>(x);
-      seed.y = static_cast<int>(y);
-      int ret = fastsam_segmentor_->segment(image, seed, &result);
-      if (ret != 0) {
-        LOGE("该位置无检测框");
-        return -1;
-      }
-      ObjectBoxInfo area_bbox;
-      area_bbox.x1 = static_cast<float>(result.bbox.x);
-      area_bbox.y1 = static_cast<float>(result.bbox.y);
-      area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
-      area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
-      initBBox(image, area_bbox);
-    } else if (frame_type == 0) {
-      LOGE("该位置无检测框");
-      return -1;
-    } else {
-      LOGE("目标框选类型设置错误");
+  cv::Point seed(static_cast<int>(x), static_cast<int>(y));
+  ObjectBoxInfo area_bbox;
+  if (frame_type == kTargetSearchGrabCut) {
+    cvtdl_grabcut_result_t result;
+    GrabCutSegmentor segmentor;
+    if (segmentor.segment(image, seed, &result) != 0) {
+      LOGE("该位置没有可分割目标");
       return -1;
     }
-    return 0;
+    area_bbox.x1 = static_cast<float>(result.bbox.x);
+    area_bbox.y1 = static_cast<float>(result.bbox.y);
+    area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
+    area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
+  } else if (frame_type == kTargetSearchColor) {
+    cvtdl_color_result_t result;
+    ColorSegmentor segmentor;
+    if (segmentor.segment(image, seed, &result) != 0) {
+      LOGE("该位置没有可分割目标");
+      return -1;
+    }
+    area_bbox.x1 = static_cast<float>(result.bbox.x);
+    area_bbox.y1 = static_cast<float>(result.bbox.y);
+    area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
+    area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
+  } else if (frame_type == kTargetSearchFastSAM) {
+    if (prepareTargetSearch(frame_type, model_path) != 0) {
+      return -1;
+    }
+    cvtdl_fastsam_result_t result;
+    cv::Rect hint_rect;
+    const cv::Rect* hint_rect_ptr = nullptr;
+    if (hint_bbox != nullptr && hint_bbox->x2 > hint_bbox->x1 &&
+        hint_bbox->y2 > hint_bbox->y1) {
+      hint_rect = cv::Rect(
+          static_cast<int>(hint_bbox->x1),
+          static_cast<int>(hint_bbox->y1),
+          static_cast<int>(hint_bbox->x2 - hint_bbox->x1),
+          static_cast<int>(hint_bbox->y2 - hint_bbox->y1));
+      hint_rect &= cv::Rect(0, 0, image->getWidth(), image->getHeight());
+      if (!hint_rect.empty()) {
+        hint_rect_ptr = &hint_rect;
+      }
+    }
+    if (fastsam_segmentor_->segment(image, seed, &result, hint_rect_ptr) != 0) {
+      LOGE("中心点没有FastSAM可分割目标");
+      return -1;
+    }
+    area_bbox.x1 = static_cast<float>(result.bbox.x);
+    area_bbox.y1 = static_cast<float>(result.bbox.y);
+    area_bbox.x2 = static_cast<float>(result.bbox.x + result.bbox.width);
+    area_bbox.y2 = static_cast<float>(result.bbox.y + result.bbox.height);
+    LOGI("FastSAM selected point target seed=[%d,%d] "
+         "bbox=[%.1f,%.1f,%.1f,%.1f]",
+         seed.x, seed.y, area_bbox.x1, area_bbox.y1,
+         area_bbox.x2, area_bbox.y2);
+  } else {
+    LOGE("目标点需要有效的分割方法");
+    return -1;
   }
 
-  LOGE("该位置无检测框");
-  return -1;
+  return initBBox(image, area_bbox);
 }
 
 int32_t SOT::initialize(const std::shared_ptr<BaseImage>& image,
@@ -524,12 +659,18 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
   lost_frames_ = 0;
   score_lst_.clear();
   score_ratio_ = 1.0f;
+  last_observed_score_ = 1.0f;
   last_template_update_frame_ = 0;
   template_update_count_ = 0;
   prev_w_h_ratio_ = 0.0f;
   last_reliable_template_bbox_.clear();
+  size_anchor_bbox_.clear();
+  search_prior_bbox_.clear();
+  shadow_bbox_.clear();
+  search_prior_valid_ = false;
+  shadow_good_frames_ = 0;
+  unstable_frames_ = 0;
   sot_info_ = SOTInfo{};
-
   float x = init_bbox.x1;
   float y = init_bbox.y1;
   float w = init_bbox.x2 - init_bbox.x1;
@@ -544,6 +685,8 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
   h = init_bbox_xywh_format[3];
   current_bbox_ = {x, y, w, h};
   last_reliable_template_bbox_ = current_bbox_;
+  size_anchor_bbox_ = current_bbox_;
+  search_prior_bbox_ = current_bbox_;
   sot_info_.template_bbox = current_bbox_;
   sot_info_.frame_id = frame_id_;
   if (use_kalman_filter_) {
@@ -558,19 +701,56 @@ int32_t SOT::initBBox(const std::shared_ptr<BaseImage>& image,
   }
   sot_model_->invalidateInputCache();
   is_initialized_ = true;
-  LOGI("跟踪器初始化成功");
+  LOGI("跟踪器初始化成功 bbox=[%.1f,%.1f,%.1f,%.1f] "
+       "template_context=[%d,%d,%d,%d]",
+       x, y, w, h, context[0], context[1], context[2], context[3]);
   return 0;
 }
 
 int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
                    TrackerInfo& tracker_info) {
+  tracker_info.status_ = TrackStatus::LOST;
+  tracker_info.box_info_.x1 = 0.0f;
+  tracker_info.box_info_.y1 = 0.0f;
+  tracker_info.box_info_.x2 = 0.0f;
+  tracker_info.box_info_.y2 = 0.0f;
+  tracker_info.box_info_.score = 0.0f;
+  tracker_info.box_info_.class_id = 0;
+  tracker_info.matched_times_ = 0;
+  tracker_info.obj_idx_ = -1;
+  tracker_info.pair_track_idx_ = 0;
+  tracker_info.track_id_ = 1;
+  tracker_info.velocity_x_ = 0.0f;
+  tracker_info.velocity_y_ = 0.0f;
+  tracker_info.blurness = 0.0f;
   if (!image) {
     LOGE("输入图像为空");
     return -1;
   }
+  if (!is_initialized_ || !sot_model_ || current_bbox_.size() < 4) {
+    LOGE("跟踪器尚未初始化");
+    return -1;
+  }
+
+  uint64_t frame_gap = 1;
+  if (frame_id > frame_id_) {
+    frame_gap = std::min<uint64_t>(frame_id - frame_id_, 8);
+  }
   std::vector<int> context;
   context.resize(4);
-  if (!calculateContext(image, current_bbox_, search_bbox_offset_, context)) {
+  const bool use_search_prior =
+      search_prior_valid_ && sot_bbox_valid(search_prior_bbox_);
+  std::vector<float> search_bbox =
+      use_search_prior ? search_prior_bbox_ : current_bbox_;
+  sot_clamp_bbox_position(search_bbox, image->getWidth(), image->getHeight());
+  if (use_search_prior) {
+    search_prior_bbox_ = search_bbox;
+  }
+  const float search_offset = sot_dynamic_search_offset(
+      search_bbox_offset_, status_, unstable_frames_, lost_frames_,
+      sot_bbox_valid(shadow_bbox_), max_expand_ratio_);
+  if (!calculateContext(image, search_bbox,
+                        search_offset, context)) {
     LOGE("搜索区域计算失败");
     return -1;
   }
@@ -583,7 +763,6 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
       {"search_crop_y", static_cast<float>(context[1])},
       {"search_crop_width", static_cast<float>(context[2])},
       {"search_crop_height", static_cast<float>(context[3])}};
-
   int32_t ret =
       sot_model_->inference(input_images, output_datas, inference_params);
   if (ret != 0) {
@@ -604,8 +783,41 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   }
 
   if (track_result->bboxes.empty()) {
-    LOGI("track_result->bboxes.empty()\n");
-    tracker_info.status_ = TrackStatus::LOST;
+    unstable_frames_++;
+    std::vector<float> coasting_bbox = search_bbox;
+    if (use_kalman_filter_ && kalman_tracker_) {
+      std::vector<float> predicted_bbox = kalman_tracker_->predict();
+      if (frame_gap > 1) {
+        for (uint64_t i = 1; i < frame_gap; i++) {
+          kalman_tracker_->update(predicted_bbox, false);
+          predicted_bbox = kalman_tracker_->predict();
+        }
+      }
+      kalman_tracker_->update(predicted_bbox, false);
+      if (!use_search_prior &&
+          sot_bbox_consistent(predicted_bbox, search_bbox, true)) {
+        coasting_bbox = predicted_bbox;
+      }
+    }
+    if (status_ == TrackStatus::TRACKED &&
+        unstable_frames_ <= kSotHysteresisHoldFrames &&
+        sot_bbox_valid(last_reliable_template_bbox_)) {
+      current_bbox_ = last_reliable_template_bbox_;
+    } else {
+      status_ = TrackStatus::LOST;
+      lost_frames_++;
+      if (sot_bbox_valid(last_reliable_template_bbox_)) {
+        current_bbox_ = last_reliable_template_bbox_;
+      }
+    }
+    sot_info_.template_bbox = current_bbox_;
+    frame_id_ = frame_id;
+    sot_clamp_bbox_position(coasting_bbox, image->getWidth(),
+                            image->getHeight());
+    if (unstable_frames_ <= kSotCoastingOutputFrames) {
+      sot_set_tracker_output(&tracker_info, coasting_bbox,
+                             last_observed_score_, TrackStatus::NEW);
+    }
     return 0;
   }
 
@@ -613,84 +825,72 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   float y1 = track_result->bboxes[0].y1;
   float w = track_result->bboxes[0].x2 - x1;
   float h = track_result->bboxes[0].y2 - y1;
-
-  std::vector<float> bbox = {x1, y1, w, h};
   float score = track_result->bboxes[0].score;
-
-  std::vector<float> kalman_bbox;
-  if (use_kalman_filter_ && kalman_tracker_) {
-    kalman_bbox = kalman_tracker_->predict();
-    if (frame_id - frame_id_ > 1) {
-      for (int i = 0; i < frame_id - frame_id_ - 1; i++) {
-        kalman_tracker_->update(kalman_bbox, false);
-        kalman_bbox = kalman_tracker_->predict();
-      }
-    }
-  }
-
-  // 计算缩放比例
   float w_scale = context[2] / static_cast<float>(instance_size_);
   float h_scale = context[3] / static_cast<float>(instance_size_);
-
-  // 创建边界框
   std::vector<float> scaled_bbox = {x1 * w_scale + context[0],
                                     y1 * h_scale + context[1], w * w_scale,
                                     h * h_scale};
   clampBBox(scaled_bbox, image);
+  sot_stabilize_bbox_size(scaled_bbox, search_bbox, size_anchor_bbox_, score,
+                          image->getWidth(), image->getHeight());
 
   // 几何异常检测：中心点位移、面积比、宽高比
-  float prev_cx = current_bbox_[0] + current_bbox_[2] / 2;
-  float prev_cy = current_bbox_[1] + current_bbox_[3] / 2;
+  float prev_cx = search_bbox[0] + search_bbox[2] / 2;
+  float prev_cy = search_bbox[1] + search_bbox[3] / 2;
   float new_cx = scaled_bbox[0] + scaled_bbox[2] / 2;
   float new_cy = scaled_bbox[1] + scaled_bbox[3] / 2;
   float center_displacement =
       std::sqrt((new_cx - prev_cx) * (new_cx - prev_cx) +
                 (new_cy - prev_cy) * (new_cy - prev_cy));
 
-  float prev_area = current_bbox_[2] * current_bbox_[3];
+  float prev_area = search_bbox[2] * search_bbox[3];
   float new_area = scaled_bbox[2] * scaled_bbox[3];
   float area_ratio = prev_area > 0 ? new_area / prev_area : 1.0f;
 
   float prev_aspect =
-      current_bbox_[3] > 0 ? current_bbox_[2] / current_bbox_[3] : 1.0f;
+      search_bbox[3] > 0 ? search_bbox[2] / search_bbox[3] : 1.0f;
   float new_aspect =
       scaled_bbox[3] > 0 ? scaled_bbox[2] / scaled_bbox[3] : 1.0f;
   float aspect_ratio = prev_aspect > 0 ? new_aspect / prev_aspect : 1.0f;
 
-  bool geom_anomaly = (center_displacement > 2.0f * current_bbox_[2]) ||
-                      (area_ratio > 1.25f || area_ratio < 0.8f) ||
-                      (aspect_ratio > 1.25f || aspect_ratio < 0.8f);
-
-  if (geom_anomaly) {
-    LOGI(
-        "geom_anomaly: displacement=%.2f, ori_width=%.2f, area_ratio=%.2f, "
-        "aspect_ratio=%.2f\n",
-        center_displacement, current_bbox_[2], area_ratio, aspect_ratio);
-    tracker_info.status_ = TrackStatus::LOST;
-    tracker_info.box_info_.x1 = current_bbox_[0];
-    tracker_info.box_info_.y1 = current_bbox_[1];
-    tracker_info.box_info_.x2 = current_bbox_[0] + current_bbox_[2];
-    tracker_info.box_info_.y2 = current_bbox_[1] + current_bbox_[3];
-    tracker_info.box_info_.score = score;
-    tracker_info.box_info_.class_id = 0;
-    frame_id_ = frame_id;
-    return 0;
+  float displacement_limit = 2.5f * std::max(search_bbox[2], 1.0f);
+  bool geom_anomaly = center_displacement > displacement_limit ||
+                      area_ratio > 2.2f || area_ratio < 0.35f ||
+                      aspect_ratio > 2.0f || aspect_ratio < 0.5f;
+  std::vector<float> kalman_bbox;
+  if (use_kalman_filter_ && kalman_tracker_) {
+    kalman_bbox = kalman_tracker_->predict();
+    if (frame_gap > 1) {
+      for (uint64_t i = 1; i < frame_gap; i++) {
+        kalman_tracker_->update(kalman_bbox, false);
+        kalman_bbox = kalman_tracker_->predict();
+      }
+    }
   }
-
-  // 更新边界框, 用于下一帧跟踪
-  current_bbox_ = scaled_bbox;
-
   if (!use_kalman_filter_ || !kalman_tracker_) {
-    tracker_info.box_info_.x1 = scaled_bbox[0];
-    tracker_info.box_info_.y1 = scaled_bbox[1];
-    tracker_info.box_info_.x2 = scaled_bbox[0] + scaled_bbox[2];
-    tracker_info.box_info_.y2 = scaled_bbox[1] + scaled_bbox[3];
-    tracker_info.box_info_.score = score;
-    tracker_info.box_info_.class_id = 0;
-    tracker_info.status_ = TrackStatus::TRACKED;
-
-    if (score < 0.5) {
-      tracker_info.status_ = TrackStatus::LOST;
+    if (!geom_anomaly && score >= tracking_score_threshold_) {
+      current_bbox_ = scaled_bbox;
+      last_reliable_template_bbox_ = scaled_bbox;
+      last_observed_score_ = score;
+      search_prior_bbox_ = current_bbox_;
+      search_prior_valid_ = false;
+      lost_frames_ = 0;
+      status_ = TrackStatus::TRACKED;
+      tracker_info.box_info_.x1 = scaled_bbox[0];
+      tracker_info.box_info_.y1 = scaled_bbox[1];
+      tracker_info.box_info_.x2 = scaled_bbox[0] + scaled_bbox[2];
+      tracker_info.box_info_.y2 = scaled_bbox[1] + scaled_bbox[3];
+      tracker_info.box_info_.score = score;
+      tracker_info.status_ = TrackStatus::TRACKED;
+    } else {
+      unstable_frames_++;
+      lost_frames_++;
+      status_ = TrackStatus::LOST;
+      if (unstable_frames_ <= kSotCoastingOutputFrames) {
+        sot_set_tracker_output(&tracker_info, search_bbox,
+                               last_observed_score_, TrackStatus::NEW);
+      }
     }
     frame_id_ = frame_id;
     return 0;
@@ -699,10 +899,10 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
   float iou;
   if (kalman_tracker_->update_count_ > kalman_update_count_) {
     ObjectBoxInfo bbox1, bbox2;
-    bbox1.x1 = bbox[0];
-    bbox1.y1 = bbox[1];
-    bbox1.x2 = bbox[0] + bbox[2];
-    bbox1.y2 = bbox[1] + bbox[3];
+    bbox1.x1 = scaled_bbox[0];
+    bbox1.y1 = scaled_bbox[1];
+    bbox1.x2 = scaled_bbox[0] + scaled_bbox[2];
+    bbox1.y2 = scaled_bbox[1] + scaled_bbox[3];
     bbox2.x1 = kalman_bbox[0];
     bbox2.y1 = kalman_bbox[1];
     bbox2.x2 = kalman_bbox[0] + kalman_bbox[2];
@@ -710,88 +910,126 @@ int32_t SOT::track(const std::shared_ptr<BaseImage>& image, uint64_t frame_id,
     iou = MotBoxHelper::calculateIOU(bbox1, bbox2);
   } else {
     iou = 1.0f;
-    kalman_bbox = bbox;
+    kalman_bbox = scaled_bbox;
   }
 
   updateScoreLst(score);
   float size_ratio;
-  float current_w_h_ratio = w / h;
+  float current_w_h_ratio =
+      scaled_bbox[2] / std::max(scaled_bbox[3], 1.0f);
   if (prev_w_h_ratio_ != 0) {
     size_ratio = current_w_h_ratio / prev_w_h_ratio_;
   } else {
     size_ratio = 1.0f;
   }
 
-  getStatus(bbox, kalman_bbox, score, score_ratio_, iou, size_ratio);
-  // 输出结果
-  tracker_info.box_info_.x1 = scaled_bbox[0];
-  tracker_info.box_info_.y1 = scaled_bbox[1];
-  tracker_info.box_info_.x2 = scaled_bbox[0] + scaled_bbox[2];
-  tracker_info.box_info_.y2 = scaled_bbox[1] + scaled_bbox[3];
-  tracker_info.box_info_.score = score;
-  tracker_info.box_info_.class_id = 0;
-  tracker_info.status_ = TrackStatus::TRACKED;
+  getStatus(scaled_bbox, kalman_bbox, score, score_ratio_, iou, size_ratio);
 
-  bool assert_occluded = score < 0.1 || iou < 0.2;
-  if (assert_occluded) {
-    tracker_info.status_ = TrackStatus::LOST;
-    status_ = TrackStatus::LOST;
-  }
-
+  const std::vector<float>& reliable_reference =
+      use_search_prior
+          ? search_bbox
+          : (sot_bbox_valid(last_reliable_template_bbox_)
+                 ? last_reliable_template_bbox_
+                 : current_bbox_);
+  const bool lost_state = status_ == TrackStatus::LOST || lost_frames_ > 0;
+  const bool consistent_with_reliable =
+      !geom_anomaly &&
+      sot_bbox_consistent(scaled_bbox, reliable_reference, lost_state);
+  const bool response_reliable =
+      score >= tracking_score_threshold_ &&
+      (score_lst_.size() < 10 || score_ratio_ >= 0.45f);
   if (status_ == TrackStatus::TRACKED) {
-    prev_w_h_ratio_ = current_w_h_ratio;
-  }
-
-  if (status_ == TrackStatus::TRACKED) {
-    if (sot_info_.is_occluded) {
-      status_ = TrackStatus::LOST;
-      kalman_tracker_->update(kalman_bbox, false);
-      last_reliable_template_bbox_ = scaled_bbox;
-      current_bbox_ = last_reliable_template_bbox_;
-      sot_info_.template_bbox = last_reliable_template_bbox_;
-      lost_frames_ = 1;
-    } else {
-      kalman_tracker_->update(bbox, true);
-      last_reliable_template_bbox_ = scaled_bbox;
-      current_bbox_ = last_reliable_template_bbox_;
-      sot_info_.template_bbox = last_reliable_template_bbox_;
-      lost_frames_ = 0;
-    }
-  } else {
-    if (!assert_occluded && sot_info_.is_reappear) {
+    if (response_reliable && consistent_with_reliable) {
       status_ = TrackStatus::TRACKED;
-      kalman_tracker_->update(bbox, true);
+      kalman_tracker_->update(scaled_bbox, true);
       last_reliable_template_bbox_ = scaled_bbox;
+      last_observed_score_ = score;
+      shadow_bbox_.clear();
+      shadow_good_frames_ = 0;
+      unstable_frames_ = 0;
       current_bbox_ = last_reliable_template_bbox_;
       sot_info_.template_bbox = last_reliable_template_bbox_;
+      search_prior_bbox_ = current_bbox_;
+      search_prior_valid_ = false;
+      prev_w_h_ratio_ = current_w_h_ratio;
       lost_frames_ = 0;
+      tracker_info.status_ = TrackStatus::TRACKED;
     } else {
+      unstable_frames_++;
       kalman_tracker_->update(kalman_bbox, false);
-      lost_frames_ += 1;
-      float expand_ratio = 1.0f;
-      if (last_reliable_template_bbox_.size() > 0) {
-        expand_ratio =
-            std::min(1.0f + (lost_frames_ / 20.0f) * 1.0f, max_expand_ratio_);
-        float x = last_reliable_template_bbox_[0];
-        float y = last_reliable_template_bbox_[1];
-        float w = last_reliable_template_bbox_[2];
-        float h = last_reliable_template_bbox_[3];
-        float cx = x + w / 2;
-        float cy = y + h / 2;
-        float new_w = w * expand_ratio;
-        float new_h = h * expand_ratio;
-        float new_x = cx - new_w / 2;
-        float new_y = cy - new_h / 2;
-        sot_info_.template_bbox = {new_x, new_y, new_w, new_h};
-        current_bbox_ = sot_info_.template_bbox;
+      current_bbox_ = reliable_reference;
+      sot_info_.template_bbox = current_bbox_;
+      tracker_info.status_ = TrackStatus::LOST;
+      if (unstable_frames_ > kSotHysteresisHoldFrames) {
+        status_ = TrackStatus::LOST;
+        shadow_bbox_ = scaled_bbox;
+        shadow_good_frames_ = 0;
+        lost_frames_ = 1;
       }
     }
+  } else {
+    const bool have_shadow = sot_bbox_valid(shadow_bbox_);
+    const std::vector<float>& shadow_reference =
+        have_shadow ? shadow_bbox_ : reliable_reference;
+    const bool shadow_candidate =
+        response_reliable && !geom_anomaly &&
+        sot_bbox_consistent(scaled_bbox, shadow_reference, !have_shadow);
+
+    tracker_info.status_ = TrackStatus::LOST;
+    if (shadow_candidate) {
+      shadow_bbox_ = scaled_bbox;
+      shadow_good_frames_++;
+    } else {
+      shadow_good_frames_ = 0;
+    }
+
+    if (shadow_good_frames_ >= kSotRelockConfirmFrames) {
+      status_ = TrackStatus::TRACKED;
+      kalman_tracker_->update(scaled_bbox, true);
+      last_reliable_template_bbox_ = scaled_bbox;
+      last_observed_score_ = score;
+      current_bbox_ = scaled_bbox;
+      sot_info_.template_bbox = current_bbox_;
+      search_prior_bbox_ = current_bbox_;
+      search_prior_valid_ = false;
+      prev_w_h_ratio_ = current_w_h_ratio;
+      shadow_bbox_.clear();
+      shadow_good_frames_ = 0;
+      unstable_frames_ = 0;
+      lost_frames_ = 0;
+      tracker_info.status_ = TrackStatus::TRACKED;
+    } else {
+      kalman_tracker_->update(kalman_bbox, false);
+      current_bbox_ = reliable_reference;
+      sot_info_.template_bbox = current_bbox_;
+      lost_frames_++;
+    }
+  }
+
+  if (geom_anomaly) {
+    LOGD("geom_anomaly: displacement=%.2f limit=%.2f area_ratio=%.2f "
+         "aspect_ratio=%.2f frame_gap=%llu\n",
+         center_displacement, displacement_limit, area_ratio, aspect_ratio,
+         static_cast<unsigned long long>(frame_gap));
+  }
+
+  if (tracker_info.status_ == TrackStatus::TRACKED) {
+    sot_set_tracker_output(&tracker_info, current_bbox_, score,
+                           TrackStatus::TRACKED);
+  } else if (unstable_frames_ + lost_frames_ <=
+                 kSotCoastingOutputFrames) {
+    std::vector<float> coasting_bbox = search_bbox;
+    if (!use_search_prior && sot_bbox_valid(kalman_bbox) &&
+        sot_bbox_consistent(kalman_bbox, search_bbox, true)) {
+      coasting_bbox = kalman_bbox;
+    }
+    sot_clamp_bbox_position(coasting_bbox, image->getWidth(),
+                            image->getHeight());
+    sot_set_tracker_output(&tracker_info, coasting_bbox,
+                           last_observed_score_, TrackStatus::NEW);
   }
   frame_id_ = frame_id;
-  if (sot_info_.is_occluded && lost_frames_ > 3) {
-    tracker_info.status_ = TrackStatus::LOST;
-  }
-  LOGI("tracker_info.status_: %d, lost_frames_: %d\n", tracker_info.status_,
+  LOGD("tracker_info.status_: %d, lost_frames_: %d\n", tracker_info.status_,
        lost_frames_);
   return 0;
 }

@@ -4,7 +4,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <fcntl.h>
 #include "app_ipcam_paramparse.h"
+#include "app_ipcam_teaisp_bnr.h"
 #include "cvi_mbuf.h"
 
 /**************************************************************************
@@ -34,6 +36,39 @@ static CVI_BOOL g_bMisc;
  **************************************************************************/
 static int app_ipcam_Exit(void);
 static volatile sig_atomic_t g_s32ExitSignal = 0;
+
+#define IPCAMERA_READY_FILE_DEFAULT "/var/run/ipcamera.ready"
+
+static const char *app_ipcam_ReadyFile_Get(void)
+{
+    const char *path = getenv("IPCAMERA_READY_FILE");
+
+    return path != NULL && path[0] != '\0' ? path : IPCAMERA_READY_FILE_DEFAULT;
+}
+
+static void app_ipcam_ReadyFile_Remove(void)
+{
+    unlink(app_ipcam_ReadyFile_Get());
+}
+
+static int app_ipcam_ReadyFile_Publish(void)
+{
+    const char *path = app_ipcam_ReadyFile_Get();
+    char tmp_path[256];
+    int fd;
+
+    if (snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%ld", path, (long)getpid()) >=
+        (int)sizeof(tmp_path))
+        return CVI_FAILURE;
+    fd = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0)
+        return CVI_FAILURE;
+    if (close(fd) != 0 || rename(tmp_path, path) != 0) {
+        unlink(tmp_path);
+        return CVI_FAILURE;
+    }
+    return CVI_SUCCESS;
+}
 
 static CVI_VOID app_ipcam_ExitSig_handle(CVI_S32 signo)
 {
@@ -111,6 +146,7 @@ static int app_ipcam_MiscThread_DeInit(void)
 
 static int app_ipcam_Exit(void)
 {
+    app_ipcam_ReadyFile_Remove();
     APP_CHK_RET(app_ipcam_MiscThread_DeInit(), "DeInit Misc Process");
 
     #ifdef RTSP_SUPPORT
@@ -261,6 +297,7 @@ static int app_ipcam_Init(void)
 
 int main(int argc, char *argv[])
 {
+    app_ipcam_ReadyFile_Remove();
     system("echo /mnt/nfs/core-%e-%p-%t > /proc/sys/kernel/core_pattern");
     APP_CHK_RET(app_ipcam_Opts_Parse(argc, argv), "parse optinos");
 
@@ -311,6 +348,7 @@ int main(int argc, char *argv[])
     #endif
 
     #ifdef AI_SUPPORT
+    if (!app_ipcam_TeaispBnr_IsEnabled(0)) {
     #ifdef PD_SUPPORT
     /* start AI PD (Pedestrian Detection) */
     APP_CHK_RET(app_ipcam_Ai_PD_Start(), "running AI PD");
@@ -355,6 +393,9 @@ int main(int argc, char *argv[])
     #ifdef LPR_SUPPORT
     APP_CHK_RET(app_ipcam_Ai_LPR_Start(), "running AI LPR");
     #endif
+    } else {
+        APP_PROF_LOG_PRINT(LEVEL_INFO, "AI BNR enabled; business AI tasks are disabled\n");
+    }
     #endif
 
     #ifdef RECORD_SUPPORT
@@ -362,6 +403,8 @@ int main(int argc, char *argv[])
     APP_CHK_RET(app_ipcam_Record_Recover_Init(), "Init SD Record Recover");
     APP_CHK_RET(app_ipcam_Record_Init(), "running SD Record");
     #endif
+
+    APP_CHK_RET(app_ipcam_ReadyFile_Publish(), "publish ipcamera readiness");
 
     /* enable receive a command form another progress for test ipcam */
     //APP_CHK_RET(app_ipcam_CmdTask_Create(), "running cmd test");

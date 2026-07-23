@@ -4,7 +4,7 @@
 #include <iostream>
 #include "utils/mot_box_helper.hpp"
 #include "utils/tdl_log.hpp"
-KalmanTracker::~KalmanTracker() { LOGI("destroy tracker:%lu", id_); }
+KalmanTracker::~KalmanTracker() { LOGD("destroy tracker:%lu", id_); }
 
 KalmanTracker::KalmanTracker(const uint64_t &frame_id, const KalmanFilter &kf,
                              const uint64_t &id, const ObjectBoxInfo &box,
@@ -29,7 +29,7 @@ KalmanTracker::KalmanTracker(const uint64_t &frame_id, const KalmanFilter &kf,
 
   this->mean = init_data.first;
   this->covariance = init_data.second;
-  LOGI(
+  LOGD(
       "init "
       "trackid:%d,box:[%.2f,%.2f,%.2f,%.2f],xyah:[%.2f,%.2f,%.2f,%.2f],mean:[%."
       "2f,%.2f,%.2f,%.2f],covariance:[%.2f,%.2f,%.2f,%.2f]",
@@ -83,13 +83,13 @@ void KalmanTracker::update(const uint64_t &frame_id, const KalmanFilter &kf,
     if (status_ == TrackStatus::NEW &&
         matched_times_ >= conf.track_confirmed_frames_) {
       status_ = TrackStatus::TRACKED;
-      LOGI("trackid:%d, new update to tracked", id_);
+      LOGD("trackid:%d, new update to tracked", id_);
     }
     if (status_ == TrackStatus::LOST) {
       status_ = TrackStatus::TRACKED;
-      LOGI("trackid:%d, lost update to tracked", id_);
+      LOGD("trackid:%d, lost update to tracked", id_);
     }
-    LOGI(
+    LOGD(
         "update "
         "trackid:%d,inputbox:[%.1f,%.1f,%.1f,%.1f],lastbox:[%.1f,%.1f,%."
         "1f,%.1f],inputxyah:[%.1f,%.1f,%.1f,%.1f],updatexyah:[%.1f,%.1f,%."
@@ -103,12 +103,11 @@ void KalmanTracker::update(const uint64_t &frame_id, const KalmanFilter &kf,
     float y1 = tlwh(1);
     float x2 = tlwh(0) + tlwh(2);
     float y2 = tlwh(1) + tlwh(3);
-    int frame_diff = frame_id - last_updated_frame_id_;
-    if (frame_diff == 0) {
-      frame_diff = 1;
-    }
+    uint64_t frame_diff = frame_id > last_updated_frame_id_
+                              ? frame_id - last_updated_frame_id_
+                              : 1;
 
-    LOGI(
+    LOGD(
         "update "
         "trackid:%d,box:[%.1f,%.1f,%.1f,%.1f],oldbox:[%.1f,%.1f,%.1f,%.1f],"
         "score:%.1f",
@@ -118,6 +117,8 @@ void KalmanTracker::update(const uint64_t &frame_id, const KalmanFilter &kf,
     box_.x2 = x2;
     box_.y2 = y2;
     box_.score = p_bbox->score;
+    box_.class_id = p_bbox->class_id;
+    box_.object_type = p_bbox->object_type;
     float vel_x = mean(4) / frame_diff;
     float vel_y = mean(5) / frame_diff;
     if (ages_ == 1) {
@@ -131,7 +132,7 @@ void KalmanTracker::update(const uint64_t &frame_id, const KalmanFilter &kf,
 
   } else {
     // do not update velocity
-    LOGI(
+    LOGD(
         "missed track id:%d, tracker_state: %d, unmatched_times:%d, "
         "max_unmatched_times:%d\n",
         id_, status_, unmatched_times_, conf.max_unmatched_times_);
@@ -149,7 +150,7 @@ void KalmanTracker::falseUpdateFromPair(const uint64_t &frame_id,
                                         const KalmanFilter &kf,
                                         KalmanTracker *p_other,
                                         const TrackerConfig &conf) {
-  LOGI("false update pairtrack:%d,with:%d\n", id_, p_other->id_);
+  LOGD("false update pairtrack:%d,with:%d\n", id_, p_other->id_);
 
   if (p_other->pair_track_infos_.count(id_) == 0) {
     LOGE("false update current trackid:%d not found in pair track:%d\n",
@@ -176,7 +177,9 @@ void KalmanTracker::falseUpdateFromPair(const uint64_t &frame_id,
   auto update_data = kf.update(mean, covariance, false_box);
   mean = update_data.first;
   covariance = update_data.second;
-  int frame_diff = frame_id - last_updated_frame_id_;
+  uint64_t frame_diff = frame_id > last_updated_frame_id_
+                            ? frame_id - last_updated_frame_id_
+                            : 1;
   float vel_x = mean(4) / frame_diff;
   float vel_y = mean(5) / frame_diff;
   if (ages_ == 1) {
@@ -189,7 +192,7 @@ void KalmanTracker::falseUpdateFromPair(const uint64_t &frame_id,
   updateBoundaryState();
 }
 void KalmanTracker::updatePairInfo(KalmanTracker *p_other) {
-  LOGI("update pairtrack:%d,with:%d\n", id_, p_other->id_);
+  LOGD("update pairtrack:%d,with:%d\n", id_, p_other->id_);
   if (pair_track_infos_.size() != 0 &&
       pair_track_infos_.count(p_other->id_) == 0) {
     LOGW("trackid:%d already has pairtrack:%d,now to add pairtrack:%d", id_,
@@ -214,7 +217,7 @@ void KalmanTracker::updatePairInfo(KalmanTracker *p_other) {
   updateCorre(cur_box, pair_box, pair_track_infos_[p_other->id_], 0.5);
 }
 void KalmanTracker::resetPairInfo() {
-  LOGI("reset pairinfo of trackid:%d", id_);
+  LOGD("reset pairinfo of trackid:%d", id_);
   pair_track_infos_.clear();
 }
 DETECTBOX KalmanTracker::getBBoxTLWH() const {
@@ -236,6 +239,7 @@ ObjectBoxInfo KalmanTracker::getBoxInfo() const {
     box.x2 = tlwh(0) + tlwh(2);
     box.y2 = tlwh(1) + tlwh(3);
     box.score = box_.score;
+    box.class_id = box_.class_id;
     box.object_type = box_.object_type;
   }
   return box;
@@ -289,7 +293,7 @@ void KalmanTracker::updateBoundaryState() {
   if (iou < 0.5) {
     bounding_ = true;
     status_ = TrackStatus::REMOVED;
-    LOGI("trackid:%d,boundary,iou:%.2f,imgw:%d,imgh:%d", id_, iou, img_width_,
+    LOGD("trackid:%d,boundary,iou:%.2f,imgw:%d,imgh:%d", id_, iou, img_width_,
          img_height_);
   }
 }

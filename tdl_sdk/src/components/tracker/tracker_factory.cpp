@@ -23,6 +23,15 @@ int32_t Tracker::initialize(const std::shared_ptr<BaseImage>& image,
   return 0;
 }
 
+int32_t Tracker::initializePoint(
+    const std::shared_ptr<BaseImage>& image,
+    const std::vector<ObjectBoxInfo>& detect_boxes, float x, float y,
+    const ObjectBoxInfo* hint_bbox, uint64_t frame_id, int frame_type,
+    const std::string& model_path) {
+  return initialize(image, detect_boxes, x, y, frame_id, frame_type,
+                    model_path);
+}
+
 int32_t Tracker::initialize(const std::shared_ptr<BaseImage>& image,
                             const std::vector<ObjectBoxInfo>& detect_boxes,
                             int index, uint64_t frame_id,
@@ -45,6 +54,13 @@ int32_t Tracker::track(const std::shared_ptr<BaseImage>& image,
                        uint64_t frame_id, TrackerInfo& tracker_info) {
   return 0;
 }
+
+int32_t Tracker::prepareTargetSearch(int frame_type,
+                                     const std::string& model_path) {
+  return 0;
+}
+
+int32_t Tracker::setScoreThreshold(float threshold) { return 0; }
 
 std::shared_ptr<Tracker> TrackerFactory::createTracker(TrackerType type) {
   switch (type) {

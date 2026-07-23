@@ -135,6 +135,27 @@ function pack_rootfs
   make rootfs
 )}
 
+function _ipcamera_pqtool_enabled()
+{
+  local app_config="$TOP_DIR/ipcamera/.config"
+
+  if [[ ! -r "$app_config" ]]; then
+    app_config="$TOP_DIR/ipcamera/configs/cv184x_ovis_app_defconfig"
+  fi
+
+  [[ "$BUILD_TURNKEY_IPC" = "y" ]] &&
+    grep -q '^CONFIG_MODULE_PQTOOL=y$' "$app_config"
+}
+
+function _clear_pq_bins()
+{
+  local output_dir="$1"
+
+  command rm -f "$output_dir"/cvi_sdr_bin
+  command rm -f "$output_dir"/cvi_sdr_ir_bin
+  command rm -f "$output_dir"/cvi_wdr_bin
+}
+
 function pack_data
 {(
   print_notice "Run ${FUNCNAME[0]}_${STORAGE_TYPE}() function"
@@ -142,6 +163,12 @@ function pack_data
   export ROOTFS_DIR COMMON_TOOLS_PATH FLASH_PARTITION_XML STORAGE_TYPE
   export CHIP_FOLDER_PATH SDK_VER_FOLDER_PATH CUST_FOLDER_PATH
   mkdir -p "$OUTPUT_DIR"/data
+  _clear_pq_bins "$OUTPUT_DIR"/data
+  if _ipcamera_pqtool_enabled; then
+    pushd "$ISP_TUNING_PATH"
+    ./copyBin.sh "$OUTPUT_DIR"/data/ "$SENSOR_TUNING_PARAM"
+    popd
+  fi
   pushd "$OUTPUT_DIR"/data;echo "If you can dream it, you can do it." > sample;popd
   cd "$BUILD_PATH" || return
   make data
@@ -200,9 +227,15 @@ function pack_cfg
 {(
   print_notice "Run ${FUNCNAME[0]}_${STORAGE_TYPE}() function"
 
-  pushd "$ISP_TUNING_PATH"
-  ./copyBin.sh "$OUTPUT_DIR"/rootfs/mnt/cfg/param/ "$SENSOR_TUNING_PARAM"
-  popd
+  local pq_bin_dir="$OUTPUT_DIR/rootfs/mnt/cfg/param"
+
+  mkdir -p "$pq_bin_dir"
+  _clear_pq_bins "$pq_bin_dir"
+  if ! _ipcamera_pqtool_enabled; then
+    pushd "$ISP_TUNING_PATH"
+    ./copyBin.sh "$pq_bin_dir"/ "$SENSOR_TUNING_PARAM"
+    popd
+  fi
 
   export TOOLS_PATH COMMON_TOOLS_PATH STORAGE_TYPE FLASH_PARTITION_XML ROOTFS_DIR
 

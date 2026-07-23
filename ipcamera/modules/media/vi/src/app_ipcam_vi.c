@@ -11,6 +11,7 @@
 #include "cvi_awb.h"
 #include "cvi_sensor.h"
 #include "app_ipcam_vi.h"
+#include "app_ipcam_teaisp_bnr.h"
 #include "cvi_ispd2.h"
 #include "app_ipcam_paramparse.h"
 #include "app_ipcam_ircut.h"
@@ -44,6 +45,7 @@ APP_PARAM_VI_CTX_S g_stViCtx, *g_pstViCtx = &g_stViCtx;
 static pthread_t AF_pthread;
 static CVI_BOOL bAfFilterEnable;
 static pthread_t g_IspPid[VI_MAX_DEV_NUM];
+static CVI_BOOL g_bViInitialized;
 
 #ifdef SUPPORT_ISP_PQTOOL
 static CVI_BOOL bISPDaemon = CVI_FALSE;
@@ -591,7 +593,8 @@ int app_ipcam_Vi_Pipe_Start(void)
         stViPipeAttr.stFrameRate.s32DstFrameRate	= -1;
         stViPipeAttr.bNrEn						= CVI_TRUE;
         stViPipeAttr.bYuvBypassPath				= g_pstViCtx->stSensorCfg.sns_cfg.bBypassIsp[i];
-        stViPipeAttr.enCompressMode				= pstChnCfg->enCompressMode;
+        stViPipeAttr.enCompressMode = app_ipcam_TeaispBnr_IsEnabled(psPipeCfg->aPipe[0]) ?
+            COMPRESS_MODE_NONE : pstChnCfg->enCompressMode;
 
         for (int j = 0; j < WDR_MAX_PIPE_NUM; j++) {
             if ((psPipeCfg->aPipe[j] >= 0) && (psPipeCfg->aPipe[j] < WDR_MAX_PIPE_NUM)) {
@@ -701,6 +704,7 @@ CVI_U8 app_ipcam_Framerate_Get(CVI_U8 viPipe)
 int app_ipcam_Vi_Isp_Init(void)
 {
     CVI_S32 s32Ret;
+    const CVI_CHAR *pPqBinPath = PQ_BIN_SDR;
 
     VI_PIPE              ViPipe;
     ISP_PUB_ATTR_S       stPubAttr;
@@ -838,11 +842,22 @@ int app_ipcam_Vi_Isp_Init(void)
         APP_IPCAM_CHECK_RET(s32Ret, "ISP Init fail, ViPipe[%d]\n", ViPipe);
     }
 
-    if (access(PQ_BIN_SDR, F_OK) == 0) {
-        s32Ret = app_ipcam_PQBin_Load(PQ_BIN_SDR);
+    if (access(pPqBinPath, R_OK) == 0) {
+        s32Ret = app_ipcam_PQBin_Load(pPqBinPath);
         if (s32Ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_WARN, "load %s failed with %#x!\n", PQ_BIN_SDR, s32Ret);
+            APP_PROF_LOG_PRINT(app_ipcam_TeaispBnr_IsEnabled(0) ? LEVEL_ERROR : LEVEL_WARN,
+                "load %s failed with %#x!\n", pPqBinPath, s32Ret);
+            if (app_ipcam_TeaispBnr_IsEnabled(0))
+                return s32Ret;
         }
+    } else if (app_ipcam_TeaispBnr_IsEnabled(0)) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "AI BNR requires readable PQ bin %s\n", pPqBinPath);
+        return CVI_FAILURE;
+    }
+
+    s32Ret = app_ipcam_TeaispBnr_ValidatePq(0);
+    if (s32Ret != CVI_SUCCESS) {
+        return s32Ret;
     }
 
 #ifdef SUPPORT_ISP_PQTOOL
@@ -937,11 +952,13 @@ int app_ipcam_Vi_Isp_Start(void)
     for (CVI_U32 i = 0; i < g_pstViCtx->u32WorkSnsCnt; i++) 
     {
         APP_PARAM_PIPE_CFG_T *pstPipeCfg = &g_pstViCtx->astPipeInfo[i];
+        const CVI_CHAR *pPqBinPath = PQ_BIN_SDR;
         ViPipe = pstPipeCfg->aPipe[0];
         CVI_VI_GetDevAttr(ViPipe, &pstDevAttr);
-        s32Ret = CVI_BIN_SetBinName(pstDevAttr.stWDRAttr.enWDRMode, PQ_BIN_SDR);
+        s32Ret = CVI_BIN_SetBinName(pstDevAttr.stWDRAttr.enWDRMode, pPqBinPath);
         if (s32Ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_BIN_SetBinName %s failed with %#x!\n", PQ_BIN_SDR, s32Ret);
+            APP_PROF_LOG_PRINT(LEVEL_ERROR, "CVI_BIN_SetBinName %s failed with %#x!\n",
+                pPqBinPath, s32Ret);
             return s32Ret;
         }
 
@@ -1021,7 +1038,8 @@ int app_ipcam_Vi_Chn_Start(void)
         stViChnAttr.stSize.u32Height = g_pstViCtx->stSensorCfg.sns_cfg.u32ImageHeight[i];
         stViChnAttr.enDynamicRange = pstChnCfg->enDynamicRange;
         stViChnAttr.enVideoFormat  = pstChnCfg->enVideoFormat;
-        stViChnAttr.enCompressMode = pstChnCfg->enCompressMode;
+        stViChnAttr.enCompressMode = app_ipcam_TeaispBnr_IsEnabled(ViPipe) ?
+            COMPRESS_MODE_NONE : pstChnCfg->enCompressMode;
         stViChnAttr.enPixelFormat = pstChnCfg->enPixFormat;
         stViChnAttr.stFrameRate.s32SrcFrameRate = -1;
         stViChnAttr.stFrameRate.s32DstFrameRate = -1;
@@ -1079,6 +1097,11 @@ int app_ipcam_Vi_Chn_Stop(void)
 int app_ipcam_Vi_DeInit(void)
 {
     APP_PARAM_MODULE_CFG_S * pModuleCfg = app_ipcam_Module_Param_Get();
+    CVI_S32 s32FirstRet = CVI_SUCCESS;
+    CVI_S32 s32Ret;
+
+    if (!g_bViInitialized)
+        return app_ipcam_TeaispBnr_DriverDeInit(0);
 
     if(!pModuleCfg->alios_vi_mode){
         if (Auto_Rgb_Ir_Enable)
@@ -1088,14 +1111,28 @@ int app_ipcam_Vi_DeInit(void)
             g_RgbIR_Thread = 0;
         }
 
-        APP_CHK_RET(app_ipcam_Vi_Isp_Stop(),    "app_ipcam_Vi_Isp_Stop");
-        APP_CHK_RET(app_ipcam_Vi_Isp_DeInit(),  "app_ipcam_Vi_Isp_DeInit");
-        APP_CHK_RET(app_ipcam_Vi_Chn_Stop(),    "app_ipcam_Vi_Chn_Stop");
-        APP_CHK_RET(app_ipcam_Vi_Pipe_Stop(),   "app_ipcam_Vi_Pipe_Stop");
-        APP_CHK_RET(app_ipcam_Vi_Dev_Stop(),    "app_ipcam_Vi_Dev_Stop");
+        s32Ret = app_ipcam_Vi_Isp_Stop();
+        if (s32Ret != CVI_SUCCESS && s32FirstRet == CVI_SUCCESS)
+            s32FirstRet = s32Ret;
+        s32Ret = app_ipcam_Vi_Isp_DeInit();
+        if (s32Ret != CVI_SUCCESS && s32FirstRet == CVI_SUCCESS)
+            s32FirstRet = s32Ret;
+        s32Ret = app_ipcam_Vi_Chn_Stop();
+        if (s32Ret != CVI_SUCCESS && s32FirstRet == CVI_SUCCESS)
+            s32FirstRet = s32Ret;
+        s32Ret = app_ipcam_Vi_Pipe_Stop();
+        if (s32Ret != CVI_SUCCESS && s32FirstRet == CVI_SUCCESS)
+            s32FirstRet = s32Ret;
+        s32Ret = app_ipcam_Vi_Dev_Stop();
+        if (s32Ret != CVI_SUCCESS && s32FirstRet == CVI_SUCCESS)
+            s32FirstRet = s32Ret;
+        s32Ret = app_ipcam_TeaispBnr_DriverDeInit(0);
+        if (s32Ret != CVI_SUCCESS && s32FirstRet == CVI_SUCCESS)
+            s32FirstRet = s32Ret;
     }
 
-    return CVI_SUCCESS;
+    g_bViInitialized = CVI_FALSE;
+    return s32FirstRet;
 }
 
 int app_ipcam_Vi_Init(void)
@@ -1103,9 +1140,16 @@ int app_ipcam_Vi_Init(void)
     CVI_S32 s32Ret = CVI_SUCCESS;
 
     APP_PARAM_MODULE_CFG_S * pModuleCfg = app_ipcam_Module_Param_Get();
+
+    if (g_bViInitialized)
+        return CVI_SUCCESS;
 ///////////////////////////////////////////////////////////////////////////////////////////////////
     // only support for dual_os
     if (pModuleCfg->alios_vi_mode) {
+        if (app_ipcam_TeaispBnr_IsEnabled(0)) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR, "AI BNR does not support AliOS VI mode\n");
+            return CVI_FAILURE;
+        }
         for (CVI_U32 i = 0; i < g_pstViCtx->u32WorkSnsCnt; i++) {
             s32Ret = CVI_ISP_MemInit(g_pstViCtx->astPipeInfo[i].aPipe[0]);
             if(s32Ret != CVI_SUCCESS){
@@ -1121,6 +1165,7 @@ int app_ipcam_Vi_Init(void)
 #ifdef SUPPORT_ISP_PQTOOL
         app_ipcam_Ispd_Load();
 #endif
+        g_bViInitialized = CVI_TRUE;
         return s32Ret;
     }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1128,22 +1173,30 @@ int app_ipcam_Vi_Init(void)
         s32Ret = CVI_SNS_GetConfigInfo(&g_pstViCtx->stSensorCfg);
         if (s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "get sns cfg failed\n");
+            goto VI_EXIT0;
         }
         s32Ret = CVI_SNS_SetSnsDrvCfg(&g_pstViCtx->stSensorCfg);
         if (s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "set sns_drv failed\n");
+            goto VI_EXIT0;
+        }
+
+        s32Ret = app_ipcam_TeaispBnr_DriverInit(0);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR, "AI BNR driver init failed with %#x\n", s32Ret);
+            goto VI_EXIT0;
         }
 
         s32Ret = app_ipcam_Vi_Mipi_Start();
         if(s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Mipi_Start failed with %#x\n", s32Ret);
-            goto VI_EXIT0;
+            goto VI_EXIT_BNR;
         }
 
         s32Ret = app_ipcam_Vi_Dev_Start();
         if(s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Dev_Start failed with %#x\n", s32Ret);
-            goto VI_EXIT0;
+            goto VI_EXIT_BNR;
         }
 
         s32Ret = app_ipcam_Vi_Pipe_Start();
@@ -1155,13 +1208,14 @@ int app_ipcam_Vi_Init(void)
         s32Ret = app_ipcam_Vi_Isp_Init();
         if(s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Isp_Init failed with %#x\n", s32Ret);
-            goto VI_EXIT2;
+            goto VI_EXIT3;
         }
 
         for (CVI_U32 i = 0; i < g_pstViCtx->u32WorkSnsCnt; i++) {
             if (CVI_SNS_SetSnsInit(i) != CVI_SUCCESS) {
                 APP_PROF_LOG_PRINT(LEVEL_ERROR, "sensor_%d init failed!\n", i);
-                goto VI_EXIT3;
+                s32Ret = CVI_FAILURE;
+                goto VI_EXIT4;
             }
         }
 
@@ -1171,17 +1225,27 @@ int app_ipcam_Vi_Init(void)
         s32Ret = app_ipcam_Vi_Isp_Start();
         if(s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Isp_Start failed with %#x\n", s32Ret);
-            goto VI_EXIT3;
+            goto VI_EXIT4;
         }
 
         s32Ret = app_ipcam_Vi_Chn_Start();
         if(s32Ret != CVI_SUCCESS) {
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Chn_Start failed with %#x\n", s32Ret);
-            goto VI_EXIT4;
+            goto VI_EXIT5;
+        }
+
+        s32Ret = app_ipcam_TeaispBnr_LoadModel(0);
+        if (s32Ret != CVI_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR, "AI BNR model registration failed with %#x\n", s32Ret);
+            goto VI_EXIT5;
         }
     }
 
+    g_bViInitialized = CVI_TRUE;
     return CVI_SUCCESS;
+
+VI_EXIT5:
+    app_ipcam_Vi_Chn_Stop();
 
 VI_EXIT4:
     app_ipcam_Vi_Isp_Stop();
@@ -1189,11 +1253,13 @@ VI_EXIT4:
 VI_EXIT3:
     app_ipcam_Vi_Isp_DeInit();
 
-VI_EXIT2:
     app_ipcam_Vi_Pipe_Stop();
 
 VI_EXIT1:
     app_ipcam_Vi_Dev_Stop();
+
+VI_EXIT_BNR:
+    app_ipcam_TeaispBnr_DriverDeInit(0);
 
 VI_EXIT0:
     app_ipcam_Sys_DeInit();

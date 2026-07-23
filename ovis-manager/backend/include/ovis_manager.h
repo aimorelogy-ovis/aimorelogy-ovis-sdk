@@ -80,6 +80,16 @@
 #ifndef OVIS_DEFAULT_CONFIG
 #define OVIS_DEFAULT_CONFIG "/usr/share/ipcamera/param_config.ini"
 #endif
+#ifndef OVIS_AI_BNR_MODEL
+#define OVIS_AI_BNR_MODEL "/usr/share/ipcamera/cv184x/bmodel_0326_blc1_patch2.bmodel"
+#endif
+#ifndef OVIS_AI_BNR_PQ_BIN
+#ifdef OVIS_IPCAMERA_PQTOOL
+#define OVIS_AI_BNR_PQ_BIN "/mnt/data/cvi_sdr_bin"
+#else
+#define OVIS_AI_BNR_PQ_BIN "/mnt/cfg/param/cvi_sdr_bin"
+#endif
+#endif
 #define OVIS_ACCOUNT_FILE "/mnt/cfg/ovis-manager/ovis.account"
 #define OVIS_DEVICE_ID_FILE "/mnt/cfg/ovis-manager/device-id"
 #define OVIS_NCM_SUBNET_FILE "/mnt/cfg/ovis-manager/ncm-subnet"
@@ -126,6 +136,7 @@ int task_get(unsigned long id, char *json, size_t size);
 int config_ensure_runtime(char *error, size_t error_size);
 int config_read_json(char *json, size_t size);
 int config_capabilities_json(char *json, size_t size);
+int config_ai_bnr_supported(void);
 int config_validate_json(const char *body, char *json, size_t size,
 	char *error, size_t error_size);
 int config_stage_json(const char *body, char *json, size_t size,
@@ -134,6 +145,9 @@ int config_apply_staged(const char *revision, char *message, size_t message_size
 	int *rolled_back);
 int config_apply_defaults(char *message, size_t message_size, int *rolled_back);
 int config_validate_file(const char *path, char *error, size_t error_size);
+int tracking_status_json(char *json, size_t size);
+int tracking_target_set(const char *body, char *error, size_t error_size);
+int tracking_target_clear(char *error, size_t error_size);
 int config_stage_detection_model(const char *model_id, const char *model_path,
 	const char *model_config_path, double threshold, int processing_width,
 	int processing_height, int enabled,

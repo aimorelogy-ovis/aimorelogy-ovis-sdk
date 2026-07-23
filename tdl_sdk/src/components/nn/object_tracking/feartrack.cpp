@@ -1,28 +1,103 @@
 #include "feartrack.hpp"
+#include <algorithm>
+#include <cstdlib>
 #include "utils/tdl_log.hpp"
 
 template <typename T>
 inline void parse_score_data(T* p_score_ptr, int score_size, float qscale,
                              float* max_score, int* max_i, int* max_j) {
-  float best_score = -1;
-  int best_i = -1, best_j = -1;
+  float peak_score = -1.0f;
+  int peak_i = -1;
+  int peak_j = -1;
 
-  // 遍历整个score map (16x16)，使用argmax与Python对齐
   for (int i = 0; i < score_size; i++) {
     for (int j = 0; j < score_size; j++) {
-      float score =
+      const float score =
           static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
-      if (score > best_score) {
-        best_score = score;
-        best_i = i;
-        best_j = j;
+      if (score > peak_score) {
+        peak_score = score;
+        peak_i = i;
+        peak_j = j;
       }
     }
   }
 
-  *max_score = best_score;
-  *max_i = best_i;
-  *max_j = best_j;
+  float second_score = -1.0f;
+  for (int i = 0; i < score_size; i++) {
+    for (int j = 0; j < score_size; j++) {
+      if (std::abs(i - peak_i) <= 1 && std::abs(j - peak_j) <= 1) {
+        continue;
+      }
+      const float score =
+          static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
+      second_score = std::max(second_score, score);
+    }
+  }
+
+  float best_average = -1.0f;
+  int average_i = -1;
+  int average_j = -1;
+  for (int i = 0; i < score_size; i++) {
+    for (int j = 0; j < score_size; j++) {
+      const float center_score =
+          static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
+      if (center_score <= 0.2f) {
+        continue;
+      }
+
+      float sum = 0.0f;
+      int count = 0;
+      for (int dy = -2; dy <= 2; dy++) {
+        const int y = i + dy;
+        if (y < 0 || y >= score_size) {
+          continue;
+        }
+        for (int dx = -2; dx <= 2; dx++) {
+          const int x = j + dx;
+          if (x < 0 || x >= score_size) {
+            continue;
+          }
+          sum += static_cast<float>(p_score_ptr[y * score_size + x]) * qscale;
+          count++;
+        }
+      }
+      const float average = sum / std::max(count, 1);
+      if (average > best_average) {
+        best_average = average;
+        average_i = i;
+        average_j = j;
+      }
+    }
+  }
+
+  const bool confident_peak = peak_score >= 0.35f &&
+                              peak_score - second_score >= 0.08f;
+  if (confident_peak || average_i < 0) {
+    *max_score = peak_score;
+    *max_i = peak_i;
+    *max_j = peak_j;
+    return;
+  }
+
+  float local_peak_score = -1.0f;
+  int local_peak_i = peak_i;
+  int local_peak_j = peak_j;
+  for (int i = std::max(0, average_i - 2);
+       i <= std::min(score_size - 1, average_i + 2); i++) {
+    for (int j = std::max(0, average_j - 2);
+         j <= std::min(score_size - 1, average_j + 2); j++) {
+      const float score =
+          static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
+      if (score > local_peak_score) {
+        local_peak_score = score;
+        local_peak_i = i;
+        local_peak_j = j;
+      }
+    }
+  }
+  *max_score = local_peak_score;
+  *max_i = local_peak_i;
+  *max_j = local_peak_j;
 }
 
 template <typename T>
@@ -64,7 +139,9 @@ FearTrack::FearTrack() {
 
 FearTrack::~FearTrack() {}
 
-void FearTrack::invalidateInputCache() { template_input_cached_ = false; }
+void FearTrack::invalidateInputCache() {
+  template_input_cached_ = false;
+}
 
 int32_t FearTrack::onModelOpened() {
   // 获取输入输出层信息

@@ -1,6 +1,11 @@
 CC ?= gcc
 CFLAGS ?= -O2
 -include configs/cv1842hp_ovis_spinand_defconfig
+IPCAMERA_CONFIG ?= ../ipcamera/.config
+ifeq ($(wildcard $(IPCAMERA_CONFIG)),)
+IPCAMERA_CONFIG := ../ipcamera/configs/cv184x_ovis_app_defconfig
+endif
+-include $(IPCAMERA_CONFIG)
 CJSON_ROOT := ../ipcamera/modules/common
 CFLAGS += -Wall -Wextra -std=c11 -D_POSIX_C_SOURCE=200809L -Ibackend/include
 CFLAGS += -I$(CJSON_ROOT)/include
@@ -10,6 +15,15 @@ CFLAGS += -DOVIS_ALLOWED_ORIGIN=\"$(CONFIG_OVIS_MANAGER_ALLOWED_ORIGIN)\"
 CFLAGS += -DOVIS_DEV_ORIGIN=\"$(CONFIG_OVIS_MANAGER_DEV_ORIGIN)\"
 CFLAGS += -DOVIS_DEV_ORIGIN_ALT=\"$(CONFIG_OVIS_MANAGER_DEV_ORIGIN_ALT)\"
 CFLAGS += -DOVIS_FIRMWARE_VERSION=\"$(CONFIG_OVIS_FIRMWARE_VERSION)\"
+ifeq ($(CONFIG_OVIS_AI_BNR),y)
+CFLAGS += -DOVIS_AI_BNR_SUPPORT
+endif
+ifeq ($(CONFIG_OVIS_AI_BNR_CERTIFIED),y)
+CFLAGS += -DOVIS_AI_BNR_CERTIFIED
+endif
+ifeq ($(CONFIG_MODULE_PQTOOL),y)
+CFLAGS += -DOVIS_IPCAMERA_PQTOOL
+endif
 LDFLAGS += -pthread -lm
 
 TARGET := build/ovis-managerd

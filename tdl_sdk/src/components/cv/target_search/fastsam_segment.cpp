@@ -9,8 +9,9 @@
 static const int kMinimumCropSize = 320;
 static const int kMaximumDenseCropSize = 640;
 static const float kHintCropScale = 1.2f;
-static const float kLargeHintCropScale = 1.08f;
-static const float kResultPaddingRatio = 0.08f;
+static const int kPromptTolerance = 4;
+static const float kAmbiguousScoreDelta = 0.025f;
+static const float kAmbiguousIouThreshold = 0.15f;
 
 struct FastSAMMaskCandidate {
   int segment_index = -1;
@@ -19,9 +20,19 @@ struct FastSAMMaskCandidate {
   float model_score = 0.0f;
   float crop_ratio = 0.0f;
   float raw_bbox_ratio = 0.0f;
+  float fill_ratio = 0.0f;
   int foreground_area = 0;
   float seed_distance = 0.0f;
+  bool contains_prompt = false;
   bool touches_crop_border = false;
+};
+
+struct FastSAMRejectStats {
+  int invalid = 0;
+  int bbox_miss = 0;
+  int no_component = 0;
+  int prompt_miss = 0;
+  int too_small = 0;
 };
 
 static float clampUnit(float value) {
@@ -55,47 +66,14 @@ static cv::Rect makeSquareCrop(int image_width, int image_height,
                                cv::Point seed_point,
                                const cv::Rect* hint_bbox) {
   int crop_size = kMinimumCropSize;
-  int center_x = seed_point.x;
-  int center_y = seed_point.y;
 
   if (hint_bbox != nullptr && hint_bbox->width > 0 && hint_bbox->height > 0) {
     int hint_extent = std::max(hint_bbox->width, hint_bbox->height);
-    float crop_scale = hint_extent <= kMaximumDenseCropSize
-                           ? kHintCropScale
-                           : kLargeHintCropScale;
     crop_size = std::max(crop_size,
-                         static_cast<int>(hint_extent * crop_scale + 0.5f));
-    if (hint_extent <= kMaximumDenseCropSize) {
-      crop_size = std::min(crop_size, kMaximumDenseCropSize);
-    }
-    center_x = hint_bbox->x + hint_bbox->width / 2;
-    center_y = hint_bbox->y + hint_bbox->height / 2;
+                         static_cast<int>(hint_extent * kHintCropScale + 0.5f));
   }
-  return makeSquareCropAt(image_width, image_height,
-                          cv::Point(center_x, center_y), crop_size);
-}
-
-static cv::Rect mapRectToOutputSpace(const cv::Rect& bbox,
-                                     const cv::Rect& crop_rect,
-                                     int output_width, int output_height) {
-  cv::Rect mapped;
-  mapped.x = static_cast<int>((bbox.x - crop_rect.x) *
-                                  static_cast<float>(output_width) /
-                                  crop_rect.width +
-                              0.5f);
-  mapped.y = static_cast<int>((bbox.y - crop_rect.y) *
-                                  static_cast<float>(output_height) /
-                                  crop_rect.height +
-                              0.5f);
-  mapped.width = static_cast<int>(bbox.width *
-                                      static_cast<float>(output_width) /
-                                      crop_rect.width +
-                                  0.5f);
-  mapped.height = static_cast<int>(bbox.height *
-                                       static_cast<float>(output_height) /
-                                       crop_rect.height +
-                                   0.5f);
-  return mapped & cv::Rect(0, 0, output_width, output_height);
+  crop_size = std::min(crop_size, kMaximumDenseCropSize);
+  return makeSquareCropAt(image_width, image_height, seed_point, crop_size);
 }
 
 static int findPromptComponent(const cv::Mat& labels, cv::Point point,
@@ -138,10 +116,13 @@ static cv::Rect componentRect(const cv::Mat& stats, int label) {
 
 static bool buildMaskCandidate(
     const std::shared_ptr<ModelBoxSegmentationInfo>& obj_meta,
-    int seg_index, cv::Point prompt_point, const cv::Rect& hint_bbox,
-    FastSAMMaskCandidate* candidate) {
+    int seg_index, cv::Point prompt_point, FastSAMMaskCandidate* candidate,
+    FastSAMRejectStats* reject_stats) {
   if (!obj_meta || candidate == nullptr || seg_index < 0 ||
       seg_index >= static_cast<int>(obj_meta->box_seg.size())) {
+    if (reject_stats != nullptr) {
+      reject_stats->invalid++;
+    }
     return false;
   }
 
@@ -150,6 +131,9 @@ static bool buildMaskCandidate(
   const auto& segment = obj_meta->box_seg[seg_index];
   if (proto_width <= 0 || proto_height <= 0 || segment.mask == nullptr ||
       obj_meta->image_width == 0 || obj_meta->image_height == 0) {
+    if (reject_stats != nullptr) {
+      reject_stats->invalid++;
+    }
     return false;
   }
 
@@ -162,6 +146,9 @@ static bool buildMaskCandidate(
   cv::threshold(model_mask, model_mask, 0, 255, cv::THRESH_BINARY);
   if (prompt_point.x < 0 || prompt_point.x >= model_mask.cols ||
       prompt_point.y < 0 || prompt_point.y >= model_mask.rows) {
+    if (reject_stats != nullptr) {
+      reject_stats->invalid++;
+    }
     return false;
   }
 
@@ -172,22 +159,23 @@ static bool buildMaskCandidate(
       static_cast<int>(std::ceil(segment.y2 - segment.y1)));
   raw_bbox &= cv::Rect(0, 0, model_mask.cols, model_mask.rows);
   if (raw_bbox.width <= 2 || raw_bbox.height <= 2) {
+    if (reject_stats != nullptr) {
+      reject_stats->invalid++;
+    }
     return false;
   }
-  int search_radius = std::max(
-      6, std::min(24, static_cast<int>(
-                          std::max(raw_bbox.width, raw_bbox.height) * 0.06f)));
-  cv::Rect prompt_region(prompt_point.x - search_radius,
-                         prompt_point.y - search_radius,
-                         search_radius * 2 + 1, search_radius * 2 + 1);
+  cv::Rect prompt_region(prompt_point.x - kPromptTolerance,
+                         prompt_point.y - kPromptTolerance,
+                         kPromptTolerance * 2 + 1,
+                         kPromptTolerance * 2 + 1);
   if ((raw_bbox & prompt_region).empty()) {
+    if (reject_stats != nullptr) {
+      reject_stats->bbox_miss++;
+    }
     return false;
   }
 
   cv::Mat roi_mask = model_mask(raw_bbox).clone();
-  cv::morphologyEx(
-      roi_mask, roi_mask, cv::MORPH_CLOSE,
-      cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
 
   cv::Mat labels;
   cv::Mat stats;
@@ -195,15 +183,21 @@ static bool buildMaskCandidate(
   int component_count = cv::connectedComponentsWithStats(
       roi_mask, labels, stats, centroids, 8, CV_32S);
   if (component_count <= 1) {
+    if (reject_stats != nullptr) {
+      reject_stats->no_component++;
+    }
     return false;
   }
 
   cv::Point prompt_in_roi = prompt_point - raw_bbox.tl();
   float seed_distance = 0.0f;
-  int seed_label = findPromptComponent(
-      labels, prompt_in_roi, search_radius, &seed_distance);
+  int seed_label = findPromptComponent(labels, prompt_in_roi,
+                                       kPromptTolerance, &seed_distance);
   if (seed_label <= 0 || seed_label >= component_count ||
-      seed_distance > search_radius) {
+      seed_distance > kPromptTolerance) {
+    if (reject_stats != nullptr) {
+      reject_stats->prompt_miss++;
+    }
     return false;
   }
 
@@ -211,29 +205,32 @@ static bool buildMaskCandidate(
   int selected_area = stats.at<int>(seed_label, cv::CC_STAT_AREA);
   if (selected_area < 12 || selected_bbox.width <= 2 ||
       selected_bbox.height <= 2) {
+    if (reject_stats != nullptr) {
+      reject_stats->too_small++;
+    }
     return false;
   }
 
   float raw_bbox_ratio = static_cast<float>(selected_bbox.area()) /
                          std::max(1, raw_bbox.area());
   if (raw_bbox_ratio < 0.03f) {
+    if (reject_stats != nullptr) {
+      reject_stats->too_small++;
+    }
     return false;
   }
   selected_bbox.x += raw_bbox.x;
   selected_bbox.y += raw_bbox.y;
-  selected_bbox |= cv::Rect(prompt_point.x, prompt_point.y, 1, 1);
   selected_bbox &= cv::Rect(0, 0, model_mask.cols, model_mask.rows);
   if (selected_bbox.width <= 2 || selected_bbox.height <= 2) {
+    if (reject_stats != nullptr) {
+      reject_stats->too_small++;
+    }
     return false;
   }
 
-  float prompt_proximity =
-      1.0f - clampUnit(seed_distance / std::max(1, search_radius));
-  float hint_iou = hint_bbox.empty() ? 0.0f
-                                     : rectIou(selected_bbox, hint_bbox);
-  float fill_support = clampUnit(
-      static_cast<float>(selected_area) /
-      std::max(1.0f, selected_bbox.area() * 0.5f));
+  float fill_ratio = clampUnit(static_cast<float>(selected_area) /
+                               std::max(1, selected_bbox.area()));
   bool touches_border = selected_bbox.x <= 2 || selected_bbox.y <= 2 ||
                         selected_bbox.x + selected_bbox.width >=
                             model_mask.cols - 2 ||
@@ -248,36 +245,43 @@ static bool buildMaskCandidate(
   candidate->model_score = clampUnit(segment.score);
   candidate->crop_ratio = crop_ratio;
   candidate->raw_bbox_ratio = raw_bbox_ratio;
+  candidate->fill_ratio = fill_ratio;
   candidate->foreground_area = selected_area;
   candidate->seed_distance = seed_distance;
+  candidate->contains_prompt = seed_distance == 0.0f;
   candidate->touches_crop_border = touches_border;
-  candidate->score = 1.75f * candidate->model_score +
-                     1.25f * prompt_proximity + 1.75f * specificity +
-                     0.5f * fill_support + 2.0f * hint_iou;
+  candidate->score = candidate->model_score + 0.20f * fill_ratio +
+                     0.10f * specificity;
+  if (candidate->contains_prompt) {
+    candidate->score += 0.50f;
+  } else {
+    candidate->score -= 0.05f * candidate->seed_distance;
+  }
   if (touches_border) {
-    candidate->score -= 1.25f;
+    candidate->score -= 0.25f;
   }
   if (crop_ratio > 0.65f) {
-    candidate->score -= 3.0f;
+    candidate->score -= 1.0f;
   } else if (crop_ratio < 0.001f) {
-    candidate->score -= 2.0f;
+    candidate->score -= 0.5f;
   }
   return true;
 }
 
 static int findBestMaskBboxContainingPoint(
     const std::shared_ptr<ModelBoxSegmentationInfo>& obj_meta,
-    cv::Point point, const cv::Rect& hint_bbox,
-    FastSAMMaskCandidate* best_candidate, int* candidate_count) {
+    cv::Point point, FastSAMMaskCandidate* best_candidate,
+    int* candidate_count, bool* ambiguous) {
   if (!obj_meta || best_candidate == nullptr || obj_meta->box_seg.empty()) {
     return -1;
   }
 
   std::vector<FastSAMMaskCandidate> candidates;
+  FastSAMRejectStats reject_stats;
   for (uint32_t i = 0; i < obj_meta->box_seg.size(); ++i) {
     FastSAMMaskCandidate candidate;
-    if (!buildMaskCandidate(obj_meta, static_cast<int>(i), point,
-                            hint_bbox, &candidate)) {
+    if (!buildMaskCandidate(obj_meta, static_cast<int>(i), point, &candidate,
+                            &reject_stats)) {
       continue;
     }
     candidates.push_back(candidate);
@@ -287,53 +291,78 @@ static int findBestMaskBboxContainingPoint(
     *candidate_count = static_cast<int>(candidates.size());
   }
   if (candidates.empty()) {
+    LOGW("FastSAM candidates rejected: outputs=%zu invalid=%d bbox_miss=%d "
+         "no_component=%d prompt_miss=%d too_small=%d",
+         obj_meta->box_seg.size(), reject_stats.invalid,
+         reject_stats.bbox_miss, reject_stats.no_component,
+         reject_stats.prompt_miss, reject_stats.too_small);
     return -1;
   }
 
   std::sort(candidates.begin(), candidates.end(),
             [](const FastSAMMaskCandidate& lhs,
                const FastSAMMaskCandidate& rhs) {
-              if (std::fabs(lhs.score - rhs.score) > 0.001f) {
-                return lhs.score > rhs.score;
+              if (lhs.contains_prompt != rhs.contains_prompt) {
+                return lhs.contains_prompt;
+              }
+              if (lhs.touches_crop_border != rhs.touches_crop_border) {
+                return !lhs.touches_crop_border;
+              }
+              if (std::fabs(lhs.seed_distance - rhs.seed_distance) > 0.01f) {
+                return lhs.seed_distance < rhs.seed_distance;
+              }
+              if (std::fabs(lhs.model_score - rhs.model_score) > 0.02f) {
+                return lhs.model_score > rhs.model_score;
+              }
+              if (std::fabs(lhs.fill_ratio - rhs.fill_ratio) > 0.05f) {
+                return lhs.fill_ratio > rhs.fill_ratio;
               }
               return lhs.bbox.area() < rhs.bbox.area();
             });
   *best_candidate = candidates.front();
+  if (ambiguous != nullptr) {
+    *ambiguous = false;
+    if (candidates.size() > 1) {
+      const FastSAMMaskCandidate& second = candidates[1];
+      *ambiguous = best_candidate->contains_prompt == second.contains_prompt &&
+                   best_candidate->touches_crop_border ==
+                       second.touches_crop_border &&
+                   std::fabs(best_candidate->seed_distance -
+                             second.seed_distance) <= 1.0f &&
+                   std::fabs(best_candidate->model_score -
+                             second.model_score) <= kAmbiguousScoreDelta &&
+                   rectIou(best_candidate->bbox, second.bbox) <
+                       kAmbiguousIouThreshold;
+    }
+  }
   int log_count = std::min(3, static_cast<int>(candidates.size()));
   for (int i = 0; i < log_count; ++i) {
     const FastSAMMaskCandidate& candidate = candidates[i];
     LOGI("FastSAM candidate[%d] seg=%d score=%.3f model=%.3f "
-         "crop_ratio=%.4f raw_ratio=%.3f seed_distance=%.1f "
+         "crop_ratio=%.4f fill=%.3f seed_distance=%.1f exact=%d "
          "border=%d bbox=[%d,%d,%d,%d]",
          i, candidate.segment_index, candidate.score,
-         candidate.model_score, candidate.crop_ratio,
-         candidate.raw_bbox_ratio, candidate.seed_distance,
+         candidate.model_score, candidate.crop_ratio, candidate.fill_ratio,
+         candidate.seed_distance, candidate.contains_prompt ? 1 : 0,
          candidate.touches_crop_border ? 1 : 0, candidate.bbox.x,
          candidate.bbox.y, candidate.bbox.width, candidate.bbox.height);
   }
+  if (ambiguous != nullptr && *ambiguous) {
+    LOGW("FastSAM point is ambiguous between the top candidates");
+  }
   return 0;
-}
-
-static cv::Rect expandAndClampBbox(const cv::Rect& bbox, int width,
-                                   int height) {
-  int padding_x = static_cast<int>(bbox.width * kResultPaddingRatio + 0.5f);
-  int padding_y = static_cast<int>(bbox.height * kResultPaddingRatio + 0.5f);
-  cv::Rect expanded(bbox.x - padding_x, bbox.y - padding_y,
-                    bbox.width + padding_x * 2,
-                    bbox.height + padding_y * 2);
-  return expanded & cv::Rect(0, 0, width, height);
 }
 
 struct FastSAMPassResult {
   cv::Rect bbox;
   FastSAMMaskCandidate candidate;
   int candidate_count = 0;
+  bool ambiguous = false;
 };
 
 static int runFastSAMPass(const std::shared_ptr<BaseModel>& model,
                           const std::shared_ptr<BaseImage>& image,
                           const cv::Rect& crop_rect, cv::Point seed_point,
-                          const cv::Rect* hint_bbox,
                           FastSAMPassResult* pass_result) {
   if (!model || !image || crop_rect.empty() || pass_result == nullptr) {
     return -1;
@@ -354,6 +383,9 @@ static int runFastSAMPass(const std::shared_ptr<BaseModel>& model,
   std::vector<std::shared_ptr<ModelOutputInfo>> out_datas;
   int inference_ret = model->inference(input_images, out_datas);
   if (inference_ret != 0 || out_datas.empty()) {
+    LOGW("FastSAM inference failed for crop=[%d,%d,%d,%d], ret=%d",
+         crop_rect.x, crop_rect.y, crop_rect.width, crop_rect.height,
+         inference_ret);
     return -1;
   }
 
@@ -361,6 +393,8 @@ static int runFastSAMPass(const std::shared_ptr<BaseModel>& model,
       std::dynamic_pointer_cast<ModelBoxSegmentationInfo>(out_datas[0]);
   if (!obj_meta || obj_meta->box_seg.empty() || obj_meta->image_width == 0 ||
       obj_meta->image_height == 0) {
+    LOGW("FastSAM produced no segments for crop=[%d,%d,%d,%d]",
+         crop_rect.x, crop_rect.y, crop_rect.width, crop_rect.height);
     return -1;
   }
 
@@ -380,22 +414,17 @@ static int runFastSAMPass(const std::shared_ptr<BaseModel>& model,
   seed_in_output.y =
       std::max(0, std::min(seed_in_output.y, output_height - 1));
 
-  cv::Rect hint_in_output;
-  if (hint_bbox != nullptr && hint_bbox->width > 0 &&
-      hint_bbox->height > 0) {
-    hint_in_output = mapRectToOutputSpace(
-        *hint_bbox, crop_rect, output_width, output_height);
-  }
-
   int ret = findBestMaskBboxContainingPoint(
-      obj_meta, seed_in_output, hint_in_output, &pass_result->candidate,
-      &pass_result->candidate_count);
+      obj_meta, seed_in_output, &pass_result->candidate,
+      &pass_result->candidate_count, &pass_result->ambiguous);
   if (ret != 0) {
+    LOGW("FastSAM found no candidate at seed=[%d,%d] in crop=[%d,%d,%d,%d]",
+         seed_point.x, seed_point.y, crop_rect.x, crop_rect.y,
+         crop_rect.width, crop_rect.height);
     return ret;
   }
 
-  cv::Rect bbox_output = expandAndClampBbox(
-      pass_result->candidate.bbox, output_width, output_height);
+  const cv::Rect& bbox_output = pass_result->candidate.bbox;
   pass_result->bbox.x =
       static_cast<int>(bbox_output.x * static_cast<float>(crop_rect.width) /
                            output_width +
@@ -417,8 +446,7 @@ static int runFastSAMPass(const std::shared_ptr<BaseModel>& model,
   pass_result->bbox &= cv::Rect(
       0, 0, static_cast<int>(image->getWidth()),
       static_cast<int>(image->getHeight()));
-  if (pass_result->bbox.width <= 2 || pass_result->bbox.height <= 2 ||
-      !pass_result->bbox.contains(seed_point)) {
+  if (pass_result->bbox.width <= 2 || pass_result->bbox.height <= 2) {
     pass_result->bbox = cv::Rect();
     return -1;
   }
@@ -460,56 +488,76 @@ int FastSAMSegmentor::segment(std::shared_ptr<BaseImage> image,
   const int img_w = static_cast<int>(image->getWidth());
   const int img_h = static_cast<int>(image->getHeight());
 
-  cv::Rect crop_rect = makeSquareCrop(
-      img_w, img_h, seed_point, hint_bbox);
-  if (crop_rect.empty() || !crop_rect.contains(seed_point)) {
+  cv::Rect hint_crop = makeSquareCrop(img_w, img_h, seed_point, hint_bbox);
+  if (hint_crop.empty() || !hint_crop.contains(seed_point)) {
     return -1;
   }
 
+  int max_crop_size = std::min(kMaximumDenseCropSize,
+                               std::min(img_w, img_h));
+  std::vector<int> crop_sizes;
+  crop_sizes.push_back(std::min(kMinimumCropSize, max_crop_size));
+  crop_sizes.push_back(std::min(hint_crop.width, max_crop_size));
+  crop_sizes.push_back(std::min(480, max_crop_size));
+  crop_sizes.push_back(max_crop_size);
+  std::sort(crop_sizes.begin(), crop_sizes.end());
+  crop_sizes.erase(std::unique(crop_sizes.begin(), crop_sizes.end()),
+                   crop_sizes.end());
+
   FastSAMPassResult selected_pass;
-  if (runFastSAMPass(model_od_, image, crop_rect, seed_point, hint_bbox,
-                     &selected_pass) != 0) {
-    LOGW("FastSAM has no foreground mask at seed=(%d,%d)",
+  cv::Rect selected_crop;
+  bool has_candidate = false;
+  bool retried = false;
+  for (size_t i = 0; i < crop_sizes.size(); ++i) {
+    cv::Rect crop_rect = makeSquareCropAt(
+        img_w, img_h, seed_point, crop_sizes[i]);
+    FastSAMPassResult pass;
+    if (runFastSAMPass(model_od_, image, crop_rect, seed_point, &pass) != 0) {
+      continue;
+    }
+    if (pass.ambiguous) {
+      LOGW("FastSAM rejects ambiguous crop=[%d,%d,%d,%d]",
+           crop_rect.x, crop_rect.y, crop_rect.width, crop_rect.height);
+      continue;
+    }
+    if (pass.bbox.area() >= crop_rect.area() * 9 / 10) {
+      LOGW("FastSAM target fills crop=[%d,%d,%d,%d], retrying wider view",
+           crop_rect.x, crop_rect.y, crop_rect.width, crop_rect.height);
+      continue;
+    }
+
+    selected_pass = pass;
+    selected_crop = crop_rect;
+    has_candidate = true;
+    retried = i > 0;
+    if (!pass.candidate.touches_crop_border) {
+      break;
+    }
+  }
+
+  if (!has_candidate) {
+    LOGW("FastSAM has no unambiguous foreground mask at seed=(%d,%d)",
          seed_point.x, seed_point.y);
     return -1;
   }
 
-  cv::Rect selected_crop = crop_rect;
-  bool retried = false;
-  if (selected_pass.candidate.touches_crop_border &&
-      crop_rect.width < std::min(img_w, img_h)) {
-    int retry_size = std::min(
-        std::min(img_w, img_h),
-        std::max(crop_rect.width + 160, crop_rect.width * 3 / 2));
-    cv::Rect retry_crop = makeSquareCropAt(
-        img_w, img_h, seed_point, retry_size);
-    FastSAMPassResult retry_pass;
-    if (retry_crop != crop_rect &&
-        runFastSAMPass(model_od_, image, retry_crop, seed_point, hint_bbox,
-                       &retry_pass) == 0) {
-      retried = true;
-      if (!retry_pass.candidate.touches_crop_border ||
-          retry_pass.candidate.score > selected_pass.candidate.score) {
-        selected_pass = retry_pass;
-        selected_crop = retry_crop;
-      }
-    }
-  }
-
   result->bbox = selected_pass.bbox;
   if (result->bbox.width <= 2 || result->bbox.height <= 2 ||
-      !result->bbox.contains(seed_point) ||
       result->bbox.area() >= selected_crop.area() * 9 / 10) {
     result->bbox = cv::Rect();
+    LOGW("FastSAM rejected invalid result at seed=(%d,%d)",
+         seed_point.x, seed_point.y);
     return -1;
   }
   LOGI("FastSAM crop=[%d,%d,%d,%d] seed=[%d,%d] "
-       "candidates=%d score=%.3f seed_distance=%.1f border=%d retry=%d "
+       "candidates=%d score=%.3f seed_distance=%.1f exact=%d "
+       "border=%d retry=%d "
        "result=[%d,%d,%d,%d]",
        selected_crop.x, selected_crop.y, selected_crop.width,
        selected_crop.height, seed_point.x, seed_point.y,
        selected_pass.candidate_count, selected_pass.candidate.score,
        selected_pass.candidate.seed_distance,
+       selected_pass.candidate.contains_prompt ? 1 : 0,
        selected_pass.candidate.touches_crop_border ? 1 : 0,
        retried ? 1 : 0, result->bbox.x, result->bbox.y,
        result->bbox.width, result->bbox.height);

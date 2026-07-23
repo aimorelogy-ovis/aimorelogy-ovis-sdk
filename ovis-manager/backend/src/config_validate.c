@@ -18,6 +18,7 @@ struct config_field {
 };
 
 static const struct config_field required_fields[] = {
+	{ "ai_bnr_enabled", "vi_cfg_isp0", "teaisp_bnr_enable", VALUE_INTEGER, 0, 1 },
 	{ "rtsp_enabled", "output_config", "rtsp_enable", VALUE_INTEGER, 0, 1 },
 	{ "uvc_enabled", "output_config", "uvc_enable", VALUE_INTEGER, 0, 1 },
 	{ "desired_sub_enabled", "output_config", "sub_enable", VALUE_INTEGER, 0, 1 },
@@ -78,16 +79,15 @@ static const struct config_field required_fields[] = {
 	{ "human_pose_processing_width", "ai_human_keypoint_config", "model_width", VALUE_INTEGER, OVIS_AI_MIN_WIDTH, OVIS_AI_HUMAN_POSE_MAX_WIDTH },
 	{ "human_pose_processing_height", "ai_human_keypoint_config", "model_height", VALUE_INTEGER, OVIS_AI_MIN_HEIGHT, OVIS_AI_HUMAN_POSE_MAX_HEIGHT },
 	{ "object_tracking_enabled", "ai_object_track_config", "object_track_enable", VALUE_INTEGER, 0, 1 },
-	{ "object_tracking_search_type", "ai_object_track_config", "search_type", VALUE_INTEGER, 2, 3 },
+	{ "object_tracking_search_type", "ai_object_track_config", "search_type", VALUE_INTEGER, 0, 3 },
 	{ "object_tracking_use_kalman", "ai_object_track_config", "use_kalman", VALUE_INTEGER, 0, 1 },
-	{ "object_tracking_score_threshold", "ai_object_track_config", "tracking_score_threshold", VALUE_DECIMAL, 0, 1 },
+	{ "object_tracking_score_threshold", "ai_object_track_config", "sot_min_observed_score", VALUE_DECIMAL, 0, 1 },
 	{ "object_tracking_det_width", "ai_object_track_config", "grp_width", VALUE_INTEGER, 640, 640 },
 	{ "object_tracking_det_height", "ai_object_track_config", "grp_height", VALUE_INTEGER, 384, 384 },
 	{ "object_tracking_sot_group", "ai_object_track_config", "sot_vpss_grp", VALUE_INTEGER, 0, 0 },
 	{ "object_tracking_sot_channel", "ai_object_track_config", "sot_vpss_chn", VALUE_INTEGER, 2, 2 },
 	{ "object_tracking_sot_width", "ai_object_track_config", "sot_grp_width", VALUE_INTEGER, 1920, 1920 },
 	{ "object_tracking_sot_height", "ai_object_track_config", "sot_grp_height", VALUE_INTEGER, 1080, 1080 },
-	{ "object_tracking_preprocessed", "ai_object_track_config", "det_input_preprocessed", VALUE_INTEGER, 1, 1 },
 	{ "object_tracking_det_refine", "ai_object_track_config", "sot_refine_selected_det", VALUE_INTEGER, 0, 0 },
 	{ "object_tracking_source_depth", "vpssgrp0.chn0", "depth", VALUE_INTEGER, 0, 0 },
 	{ "ai_source_channel_enabled", "vpssgrp0.chn2", "chn_enable", VALUE_INTEGER, 0, 1 },
@@ -335,6 +335,8 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	long motion_enabled = 0;
 	long human_pose_enabled = 0;
 	long object_tracking_enabled = 0;
+	long ai_bnr_enabled = 0;
+	long object_tracking_search_type = 0;
 	long ai_source_enabled = 0;
 	long shared_ai_pool_enabled = 0;
 	long object_pool_enabled = 0;
@@ -409,6 +411,8 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 				found[i] = 1;
 				if (strcmp(required_fields[i].id, "rtsp_enabled") == 0)
 					rtsp_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "ai_bnr_enabled") == 0)
+					ai_bnr_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "uvc_enabled") == 0)
 					uvc_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "desired_sub_enabled") == 0)
@@ -441,6 +445,8 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					human_pose_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "object_tracking_enabled") == 0)
 					object_tracking_enabled = strtol(value, NULL, 10);
+				else if (strcmp(required_fields[i].id, "object_tracking_search_type") == 0)
+					object_tracking_search_type = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "ai_source_channel_enabled") == 0)
 					ai_source_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "shared_ai_pool_enabled") == 0)
@@ -480,12 +486,6 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					uvc_venc_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "rtsp_session_count") == 0)
 					rtsp_session_count = strtol(value, NULL, 10);
-				if ((strcmp(required_fields[i].id, "person_enabled") == 0 ||
-				     strcmp(required_fields[i].id, "face_enabled") == 0 ||
-				     strcmp(required_fields[i].id, "human_pose_enabled") == 0 ||
-				     strcmp(required_fields[i].id, "object_tracking_enabled") == 0) &&
-				    strtol(value, NULL, 10) == 1)
-					active_tpu_features++;
 			}
 		}
 	}
@@ -498,6 +498,12 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	}
 	if (!sensor_type_found) {
 		snprintf(error, error_size, "缺少配置项 sensor_type");
+		return -1;
+	}
+	if (object_tracking_search_type != 0 &&
+	    object_tracking_search_type != 2 &&
+	    object_tracking_search_type != 3) {
+		snprintf(error, error_size, "目标跟踪搜索方式不受支持");
 		return -1;
 	}
 	if (rtsp_enabled == uvc_enabled) {
@@ -518,8 +524,20 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 		snprintf(error, error_size, "SC235HAI 模式与主码流帧率不匹配");
 		return -1;
 	}
+	active_tpu_features = (person_enabled || object_tracking_enabled) +
+		face_enabled + human_pose_enabled;
 	if (active_tpu_features > 1) {
-		snprintf(error, error_size, "TPU AI 功能最多只能启用一项");
+		snprintf(error, error_size,
+			"目标检测可与单目标跟踪联动，但不能与人脸或人体姿态同时启用");
+		return -1;
+	}
+	if (ai_bnr_enabled && (person_enabled || face_enabled || motion_enabled ||
+			human_pose_enabled || object_tracking_enabled)) {
+		snprintf(error, error_size, "AI_BNR_FEATURE_CONFLICT");
+		return -1;
+	}
+	if (ai_bnr_enabled && !config_ai_bnr_supported()) {
+		snprintf(error, error_size, "AI_BNR_UNSUPPORTED");
 		return -1;
 	}
 	if (person_enabled != person_vpss_enabled ||

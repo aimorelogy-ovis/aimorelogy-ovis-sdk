@@ -360,6 +360,32 @@ static void route_request(int fd, const struct http_request *request)
 		return;
 	}
 	if (strcmp(request->method, "GET") == 0 &&
+	    strcmp(request->path, "/api/v1/tracking/status") == 0) {
+		if (tracking_status_json(json, sizeof(json)) != 0)
+			send_json_error(fd, 409, "跟踪状态不可用", request);
+		else
+			send_response(fd, 200, "application/json; charset=utf-8", json, request);
+		return;
+	}
+	if (strcmp(request->method, "POST") == 0 &&
+	    strcmp(request->path, "/api/v1/tracking/target") == 0) {
+		if (tracking_target_set(request->body, error, sizeof(error)) != 0)
+			send_json_error(fd, 400, error, request);
+		else
+			send_response(fd, 202, "application/json; charset=utf-8",
+				"{\"accepted\":true}", request);
+		return;
+	}
+	if (strcmp(request->method, "DELETE") == 0 &&
+	    strcmp(request->path, "/api/v1/tracking/target") == 0) {
+		if (tracking_target_clear(error, sizeof(error)) != 0)
+			send_json_error(fd, 500, error, request);
+		else
+			send_response(fd, 202, "application/json; charset=utf-8",
+				"{\"accepted\":true}", request);
+		return;
+	}
+	if (strcmp(request->method, "GET") == 0 &&
 	    strcmp(request->path, "/api/v1/models/importers") == 0) {
 		if (model_importers_json(json, sizeof(json)) != 0)
 			send_json_error(fd, 500, "无法生成模型导入器列表", request);

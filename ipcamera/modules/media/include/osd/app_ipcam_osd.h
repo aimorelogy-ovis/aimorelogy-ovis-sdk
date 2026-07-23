@@ -120,6 +120,13 @@ APP_PARAM_OSDC_CFG_S *app_ipcam_Osdc_Param_Get(void);
 int app_ipcam_Osdc_Init(void);
 int app_ipcam_Osdc_DeInit(void);
 
+#ifdef OBJECT_TRACK_SUPPORT
+CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
+    CVI_BOOL bShow, CVI_FLOAT fX1, CVI_FLOAT fY1,
+    CVI_FLOAT fX2, CVI_FLOAT fY2,
+    CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight);
+#endif
+
 #ifdef WEB_SOCKET
 APP_OSDC_OBJS_INFO_S *app_ipcam_OsdcPrivacy_Param_Get(void);
 #endif

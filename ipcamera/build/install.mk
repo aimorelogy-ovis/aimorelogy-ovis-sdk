@@ -38,6 +38,12 @@ endif
 ifeq ($(CONFIG_MODULE_AI),y)
 	@cp -f $(TDL_PATH)/install/$(SOC_SEGMENT)/configs/model/model_factory.json $(APP_INSTALL_DIR)
 endif
+ifeq ($(CONFIG_RESOURCE_INSTALL_TEAISP_BNR_MODEL),y)
+	@test -r $(APP_RESOURCE_DIR)/ai_model/bmodel_0326_blc1_patch2.bmodel
+	@test "$$(sha256sum $(APP_RESOURCE_DIR)/ai_model/bmodel_0326_blc1_patch2.bmodel | cut -d ' ' -f 1)" = "af618c2447478964a069d911b587d0d9aa1cde512d5921d064a5df3272638166"
+	@mkdir -p $(APP_INSTALL_DIR)/cv184x/
+	@cp -f $(APP_RESOURCE_DIR)/ai_model/bmodel_0326_blc1_patch2.bmodel $(APP_INSTALL_DIR)/cv184x/
+endif
 ifeq ($(CONFIG_RESOURCE_INSTALL_YOLOV8N_DET_MONITOR_PERSON),y)
 	@mkdir -p $(APP_INSTALL_DIR)/cv184x/
 	@cp -f $(APP_RESOURCE_DIR)/ai_model/yolov8n_det_monitor_person_256_448_INT8_cv184x.bmodel $(APP_INSTALL_DIR)/cv184x/

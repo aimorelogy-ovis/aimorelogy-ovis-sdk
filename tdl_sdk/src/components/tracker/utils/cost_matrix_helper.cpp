@@ -51,8 +51,15 @@ COST_MATRIX CostMatrixHelper::getCostMatrixBBox(
   for (auto &tracker_idx : tracker_idxes) {
     int j = 0;
     for (auto &detection_idx : detection_idxes) {
+      const ObjectBoxInfo &tracker_box = trackers[tracker_idx]->box_;
+      const ObjectBoxInfo &detection_box = detections[detection_idx];
+      if (tracker_box.class_id != detection_box.class_id) {
+        cost_m(i, j) = 1.0f;
+        j++;
+        continue;
+      }
       float iou = MotBoxHelper::calculateIOU(
-          trackers[tracker_idx]->getBoxInfo(), detections[detection_idx]);
+          tracker_box, detection_box);
       cost_m(i, j) = 1 - iou;
       j++;
     }

@@ -81,6 +81,8 @@ else
   LIBS += -Wl,-Bdynamic
 endif
 
+LIBS-$(CONFIG_MODULE_AI_BNR) += -L$(MW_PATH)/lib -lteaisp
+
 ## MEDIA
 # 双系统
 ifeq ($(DUAL_OS), y)

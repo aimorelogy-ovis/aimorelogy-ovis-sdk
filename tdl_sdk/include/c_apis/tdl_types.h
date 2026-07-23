@@ -224,10 +224,18 @@ typedef struct {
   float *logits;
 } TDLDepthLogits;
 
+typedef enum {
+  TDL_TRACK_STATE_PREDICTED = 0,
+  TDL_TRACK_STATE_TRACKED = 1,
+  TDL_TRACK_STATE_LOST = 2,
+  TDL_TRACK_STATE_REMOVED = 3,
+} TDLTrackState;
+
 typedef struct {
   uint64_t id;
   float score;
   TDLBox bbox;
+  uint32_t state;
 } TDLTrackerInfo;
 typedef struct {
   uint32_t size;
