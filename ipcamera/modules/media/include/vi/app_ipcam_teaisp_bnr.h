@@ -10,7 +10,6 @@ extern "C" {
 
 #define APP_TEAISP_BNR_MODEL_PATH \
     "/usr/share/ipcamera/cv184x/bmodel_0326_blc1_patch2.bmodel"
-#define APP_TEAISP_BNR_PQ_BIN_PATH "/mnt/cfg/param/cvi_sdr_bin"
 
 CVI_BOOL app_ipcam_TeaispBnr_IsEnabled(VI_PIPE ViPipe);
 CVI_BOOL app_ipcam_TeaispBnr_IsCertified(void);
