@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/prctl.h>
+#include <time.h>
 #include <math.h>
+#include "cvi_errno.h"
 #include "cvi_comm_video.h"
 #include "app_ipcam_osd.h"
 #include "app_ipcam_paramparse.h"
@@ -22,6 +24,10 @@
 #define NOASCII_CHARACTER_BYTES 2
 #define BYTE_BITS               8
 #define ISASCII(a)              (((a) >= 0x00 && (a) <= 0x7F) ? 1 : 0)
+#define APP_OSDC_REFRESH_US      100000
+#define APP_OSDC_PD_RECT_HANDLE (RGN_MAX_NUM - 1)
+#define APP_OSDC_PD_RECT_LAYER  1
+#define APP_OSDC_PD_IDLE_REFRESH_US 1000000
 
 /**************************************************************************
  *                           C O N S T A N T S                            *
@@ -61,6 +67,25 @@ static APP_PARAM_OSDC_CFG_S g_stOsdcCfg, *g_pstOsdcCfg = &g_stOsdcCfg;
 static CVI_BOOL g_bOsdcThreadRun;
 static pthread_t g_pthOsdcRgn;
 static pthread_mutex_t OsdcMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_OsdcWakeMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_OsdcWakeCond = PTHREAD_COND_INITIALIZER;
+static CVI_U64 g_u64OsdcWakeGeneration;
+
+#ifdef PD_SUPPORT
+static CVI_BOOL g_bOsdcPdRectThreadRun;
+static CVI_BOOL g_bOsdcPdRectThreadReady;
+static CVI_BOOL g_bOsdcPdRectRegionReady;
+static pthread_t g_pthOsdcPdRect;
+static pthread_mutex_t g_OsdcPdRectLifecycleMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_OsdcPdRectMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_OsdcPdRectCond = PTHREAD_COND_INITIALIZER;
+static CVI_U64 g_u64OsdcPdRectGeneration;
+static MMF_CHN_S g_stOsdcPdRectChn = {0};
+static CVI_U32 g_u32OsdcPdRectWidth;
+static CVI_U32 g_u32OsdcPdRectHeight;
+static CVI_U32 g_u32OsdcPdRectCompressedSize;
+static PIXEL_FORMAT_E g_enOsdcPdRectFormat;
+#endif
 
 #ifdef OBJECT_TRACK_SUPPORT
 typedef struct APP_OSDC_TRACK_RECT_STATE_T {
@@ -189,6 +214,40 @@ CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
     pthread_cond_signal(&g_OsdcTrackRectCond);
     pthread_mutex_unlock(&g_OsdcTrackRectMutex);
 }
+#endif
+
+#ifdef PD_SUPPORT
+static CVI_VOID app_ipcam_Osdc_Wake(CVI_VOID)
+{
+    pthread_mutex_lock(&g_OsdcWakeMutex);
+    g_u64OsdcWakeGeneration++;
+    pthread_cond_signal(&g_OsdcWakeCond);
+    pthread_mutex_unlock(&g_OsdcWakeMutex);
+}
+
+static CVI_BOOL app_ipcam_Osdc_PdRect_UnifiedReady(CVI_VOID)
+{
+    return g_stOsdcCanvasCfg.createCanvas && g_pstOsdcCfg->enable &&
+        g_pstOsdcCfg->bShow[0] &&
+        g_pstOsdcCfg->bShowPdRect[0] &&
+        g_pstOsdcCfg->mmfChn[0].enModId == CVI_ID_VPSS &&
+        g_pstOsdcCfg->mmfChn[0].s32DevId >= 0 &&
+        g_pstOsdcCfg->mmfChn[0].s32DevId < CVI_MAX_VPSS_GRP &&
+        g_pstOsdcCfg->mmfChn[0].s32ChnId >= 0 &&
+        g_pstOsdcCfg->mmfChn[0].s32ChnId < VPSS_MAX_PHY_CHN_NUM;
+}
+
+CVI_VOID app_ipcam_Osdc_PdRect_Publish(CVI_VOID)
+{
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    if (g_bOsdcPdRectThreadRun) {
+        g_u64OsdcPdRectGeneration++;
+        pthread_cond_signal(&g_OsdcPdRectCond);
+    }
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    app_ipcam_Osdc_Wake();
+}
+
 #endif
 
 static CVI_S32 GetNonASCNum(char *string, CVI_S32 len)
@@ -715,6 +774,335 @@ APP_PARAM_OSDC_CFG_S *app_ipcam_Osdc_Param_Get(void)
     return g_pstOsdcCfg;
 }
 
+#ifdef PD_SUPPORT
+static CVI_S32 app_ipcam_Osdc_PdRectRegion_Create(CVI_VOID)
+{
+    RGN_ATTR_S stRegionAttr = {0};
+    RGN_CHN_ATTR_S stChnAttr = {0};
+    APP_VPSS_GRP_CFG_T *pstVpssCfg;
+    CVI_S32 s32Ret;
+
+    if (!g_pstOsdcCfg->bShow[0] ||
+        g_pstOsdcCfg->mmfChn[0].enModId != CVI_ID_VPSS ||
+        g_pstOsdcCfg->mmfChn[0].s32DevId < 0 ||
+        g_pstOsdcCfg->mmfChn[0].s32DevId >= CVI_MAX_VPSS_GRP ||
+        g_pstOsdcCfg->mmfChn[0].s32ChnId < 0 ||
+        g_pstOsdcCfg->mmfChn[0].s32ChnId >= VPSS_MAX_PHY_CHN_NUM) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN,
+            "DET event OSD invalid target: show=%d mod=%d dev=%d chn=%d\n",
+            g_pstOsdcCfg->bShow[0],
+            g_pstOsdcCfg->mmfChn[0].enModId,
+            g_pstOsdcCfg->mmfChn[0].s32DevId,
+            g_pstOsdcCfg->mmfChn[0].s32ChnId);
+        return CVI_FAILURE;
+    }
+    for (CVI_U32 i = 0; i < OSDC_NUM_MAX; i++) {
+        if (g_pstOsdcCfg->bShow[i] &&
+            g_pstOsdcCfg->handle[i] == APP_OSDC_PD_RECT_HANDLE) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "DET OSD handle %u conflicts with configured OSD region\n",
+                APP_OSDC_PD_RECT_HANDLE);
+            return CVI_FAILURE;
+        }
+    }
+
+    g_stOsdcPdRectChn = g_pstOsdcCfg->mmfChn[0];
+    pstVpssCfg = &app_ipcam_Vpss_Param_Get()->
+        astVpssGrpCfg[g_stOsdcPdRectChn.s32DevId];
+    g_u32OsdcPdRectWidth = pstVpssCfg->
+        astVpssChnAttr[g_stOsdcPdRectChn.s32ChnId].u32Width;
+    g_u32OsdcPdRectHeight = pstVpssCfg->
+        astVpssChnAttr[g_stOsdcPdRectChn.s32ChnId].u32Height;
+    g_u32OsdcPdRectCompressedSize =
+        g_pstOsdcCfg->CompressedSize[0] > RGN_CMPR_MIN_SIZE ?
+        g_pstOsdcCfg->CompressedSize[0] : RGN_CMPR_MIN_SIZE;
+    g_enOsdcPdRectFormat = g_pstOsdcCfg->format[0];
+    if (g_u32OsdcPdRectWidth == 0 || g_u32OsdcPdRectHeight == 0) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN,
+            "DET event OSD invalid size: %ux%u\n",
+            g_u32OsdcPdRectWidth, g_u32OsdcPdRectHeight);
+        return CVI_FAILURE;
+    }
+
+    stRegionAttr.enType = OVERLAY_RGN;
+    stRegionAttr.unAttr.stOverlay.enPixelFormat = g_enOsdcPdRectFormat;
+    stRegionAttr.unAttr.stOverlay.stSize.u32Width = g_u32OsdcPdRectWidth;
+    stRegionAttr.unAttr.stOverlay.stSize.u32Height = g_u32OsdcPdRectHeight;
+    stRegionAttr.unAttr.stOverlay.u32BgColor = 0x00000000;
+    stRegionAttr.unAttr.stOverlay.u32CanvasNum = RGN_MAX_BUF_NUM;
+    stRegionAttr.unAttr.stOverlay.stCompressInfo.enOSDCompressMode =
+        OSD_COMPRESS_MODE_HW;
+    stRegionAttr.unAttr.stOverlay.stCompressInfo.u32CompressedSize =
+        g_u32OsdcPdRectCompressedSize;
+    s32Ret = CVI_RGN_Create(APP_OSDC_PD_RECT_HANDLE, &stRegionAttr);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "create DET OSD region failed with %#x, handle=%u\n",
+            s32Ret, APP_OSDC_PD_RECT_HANDLE);
+        return s32Ret;
+    }
+
+    stChnAttr.bShow = CVI_TRUE;
+    stChnAttr.enType = OVERLAY_RGN;
+    stChnAttr.unChnAttr.stOverlayChn.stInvertColor.bInvColEn = CVI_FALSE;
+    stChnAttr.unChnAttr.stOverlayChn.stPoint.s32X = 0;
+    stChnAttr.unChnAttr.stOverlayChn.stPoint.s32Y = 0;
+    stChnAttr.unChnAttr.stOverlayChn.u32Layer = APP_OSDC_PD_RECT_LAYER;
+    s32Ret = CVI_RGN_AttachToChn(
+        APP_OSDC_PD_RECT_HANDLE, &g_stOsdcPdRectChn, &stChnAttr);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "attach DET OSD region failed with %#x\n", s32Ret);
+        CVI_RGN_Destroy(APP_OSDC_PD_RECT_HANDLE);
+        return s32Ret;
+    }
+    g_bOsdcPdRectRegionReady = CVI_TRUE;
+    return CVI_SUCCESS;
+}
+
+static CVI_VOID app_ipcam_Osdc_PdRectRegion_Destroy(CVI_VOID)
+{
+    if (!g_bOsdcPdRectRegionReady) {
+        return;
+    }
+    CVI_RGN_DetachFromChn(APP_OSDC_PD_RECT_HANDLE, &g_stOsdcPdRectChn);
+    CVI_RGN_Destroy(APP_OSDC_PD_RECT_HANDLE);
+    g_bOsdcPdRectRegionReady = CVI_FALSE;
+}
+
+static CVI_S32 app_ipcam_Osdc_PdRectRegion_Update(const TDLObject *pstObjects)
+{
+    RGN_CANVAS_INFO_S stCanvasInfo = {0};
+    RGN_CANVAS_CMPR_ATTR_S *pstCanvasAttr;
+    RGN_CMPR_OBJ_ATTR_S *pstObjectAttr;
+    CVI_U32 u32ObjectCount = 0;
+    CVI_U32 u32SourceWidth;
+    CVI_U32 u32SourceHeight;
+    CVI_S32 s32Ret;
+
+    if (!g_bOsdcPdRectRegionReady || pstObjects == NULL) {
+        return CVI_FAILURE;
+    }
+    s32Ret = CVI_RGN_GetCanvasInfo(
+        APP_OSDC_PD_RECT_HANDLE, &stCanvasInfo);
+    if (s32Ret != CVI_SUCCESS || stCanvasInfo.pstCanvasCmprAttr == NULL ||
+        stCanvasInfo.pstObjAttr == NULL) {
+        return s32Ret != CVI_SUCCESS ? s32Ret : CVI_FAILURE;
+    }
+
+    pstCanvasAttr = stCanvasInfo.pstCanvasCmprAttr;
+    pstObjectAttr = stCanvasInfo.pstObjAttr;
+    u32SourceWidth = pstObjects->width > 0 ? pstObjects->width :
+        app_ipcam_Ai_PD_Param_Get()->u32GrpWidth;
+    u32SourceHeight = pstObjects->height > 0 ? pstObjects->height :
+        app_ipcam_Ai_PD_Param_Get()->u32GrpHeight;
+
+    if (u32SourceWidth > 0 && u32SourceHeight > 0 &&
+        pstObjects->info != NULL) {
+        CVI_U32 u32InputCount = pstObjects->size < OSDC_OBJS_MAX ?
+            pstObjects->size : OSDC_OBJS_MAX;
+        for (CVI_U32 i = 0; i < u32InputCount; i++) {
+            const TDLObjectInfo *pstObject = &pstObjects->info[i];
+            CVI_S32 s32X1;
+            CVI_S32 s32Y1;
+            CVI_S32 s32X2;
+            CVI_S32 s32Y2;
+
+            if (!isfinite(pstObject->box.x1) ||
+                !isfinite(pstObject->box.y1) ||
+                !isfinite(pstObject->box.x2) ||
+                !isfinite(pstObject->box.y2)) {
+                continue;
+            }
+            s32X1 = lroundf(pstObject->box.x1 *
+                g_u32OsdcPdRectWidth / u32SourceWidth);
+            s32Y1 = lroundf(pstObject->box.y1 *
+                g_u32OsdcPdRectHeight / u32SourceHeight);
+            s32X2 = lroundf(pstObject->box.x2 *
+                g_u32OsdcPdRectWidth / u32SourceWidth);
+            s32Y2 = lroundf(pstObject->box.y2 *
+                g_u32OsdcPdRectHeight / u32SourceHeight);
+            s32X1 = fmax(0, fmin(s32X1,
+                (CVI_S32)g_u32OsdcPdRectWidth - 1));
+            s32Y1 = fmax(0, fmin(s32Y1,
+                (CVI_S32)g_u32OsdcPdRectHeight - 1));
+            s32X2 = fmax(s32X1 + 1, fmin(s32X2,
+                (CVI_S32)g_u32OsdcPdRectWidth));
+            s32Y2 = fmax(s32Y1 + 1, fmin(s32Y2,
+                (CVI_S32)g_u32OsdcPdRectHeight));
+
+            pstObjectAttr[u32ObjectCount].enObjType = RGN_CMPR_RECT;
+            pstObjectAttr[u32ObjectCount].stRgnRect.stRect.s32X = s32X1;
+            pstObjectAttr[u32ObjectCount].stRgnRect.stRect.s32Y = s32Y1;
+            pstObjectAttr[u32ObjectCount].stRgnRect.stRect.u32Width =
+                s32X2 - s32X1;
+            pstObjectAttr[u32ObjectCount].stRgnRect.stRect.u32Height =
+                s32Y2 - s32Y1;
+            pstObjectAttr[u32ObjectCount].stRgnRect.u32Thick = 4;
+            pstObjectAttr[u32ObjectCount].stRgnRect.u32Color = COLOR_RED(0);
+            pstObjectAttr[u32ObjectCount].stRgnRect.u32IsFill = CVI_FALSE;
+            u32ObjectCount++;
+        }
+    }
+
+    pstCanvasAttr->u32Width = g_u32OsdcPdRectWidth;
+    pstCanvasAttr->u32Height = g_u32OsdcPdRectHeight;
+    pstCanvasAttr->u32BgColor = 0x00000000;
+    pstCanvasAttr->enPixelFormat = g_enOsdcPdRectFormat;
+    pstCanvasAttr->u32BsSize = g_u32OsdcPdRectCompressedSize;
+    pstCanvasAttr->u32ObjNum = u32ObjectCount;
+    return CVI_RGN_UpdateCanvas(APP_OSDC_PD_RECT_HANDLE);
+}
+
+static CVI_VOID *Thread_Osdc_PdRect_Draw(CVI_VOID *arg)
+{
+    CVI_U64 u64LastGeneration = (CVI_U64)-1;
+    TDLObject stObjects = {0};
+
+    (void)arg;
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    g_bOsdcPdRectThreadReady = CVI_TRUE;
+    pthread_cond_broadcast(&g_OsdcPdRectCond);
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    prctl(PR_SET_NAME, "OSDC_PD_RECT", 0, 0, 0);
+    while (CVI_TRUE) {
+        CVI_S32 s32Ret;
+
+        pthread_mutex_lock(&g_OsdcPdRectMutex);
+        while (g_bOsdcPdRectThreadRun &&
+               u64LastGeneration == g_u64OsdcPdRectGeneration) {
+            pthread_cond_wait(
+                &g_OsdcPdRectCond, &g_OsdcPdRectMutex);
+        }
+        if (!g_bOsdcPdRectThreadRun) {
+            pthread_mutex_unlock(&g_OsdcPdRectMutex);
+            break;
+        }
+        u64LastGeneration = g_u64OsdcPdRectGeneration;
+        pthread_mutex_unlock(&g_OsdcPdRectMutex);
+
+        if (!g_pstOsdcCfg->bShowPdRect[0] ||
+            !app_ipcam_Ai_PD_ProcStatus_Get()) {
+            stObjects.size = 0;
+        } else if (app_ipcam_Ai_PD_ObjDrawInfo_Get(
+                       &stObjects) != CVI_SUCCESS) {
+            stObjects.size = 0;
+        }
+        s32Ret = app_ipcam_Osdc_PdRectRegion_Update(&stObjects);
+        if (s32Ret != CVI_SUCCESS && s32Ret != CVI_ERR_RGN_BUSY) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "update DET event OSD region failed with %#x\n", s32Ret);
+        }
+    }
+    stObjects.size = 0;
+    app_ipcam_Osdc_PdRectRegion_Update(&stObjects);
+    free(stObjects.info);
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    g_bOsdcPdRectThreadReady = CVI_FALSE;
+    pthread_cond_broadcast(&g_OsdcPdRectCond);
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    return NULL;
+}
+
+static CVI_VOID app_ipcam_Osdc_PdRect_StopEventMode(CVI_VOID)
+{
+    pthread_mutex_lock(&g_OsdcPdRectLifecycleMutex);
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    g_bOsdcPdRectThreadRun = CVI_FALSE;
+    g_u64OsdcPdRectGeneration++;
+    pthread_cond_broadcast(&g_OsdcPdRectCond);
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    if (g_pthOsdcPdRect > (pthread_t)0) {
+        pthread_join(g_pthOsdcPdRect, NULL);
+        g_pthOsdcPdRect = 0;
+    }
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    g_bOsdcPdRectThreadReady = CVI_FALSE;
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    app_ipcam_Osdc_PdRectRegion_Destroy();
+    pthread_mutex_unlock(&g_OsdcPdRectLifecycleMutex);
+}
+
+CVI_S32 app_ipcam_Osdc_PdRect_EnsureEventMode(CVI_VOID)
+{
+    CVI_S32 s32Ret;
+    CVI_BOOL bThreadReady;
+
+    pthread_mutex_lock(&g_OsdcPdRectLifecycleMutex);
+    if (app_ipcam_Osdc_PdRect_UnifiedReady()) {
+        pthread_mutex_unlock(&g_OsdcPdRectLifecycleMutex);
+        return CVI_SUCCESS;
+    }
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    bThreadReady = g_bOsdcPdRectThreadRun &&
+        g_bOsdcPdRectThreadReady;
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    if (bThreadReady && g_bOsdcPdRectRegionReady) {
+        pthread_mutex_unlock(&g_OsdcPdRectLifecycleMutex);
+        return CVI_SUCCESS;
+    }
+    if (!g_pstOsdcCfg->enable || !g_pstOsdcCfg->bShow[0] ||
+        !g_pstOsdcCfg->bShowPdRect[0]) {
+        pthread_mutex_unlock(&g_OsdcPdRectLifecycleMutex);
+        return CVI_FAILURE;
+    }
+
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    g_bOsdcPdRectThreadRun = CVI_FALSE;
+    pthread_cond_broadcast(&g_OsdcPdRectCond);
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    if (g_pthOsdcPdRect > (pthread_t)0) {
+        pthread_join(g_pthOsdcPdRect, NULL);
+        g_pthOsdcPdRect = 0;
+    }
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    g_bOsdcPdRectThreadReady = CVI_FALSE;
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    app_ipcam_Osdc_PdRectRegion_Destroy();
+
+    s32Ret = app_ipcam_Osdc_PdRectRegion_Create();
+    if (s32Ret != CVI_SUCCESS) {
+        pthread_mutex_unlock(&g_OsdcPdRectLifecycleMutex);
+        return s32Ret;
+    }
+
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    g_bOsdcPdRectThreadRun = CVI_TRUE;
+    g_bOsdcPdRectThreadReady = CVI_FALSE;
+    g_u64OsdcPdRectGeneration++;
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    s32Ret = pthread_create(
+        &g_pthOsdcPdRect, NULL, Thread_Osdc_PdRect_Draw, NULL);
+    if (s32Ret != CVI_SUCCESS) {
+        pthread_mutex_lock(&g_OsdcPdRectMutex);
+        g_bOsdcPdRectThreadRun = CVI_FALSE;
+        pthread_mutex_unlock(&g_OsdcPdRectMutex);
+        app_ipcam_Osdc_PdRectRegion_Destroy();
+        g_pthOsdcPdRect = 0;
+        pthread_mutex_unlock(&g_OsdcPdRectLifecycleMutex);
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "create DET event OSD thread failed with %#x\n", s32Ret);
+        return s32Ret;
+    }
+
+    pthread_mutex_lock(&g_OsdcPdRectMutex);
+    while (g_bOsdcPdRectThreadRun && !g_bOsdcPdRectThreadReady) {
+        pthread_cond_wait(&g_OsdcPdRectCond, &g_OsdcPdRectMutex);
+    }
+    if (!g_bOsdcPdRectThreadReady) {
+        pthread_mutex_unlock(&g_OsdcPdRectMutex);
+        pthread_join(g_pthOsdcPdRect, NULL);
+        g_pthOsdcPdRect = 0;
+        app_ipcam_Osdc_PdRectRegion_Destroy();
+        pthread_mutex_unlock(&g_OsdcPdRectLifecycleMutex);
+        return CVI_FAILURE;
+    }
+    pthread_mutex_unlock(&g_OsdcPdRectMutex);
+    pthread_mutex_unlock(&g_OsdcPdRectLifecycleMutex);
+    return CVI_SUCCESS;
+}
+#endif
+
 CVI_S32 app_ipcam_OSDCRgn_Create(void)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
@@ -754,6 +1142,12 @@ CVI_S32 app_ipcam_OSDCRgn_Create(void)
             regAttr.unAttr.stOverlay.stSize.u32Height = u32Height;
             regAttr.unAttr.stOverlay.u32BgColor = 0x00000000; // ARGB1555 transparent
             regAttr.unAttr.stOverlay.u32CanvasNum = 2;
+#if defined(AI_SUPPORT) && defined(PD_SUPPORT)
+            if (iOsdcIndex == 0 &&
+                g_pstOsdcCfg->bShowPdRect[iOsdcIndex]) {
+                regAttr.unAttr.stOverlay.u32CanvasNum = RGN_MAX_BUF_NUM;
+            }
+#endif
             regAttr.unAttr.stOverlay.stCompressInfo.enOSDCompressMode = OSD_COMPRESS_MODE_HW;
             regAttr.unAttr.stOverlay.stCompressInfo.u32CompressedSize = u32CpsSize;
             s32Ret = CVI_RGN_Create(handle, &regAttr);
@@ -855,7 +1249,13 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
     RGN_CANVAS_INFO_S stCanvasInfo = {0};
     s32Ret = CVI_RGN_GetCanvasInfo(OsdcHandle, &stCanvasInfo);
     if (s32Ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_ERROR,"CVI RGN GetCanvasInfo failed with %#x!\n", s32Ret);
+#if defined(AI_SUPPORT) && defined(PD_SUPPORT)
+        if (s32Ret == CVI_ERR_RGN_BUSY && iOsdcIndex == 0) {
+            return s32Ret;
+        }
+#endif
+        APP_PROF_LOG_PRINT(LEVEL_ERROR,
+            "CVI RGN GetCanvasInfo failed with %#x!\n", s32Ret);
         return s32Ret;
     }
     RGN_CANVAS_CMPR_ATTR_S *pstCanvasCmprAttr = stCanvasInfo.pstCanvasCmprAttr;
@@ -1162,8 +1562,6 @@ if (iOsdcIndex == 0 &&
     if (s32Ret != CVI_SUCCESS) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR,"CVI RGN UpdateCanvas failed with %#x!\n", s32Ret);
     }
-
-
     return CVI_SUCCESS;
 }
 
@@ -1250,6 +1648,10 @@ static void app_ipcam_AiRectShow_Set(int status)
     app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(g_pstOsdcCfg);
 #endif
     pthread_mutex_unlock(&OsdcMutex);
+#ifdef PD_SUPPORT
+    app_ipcam_Osdc_PdRect_EnsureEventMode();
+    app_ipcam_Osdc_PdRect_Publish();
+#endif
 }
 
 #ifdef OBJECT_TRACK_SUPPORT
@@ -1389,34 +1791,54 @@ static void *Thread_Osdc_ObjectTrackRect_Draw(void *arg)
 void *Thread_Osdc_Draw(void *arg)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
-    // struct timeval now;
-    // struct timespec outtime;
+    CVI_U64 u64LastGeneration = (CVI_U64)-1;
     prctl(PR_SET_NAME, "OSDC_DRAW", 0, 0, 0);
-    CVI_U32 SleepCnt = 0;
     int iOsdcIndex = 0;
 
-    while (g_bOsdcThreadRun) {
-        if (SleepCnt != 10) {
-            SleepCnt++;
-            usleep(10*1000);
-            continue;
+    while (CVI_TRUE) {
+        int iWaitRet = 0;
+
+        pthread_mutex_lock(&g_OsdcWakeMutex);
+        while (g_bOsdcThreadRun &&
+               u64LastGeneration == g_u64OsdcWakeGeneration &&
+               iWaitRet != ETIMEDOUT) {
+            struct timespec stDeadline;
+            CVI_U32 u32RefreshUs = APP_OSDC_REFRESH_US;
+
+#if defined(AI_SUPPORT) && defined(PD_SUPPORT)
+            if (app_ipcam_Ai_PD_ProcStatus_Get()) {
+                u32RefreshUs = APP_OSDC_PD_IDLE_REFRESH_US;
+            }
+#endif
+
+            clock_gettime(CLOCK_REALTIME, &stDeadline);
+            stDeadline.tv_nsec += u32RefreshUs * 1000L;
+            if (stDeadline.tv_nsec >= 1000000000L) {
+                stDeadline.tv_sec += stDeadline.tv_nsec / 1000000000L;
+                stDeadline.tv_nsec %= 1000000000L;
+            }
+            iWaitRet = pthread_cond_timedwait(
+                &g_OsdcWakeCond, &g_OsdcWakeMutex, &stDeadline);
         }
+        if (!g_bOsdcThreadRun) {
+            pthread_mutex_unlock(&g_OsdcWakeMutex);
+            break;
+        }
+        u64LastGeneration = g_u64OsdcWakeGeneration;
+        pthread_mutex_unlock(&g_OsdcWakeMutex);
+
         pthread_mutex_lock(&OsdcMutex);
         for (iOsdcIndex = 0; iOsdcIndex < OSDC_NUM_MAX; iOsdcIndex++) {
             if (g_pstOsdcCfg->bShow[iOsdcIndex]) {
                 RGN_HANDLE OsdcHandle = g_pstOsdcCfg->handle[iOsdcIndex];
                 s32Ret = app_ipcam_ObjsRectInfo_Update(OsdcHandle, iOsdcIndex);
-                if (s32Ret != CVI_SUCCESS) {
+                if (s32Ret != CVI_SUCCESS &&
+                    s32Ret != CVI_ERR_RGN_BUSY) {
                     APP_PROF_LOG_PRINT(LEVEL_ERROR,"app_ipcam_ObjsRectInfo_Update failed with %#x!\n", s32Ret);
                 }
             }
-            if (!g_bOsdcThreadRun) {
-                pthread_mutex_unlock(&OsdcMutex);
-                break;
-            }
         }
         pthread_mutex_unlock(&OsdcMutex);
-        SleepCnt = 0;
     }
 
     return NULL;
@@ -1425,6 +1847,10 @@ void *Thread_Osdc_Draw(void *arg)
 int app_ipcam_Osdc_Init(void)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
+
+#ifdef PD_SUPPORT
+    app_ipcam_Osdc_PdRect_StopEventMode();
+#endif
 
     if (!g_pstOsdcCfg->enable) {
         APP_PROF_LOG_PRINT(LEVEL_INFO, "draw Osdc thread not enable!\n");
@@ -1444,16 +1870,29 @@ int app_ipcam_Osdc_Init(void)
     /* calculate AI Rect ratio betwen streaming and AI size */
     APP_IPCAM_CHECK_RET(app_ipcam_ObjRectRatio_Set(), "OSDC OBJ RATIO RECT SET");
 
+    pthread_mutex_lock(&g_OsdcWakeMutex);
     g_bOsdcThreadRun = CVI_TRUE;
+    g_u64OsdcWakeGeneration++;
+    pthread_mutex_unlock(&g_OsdcWakeMutex);
     s32Ret = pthread_create(
                 &g_pthOsdcRgn,
                 NULL,
                 Thread_Osdc_Draw,
                 (CVI_VOID *)g_pstOsdcCfg);
     if (s32Ret != 0) {
+        pthread_mutex_lock(&g_OsdcWakeMutex);
+        g_bOsdcThreadRun = CVI_FALSE;
+        pthread_mutex_unlock(&g_OsdcWakeMutex);
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "pthread_create failed!\n");
         return CVI_FAILURE;
     }
+
+#ifdef PD_SUPPORT
+    if (app_ipcam_Osdc_PdRect_EnsureEventMode() != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_WARN,
+            "DET event OSD unavailable, use canvas fallback\n");
+    }
+#endif
 
 #ifdef OBJECT_TRACK_SUPPORT
     app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(g_pstOsdcCfg);
@@ -1470,7 +1909,14 @@ int app_ipcam_Osdc_Init(void)
         pthread_mutex_lock(&g_OsdcTrackRectMutex);
         g_bOsdcTrackRectThreadRun = CVI_FALSE;
         pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+#ifdef PD_SUPPORT
+        app_ipcam_Osdc_PdRect_StopEventMode();
+#endif
+        pthread_mutex_lock(&g_OsdcWakeMutex);
         g_bOsdcThreadRun = CVI_FALSE;
+        g_u64OsdcWakeGeneration++;
+        pthread_cond_broadcast(&g_OsdcWakeCond);
+        pthread_mutex_unlock(&g_OsdcWakeMutex);
         pthread_join(g_pthOsdcRgn, NULL);
         g_pthOsdcRgn = 0;
         app_ipcam_OSDCRgn_Destory();
@@ -1488,6 +1934,10 @@ int app_ipcam_Osdc_DeInit(void)
 {
     // CVI_S32 s32Ret = CVI_SUCCESS;
     CVI_S32 iTime = GetCurTimeInMsec();
+
+#ifdef PD_SUPPORT
+    app_ipcam_Osdc_PdRect_StopEventMode();
+#endif
 
     if (!g_pstOsdcCfg->enable) {
         APP_PROF_LOG_PRINT(LEVEL_INFO, "draw Osdc thread not enable!\n");
@@ -1512,7 +1962,11 @@ int app_ipcam_Osdc_DeInit(void)
     }
 #endif
 
+    pthread_mutex_lock(&g_OsdcWakeMutex);
     g_bOsdcThreadRun = CVI_FALSE;
+    g_u64OsdcWakeGeneration++;
+    pthread_cond_broadcast(&g_OsdcWakeCond);
+    pthread_mutex_unlock(&g_OsdcWakeMutex);
     if (g_pthOsdcRgn > (pthread_t)0) {
         pthread_join(g_pthOsdcRgn, NULL);
         g_pthOsdcRgn = 0;
@@ -1559,6 +2013,10 @@ void app_ipcam_Osdc_Status(APP_PARAM_OSDC_CFG_S *pstOsdcCfg)
         app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(&g_stOsdcCfg);
 #endif
         pthread_mutex_unlock(&OsdcMutex);
+#ifdef PD_SUPPORT
+        app_ipcam_Osdc_PdRect_EnsureEventMode();
+        app_ipcam_Osdc_PdRect_Publish();
+#endif
     }
 }
 

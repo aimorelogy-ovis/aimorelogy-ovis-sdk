@@ -1447,11 +1447,11 @@ int rgn_set_bit_map(rgn_handle handle, const bitmap_s *pbitmap)
 	if (_rgn_get_bytesperline(pbitmap->pixel_format, pbitmap->width, &bytesperline) != 0)
 		return ERR_RGN_ILLEGAL_PARAM;
 
-	// single/double buffer update per canvas_num.
+	// Switch to the next canvas when multiple buffers are configured.
 	if (canvas_num == 1)
 		pcanvas_info = &ctx->canvas_info[0];
 	else {
-		ctx->canvas_idx = 1 - ctx->canvas_idx;
+		ctx->canvas_idx = (ctx->canvas_idx + 1) % canvas_num;
 		pcanvas_info = &ctx->canvas_info[ctx->canvas_idx];
 	}
 
@@ -1633,12 +1633,11 @@ int rgn_attach_to_chn(rgn_handle handle, const mmf_chn_s *pchn, const rgn_chn_at
 			}
 		}
 		if (ctx->canvas_info[0].compressed && (canvas_num > 1)) {
-			rgn_canvas_ctx[proc_idx][0].phy_addr = ctx->canvas_info[0].phy_addr;
-			rgn_canvas_ctx[proc_idx][0].virt_addr = ctx->canvas_info[0].virt_addr;
-			rgn_canvas_ctx[proc_idx][0].len = ctx->ion_len;
-			rgn_canvas_ctx[proc_idx][1].phy_addr = ctx->canvas_info[1].phy_addr;
-			rgn_canvas_ctx[proc_idx][1].virt_addr = ctx->canvas_info[1].virt_addr;
-			rgn_canvas_ctx[proc_idx][1].len = ctx->ion_len;
+			for (i = 0; i < canvas_num; ++i) {
+				rgn_canvas_ctx[proc_idx][i].phy_addr = ctx->canvas_info[i].phy_addr;
+				rgn_canvas_ctx[proc_idx][i].virt_addr = ctx->canvas_info[i].virt_addr;
+				rgn_canvas_ctx[proc_idx][i].len = ctx->ion_len;
+			}
 		}
 
 		 // update rgn proc canvas info
@@ -1827,6 +1826,9 @@ int rgn_get_canvas_info(rgn_handle handle, rgn_canvas_info_s *pcanvas_info)
 	struct rgn_ctx *ctx = NULL;
 	unsigned int proc_idx;
 	unsigned int canvas_num;
+	unsigned int canvas_idx_prev;
+	unsigned int canvas_idx_candidate;
+	unsigned int canvas_offset;
 	int ret = 0;
 	int cnt = 0;
 
@@ -1850,25 +1852,56 @@ int rgn_get_canvas_info(rgn_handle handle, rgn_canvas_info_s *pcanvas_info)
 	else
 		canvas_num = ctx->region.unattr.overlay_ex.canvas_num;
 
-	if (canvas_num == 1)
+	if (canvas_num == 1) {
 		*pcanvas_info = ctx->canvas_info[0];
-	else {
-		ctx->canvas_idx = rgn_prc_ctx[proc_idx].canvas_idx = 1 - ctx->canvas_idx;
+	} else if (ctx->chn.mod_id == ID_VPSS &&
+		   ctx->canvas_info[0].compressed) {
+		struct _rgn_is_addr_in_use_cb_param in_use_param;
+
+		canvas_idx_prev = ctx->canvas_idx;
+		in_use_param.chn = ctx->chn;
+		in_use_param.handle = handle;
+		in_use_param.layer = RGN_ODEC_LAYER_VPSS;
+		for (canvas_offset = 1; canvas_offset < canvas_num; ++canvas_offset) {
+			canvas_idx_candidate =
+				(canvas_idx_prev + canvas_offset) % canvas_num;
+			in_use_param.addr =
+				ctx->canvas_info[canvas_idx_candidate].phy_addr;
+			in_use_param.in_use = 0;
+			if (_rgn_call_cb(E_MODULE_VPSS,
+				VPSS_CB_IS_RGN_ADDR_IN_USE, &in_use_param) != 0) {
+				TRACE_RGN(RGN_ERR,
+					"VPSS_CB_IS_RGN_ADDR_IN_USE is failed\n");
+				return ERR_RGN_ILLEGAL_PARAM;
+			}
+			if (!in_use_param.in_use) {
+				ctx->canvas_idx = canvas_idx_candidate;
+				break;
+			}
+		}
+		if (canvas_offset == canvas_num) {
+			ctx->canvas_idx = canvas_idx_prev;
+			return ERR_RGN_BUSY;
+		}
+		rgn_prc_ctx[proc_idx].canvas_idx = ctx->canvas_idx;
+		*pcanvas_info = ctx->canvas_info[ctx->canvas_idx];
+	} else {
+		ctx->canvas_idx = (ctx->canvas_idx + 1) % canvas_num;
+		rgn_prc_ctx[proc_idx].canvas_idx = ctx->canvas_idx;
 		*pcanvas_info = ctx->canvas_info[ctx->canvas_idx];
 	}
 	TRACE_RGN(RGN_INFO, "rgn_handle(%d) canvas fmt(%d) size(%d * %d) stride(%d) compressed(%d).\n"
 		, handle, pcanvas_info->pixel_format, pcanvas_info->size.width
 		, pcanvas_info->size.height, pcanvas_info->stride, pcanvas_info->compressed);
 
-	if ((canvas_num > 1) && (ctx->chn.mod_id == ID_VPSS)) {
+	if ((canvas_num > 1) && (ctx->chn.mod_id == ID_VPSS) &&
+	    !pcanvas_info->compressed) {
 		struct _rgn_is_addr_in_use_cb_param in_use_param;
-		u32 osd_layer = pcanvas_info->compressed ? RGN_ODEC_LAYER_VPSS : RGN_NORMAL_LAYER_VPSS;
 
 		in_use_param.chn = ctx->chn;
 		in_use_param.handle = handle;
-		in_use_param.layer = osd_layer;
+		in_use_param.layer = RGN_NORMAL_LAYER_VPSS;
 		in_use_param.addr = pcanvas_info->phy_addr;
-
 		do {
 			in_use_param.in_use = 0;
 			if (_rgn_call_cb(E_MODULE_VPSS, VPSS_CB_IS_RGN_ADDR_IN_USE, &in_use_param) != 0) {

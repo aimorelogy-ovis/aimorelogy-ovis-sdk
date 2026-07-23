@@ -127,6 +127,11 @@ CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
     CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight);
 #endif
 
+#ifdef PD_SUPPORT
+CVI_S32 app_ipcam_Osdc_PdRect_EnsureEventMode(CVI_VOID);
+CVI_VOID app_ipcam_Osdc_PdRect_Publish(CVI_VOID);
+#endif
+
 #ifdef WEB_SOCKET
 APP_OSDC_OBJS_INFO_S *app_ipcam_OsdcPrivacy_Param_Get(void);
 #endif
