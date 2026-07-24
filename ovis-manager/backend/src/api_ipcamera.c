@@ -70,8 +70,8 @@ static void *task_worker(void *arg)
 		rc = service_run_action(action, output, sizeof(output));
 	} else if (kind == TASK_CONFIG_APPLY) {
 		wait_for_config_response();
-		set_task_status(task, TASK_RUNNING, "restarting_ipcamera", 60,
-			"正在重启视频服务");
+		set_task_status(task, TASK_RUNNING, "applying_config", 60,
+			"正在应用设备配置");
 		rc = config_apply_staged(revision, output, sizeof(output), &rolled_back);
 	} else {
 		wait_for_config_response();

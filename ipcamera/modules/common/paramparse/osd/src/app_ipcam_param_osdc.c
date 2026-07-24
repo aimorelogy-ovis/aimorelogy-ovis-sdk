@@ -21,7 +21,69 @@ const char *osd_type[TYPE_END] = {
     [TYPE_DEBUG] = "TYPE_DEBUG"
 };
 
-int Load_Param_Osdc(const char *file)
+static const char *osd_color_mode[APP_OSD_COLOR_MODE_BUTT] = {
+    [APP_OSD_COLOR_MODE_FIXED] = "fixed",
+    [APP_OSD_COLOR_MODE_MODEL] = "model"
+};
+
+static const char *osd_label_mode[APP_OSD_LABEL_MODE_BUTT] = {
+    [APP_OSD_LABEL_MODE_NONE] = "none",
+    [APP_OSD_LABEL_MODE_CLASS] = "class",
+    [APP_OSD_LABEL_MODE_CLASS_SCORE] = "class_score"
+};
+
+static const char *osd_reticle_template[APP_OSD_RETICLE_TEMPLATE_BUTT] = {
+    [APP_OSD_RETICLE_RECTANGLE] = "rectangle",
+    [APP_OSD_RETICLE_CORNERS] = "corners",
+    [APP_OSD_RETICLE_CROSSHAIR] = "crosshair",
+    [APP_OSD_RETICLE_CROSSHAIR_DOT] = "crosshair_dot",
+    [APP_OSD_RETICLE_BRACKET_CROSS] = "bracket_cross",
+    [APP_OSD_RETICLE_CIRCLE] = "circle"
+};
+
+static const char *osd_text_position[APP_OSD_TEXT_POSITION_BUTT] = {
+    [APP_OSD_TEXT_POSITION_CUSTOM] = "custom",
+    [APP_OSD_TEXT_POSITION_TOP_LEFT] = "top-left",
+    [APP_OSD_TEXT_POSITION_TOP_RIGHT] = "top-right",
+    [APP_OSD_TEXT_POSITION_BOTTOM_LEFT] = "bottom-left",
+    [APP_OSD_TEXT_POSITION_BOTTOM_RIGHT] = "bottom-right"
+};
+
+static void app_ipcam_Osdc_Style_Default(APP_OSD_STYLE_CFG_S *Style)
+{
+    memset(Style, 0, sizeof(*Style));
+    Style->bDetectionEnable = CVI_TRUE;
+    Style->enDetectionColorMode = APP_OSD_COLOR_MODE_FIXED;
+    Style->u32DetectionColor = APP_OSD_COLOR_CYAN_RGB;
+    Style->u32DetectionThickness = 2;
+    Style->enDetectionLabelMode = APP_OSD_LABEL_MODE_NONE;
+    Style->bTrackingEnable = CVI_TRUE;
+    Style->u32TrackingColor = APP_OSD_COLOR_AMBER_RGB;
+    Style->u32TrackingLostColor = APP_OSD_COLOR_LOST_RGB;
+    Style->u32TrackingThickness = 3;
+    Style->bReticleEnable = CVI_TRUE;
+    Style->enReticleTemplate = APP_OSD_RETICLE_CORNERS;
+    Style->u32ReticleIdleColor = APP_OSD_COLOR_WHITE_RGB;
+    Style->u32ReticleReadyColor = APP_OSD_COLOR_READY_RGB;
+    Style->u32ReticleThickness = 2;
+    Style->bReticleShowWhileTracking = CVI_FALSE;
+    Style->enTextPosition = APP_OSD_TEXT_POSITION_TOP_LEFT;
+}
+
+static int app_ipcam_Osdc_ReadEnum(const char *file, const char *key,
+    const char *default_value, const char *values[], int value_count,
+    int default_result)
+{
+    char value[PARAM_STRING_NAME_LEN] = {0};
+    int parsed = default_result;
+
+    ini_gets("osd_style", key, default_value, value, sizeof(value), file);
+    app_ipcam_Param_Convert_StrName_to_EnumNum(
+        value, values, value_count, &parsed);
+    return parsed;
+}
+
+int Load_Param_Osdc_Config(const char *file, APP_PARAM_OSDC_CFG_S *Osdc)
 {
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading Osdc config ------------------> start \n");
     unsigned int i = 0;
@@ -31,12 +93,46 @@ int Load_Param_Osdc(const char *file)
     char tmp_buff[APP_OSD_STR_LEN_MAX] = {0};
     char tmp_section[32] = {0};
     char str_name[PARAM_STRING_NAME_LEN] = {0};
-    APP_PARAM_OSDC_CFG_S * Osdc = app_ipcam_Osdc_Param_Get();
     const char ** mode_id = app_ipcam_Param_get_mode_id();
     const char ** pixel_format = app_ipcam_Param_get_pixel_format();
 
+    if (file == NULL || Osdc == NULL) {
+        return CVI_FAILURE;
+    }
+
     memset(Osdc, 0, sizeof(APP_PARAM_OSDC_CFG_S));
+    app_ipcam_Osdc_Style_Default(&Osdc->stStyle);
     Osdc->enable = ini_getl("osdc_config", "enable", 0, file);
+    Osdc->stStyle.bDetectionEnable = ini_getl("osd_style", "detection_enabled", 1, file);
+    Osdc->stStyle.enDetectionColorMode = app_ipcam_Osdc_ReadEnum(
+        file, "detection_color_mode", "fixed", osd_color_mode,
+        APP_OSD_COLOR_MODE_BUTT, APP_OSD_COLOR_MODE_FIXED);
+    Osdc->stStyle.u32DetectionColor = ini_getl("osd_style", "detection_color",
+        APP_OSD_COLOR_CYAN_RGB, file);
+    Osdc->stStyle.u32DetectionThickness = ini_getl("osd_style", "detection_thickness", 2, file);
+    Osdc->stStyle.enDetectionLabelMode = app_ipcam_Osdc_ReadEnum(
+        file, "detection_label_mode", "none", osd_label_mode,
+        APP_OSD_LABEL_MODE_BUTT, APP_OSD_LABEL_MODE_NONE);
+    Osdc->stStyle.bTrackingEnable = ini_getl("osd_style", "tracking_enabled", 1, file);
+    Osdc->stStyle.u32TrackingColor = ini_getl("osd_style", "tracking_color",
+        APP_OSD_COLOR_AMBER_RGB, file);
+    Osdc->stStyle.u32TrackingLostColor = ini_getl("osd_style", "tracking_lost_color",
+        APP_OSD_COLOR_LOST_RGB, file);
+    Osdc->stStyle.u32TrackingThickness = ini_getl("osd_style", "tracking_thickness", 3, file);
+    Osdc->stStyle.bReticleEnable = ini_getl("osd_style", "reticle_enabled", 1, file);
+    Osdc->stStyle.enReticleTemplate = app_ipcam_Osdc_ReadEnum(
+        file, "reticle_template", "corners", osd_reticle_template,
+        APP_OSD_RETICLE_TEMPLATE_BUTT, APP_OSD_RETICLE_CORNERS);
+    Osdc->stStyle.u32ReticleIdleColor = ini_getl("osd_style", "reticle_idle_color",
+        APP_OSD_COLOR_WHITE_RGB, file);
+    Osdc->stStyle.u32ReticleReadyColor = ini_getl("osd_style", "reticle_ready_color",
+        APP_OSD_COLOR_READY_RGB, file);
+    Osdc->stStyle.u32ReticleThickness = ini_getl("osd_style", "reticle_thickness", 2, file);
+    Osdc->stStyle.bReticleShowWhileTracking = ini_getl(
+        "osd_style", "reticle_show_while_tracking", 0, file);
+    Osdc->stStyle.enTextPosition = app_ipcam_Osdc_ReadEnum(
+        file, "text_position", "top-left", osd_text_position,
+        APP_OSD_TEXT_POSITION_BUTT, APP_OSD_TEXT_POSITION_TOP_LEFT);
     APP_PROF_LOG_PRINT(LEVEL_INFO, "osdc enable: %d\n", Osdc->enable);
     if (Osdc->enable) {
         for (j = 0; j < OSDC_NUM_MAX; j++) {
@@ -138,4 +234,9 @@ int Load_Param_Osdc(const char *file)
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading Osdc config ------------------> done \n\n");
 
     return CVI_SUCCESS;
+}
+
+int Load_Param_Osdc(const char *file)
+{
+    return Load_Param_Osdc_Config(file, app_ipcam_Osdc_Param_Get());
 }

@@ -37,6 +37,12 @@ int usb_schedule_output_reboot(char *output, size_t size)
 	return 0;
 }
 
+int service_reload_overlay(char *output, size_t size)
+{
+	snprintf(output, size, "simulated overlay reload success");
+	return 0;
+}
+
 void audit_log(const char *operation, const char *result)
 {
 	(void)operation;
@@ -65,7 +71,7 @@ static void clean_test_directory(void)
 
 static cJSON *read_document(char *revision, size_t revision_size)
 {
-	char json[4096];
+	char json[8192];
 	cJSON *root;
 	cJSON *item;
 
@@ -304,7 +310,10 @@ int main(void)
 	if (!active_config_value_equals("vi_cfg_isp0", "teaisp_bnr_enable", "0"))
 		fail("AI BNR migration did not preserve the default disabled state");
 	if (config_capabilities_json(capabilities, sizeof(capabilities)) != 0 ||
-	    strstr(capabilities, "\"schema_version\":5") == NULL ||
+	    strstr(capabilities, "\"schema_version\":6") == NULL ||
+	    strstr(capabilities, "\"overlay\":{\"supported\":true") == NULL ||
+	    strstr(capabilities, "\"reticleTemplates\"") == NULL ||
+	    strstr(capabilities, "\"reticle_templates\"") == NULL ||
 	    strstr(capabilities, "\"ai_isp\"") == NULL ||
 	    strstr(capabilities, "\"required_main_fps\":30") == NULL ||
 	    strstr(capabilities, "\"exclusive_with\":[\"object\",\"face\",\"motion\","

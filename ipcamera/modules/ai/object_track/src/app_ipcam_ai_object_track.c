@@ -33,6 +33,10 @@
 #define OBJECT_TRACK_PIPELINE_READY_TIMEOUT_MS 100
 #define OBJECT_TRACK_PIPELINE_DRAIN_LIMIT 8
 #define OBJECT_TRACK_OSD_HOLD_FRAMES 8
+#define OBJECT_TRACK_LOST_TIMEOUT_US (5ULL * 1000ULL * 1000ULL)
+#define OBJECT_TRACK_RECOVERY_CONFIRM_FRAMES 2
+#define OBJECT_TRACK_FRAME_TIMEOUT_MS 250
+#define OBJECT_TRACK_FRAME_ERROR_LIMIT 3
 #define OBJECT_TRACK_GMC_MIN_INTERVAL 1
 #define OBJECT_TRACK_GMC_RESULT_MAX_AGE_FRAMES 8
 #define OBJECT_TRACK_GMC_RECOVERY_MIN_CONFIDENCE 0.15f
@@ -127,8 +131,6 @@ typedef struct APP_OBJECT_TRACK_GMC_ASYNC_T {
  **************************************************************************/
 static APP_PARAM_OBJECT_TRACK_MODE g_mode = WAIT_TARGET;
 static uint64_t g_frame_id = 0;
-static uint32_t g_lost_start_time;          // Start time when the object is lost
-static bool g_lost_timer_started = false;   // Whether the lost timer has started
 static APP_PARAM_AI_OBJECT_TRACK_CFG_S g_stObjTrackCfg;
 static APP_PARAM_AI_OBJECT_TRACK_CFG_S *g_pstObjTrackCfg = &g_stObjTrackCfg;
 static volatile bool g_bObjectTrackRunning = CVI_FALSE;
@@ -151,7 +153,6 @@ static CVI_S32 g_GmcExclusion[4] = {0};
 static APP_OBJECT_TRACK_GMC_ASYNC_S g_GmcAsync = {0};
 static pthread_mutex_t g_GmcAsyncMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_GmcAsyncCond = PTHREAD_COND_INITIALIZER;
-const int LOST_TIMEOUT_SECONDS = 5;  // Timeout for object lost
 
 typedef struct APP_OBJECT_TRACK_PERF_T {
     APP_PARAM_OBJECT_TRACK_MODE mode;
@@ -199,14 +200,6 @@ typedef struct APP_OBJECT_TRACK_PERF_T {
 /**************************************************************************
  *               F U N C T I O N    D E C L A R A T I O N S               *
  **************************************************************************/
-static uint32_t get_time_in_ms() {
-  struct timeval tv;
-  if (gettimeofday(&tv, NULL) < 0) {
-    return 0;
-  }
-  return tv.tv_sec * 1000 + tv.tv_usec / 1000;
-}
-
 static uint64_t app_ipcam_Ai_Object_Track_TimeUs(void)
 {
     struct timespec ts;
@@ -638,7 +631,7 @@ static CVI_VOID app_ipcam_Ai_Object_Track_ObjDraw_Clear(CVI_VOID)
     }
 #ifdef OSDC_SUPPORT
     app_ipcam_Osdc_ObjectTrackRect_Publish(
-        CVI_FALSE, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
+        CVI_FALSE, CVI_FALSE, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0);
 #endif
 }
 
@@ -1005,6 +998,7 @@ static CVI_S32 app_ipcam_Ai_Object_Track_Pipeline_Set(
 
 pipeline_failed:
     if (s32Ret != CVI_SUCCESS) {
+        g_bPipelineInitialized = CVI_FALSE;
         APP_PROF_LOG_PRINT(LEVEL_ERROR,
             "switch ObjectTrack VPSS pipeline to %s failed with %#x\n",
             app_ipcam_Ai_Object_Track_Mode_Name(mode), s32Ret);
@@ -1016,10 +1010,12 @@ pipeline_failed:
             g_pstObjTrackCfg->SotVpssGrp,
             g_pstObjTrackCfg->SotVpssChn);
         if (s32Ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_WARN,
+            g_bPipelineInitialized = CVI_FALSE;
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
                 "ObjectTrack VPSS tracking warmup timed out, "
-                "continuing with normal frame acquisition, ret=%#x\n",
+                "returning to idle pipeline, ret=%#x\n",
                 s32Ret);
+            return s32Ret;
         }
     }
 
@@ -1437,6 +1433,10 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
     bool pending_request_valid = false;
     bool sot_input_error_reported = false;
     CVI_U32 sot_unreliable_frames = 0;
+    CVI_U32 sot_recovery_frames = 0;
+    CVI_U32 frame_error_count = 0;
+    uint64_t lost_start_us = 0;
+    uint64_t frame_error_start_us = 0;
     APP_OBJECT_TRACK_GMC_RESULT_S stLatestGmcResult = {0};
     CVI_U64 u64LatestGmcFrameId = 0;
     CVI_BOOL bLatestGmcAvailable = CVI_FALSE;
@@ -1509,9 +1509,12 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                 memset(&selection, 0, sizeof(selection));
                 track_init = CVI_FALSE;
                 sot_unreliable_frames = 0;
+                sot_recovery_frames = 0;
+                lost_start_us = 0;
+                frame_error_count = 0;
+                frame_error_start_us = 0;
                 bLatestGmcAvailable = CVI_FALSE;
                 bGmcPredictionActive = CVI_FALSE;
-                g_lost_timer_started = false;
                 app_ipcam_Ai_Object_Track_Gmc_Reset();
                 app_ipcam_Ai_Object_Track_Mode_Set(
                     app_ipcam_Ai_Object_Track_Idle_Mode_Get());
@@ -1522,9 +1525,12 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                 memset(&selection, 0, sizeof(selection));
                 track_init = CVI_FALSE;
                 sot_unreliable_frames = 0;
+                sot_recovery_frames = 0;
+                lost_start_us = 0;
+                frame_error_count = 0;
+                frame_error_start_us = 0;
                 bLatestGmcAvailable = CVI_FALSE;
                 bGmcPredictionActive = CVI_FALSE;
-                g_lost_timer_started = false;
                 app_ipcam_Ai_Object_Track_Gmc_Reset();
                 app_ipcam_Ai_Object_Track_Mode_Set(
                     app_ipcam_Ai_Object_Track_Idle_Mode_Get());
@@ -1535,6 +1541,20 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
 
         mode = app_ipcam_Ai_Object_Track_Mode_Get();
         if (app_ipcam_Ai_Object_Track_Pipeline_Set(mode) != CVI_SUCCESS) {
+            if (mode == TRACKING) {
+                track_init = CVI_FALSE;
+                sot_unreliable_frames = 0;
+                sot_recovery_frames = 0;
+                lost_start_us = 0;
+                frame_error_count = 0;
+                frame_error_start_us = 0;
+                bLatestGmcAvailable = CVI_FALSE;
+                bGmcPredictionActive = CVI_FALSE;
+                memset(&selection, 0, sizeof(selection));
+                app_ipcam_Ai_Object_Track_Gmc_Reset();
+                app_ipcam_Ai_Object_Track_Mode_Set(
+                    app_ipcam_Ai_Object_Track_Idle_Mode_Get());
+            }
             usleep(10 * 1000);
             continue;
         }
@@ -1548,6 +1568,11 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
          * 点选和框选不依赖 DET，也可以在 WAIT_TARGET 状态直接进入跟踪。
          */
         if (mode != TRACKING) {
+            sot_unreliable_frames = 0;
+            sot_recovery_frames = 0;
+            lost_start_us = 0;
+            frame_error_count = 0;
+            frame_error_start_us = 0;
             bLatestGmcAvailable = CVI_FALSE;
             bGmcPredictionActive = CVI_FALSE;
             if (mode == DETECTION) {
@@ -1609,13 +1634,48 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
         }
 
         frame_wait_start_us = app_ipcam_Ai_Object_Track_TimeUs();
-        s32Ret = CVI_VPSS_GetChnFrame(FrameVpssGrp, FrameVpssChn, &stFrame, 3000);
-        if (s32Ret != 0){
-            APP_PROF_LOG_PRINT(LEVEL_ERROR,
-                               "Grp(%d)-Chn(%d) get frame failed with %#x\n",
-                               FrameVpssGrp, FrameVpssChn, s32Ret);
-            continue;
+        s32Ret = CVI_VPSS_GetChnFrame(
+            FrameVpssGrp, FrameVpssChn, &stFrame,
+            OBJECT_TRACK_FRAME_TIMEOUT_MS);
+        if (s32Ret != CVI_SUCCESS) {
+            uint64_t now_us = app_ipcam_Ai_Object_Track_TimeUs();
+
+            if (frame_error_count == 0) {
+                frame_error_start_us = frame_wait_start_us;
+                APP_PROF_LOG_PRINT(LEVEL_WARN,
+                    "Grp(%d)-Chn(%d) tracking frame unavailable, ret=%#x\n",
+                    FrameVpssGrp, FrameVpssChn, s32Ret);
+            }
+            if (frame_error_count < UINT32_MAX) {
+                frame_error_count++;
+            }
+            if (frame_error_count >= OBJECT_TRACK_FRAME_ERROR_LIMIT) {
+                uint64_t stalled_us = now_us >= frame_error_start_us ?
+                    now_us - frame_error_start_us : 0;
+
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "Grp(%d)-Chn(%d) tracking frame stalled for %llu ms "
+                    "after %u failures, returning to idle\n",
+                    FrameVpssGrp, FrameVpssChn,
+                    (unsigned long long)(stalled_us / 1000ULL),
+                    frame_error_count);
+                track_init = CVI_FALSE;
+                sot_unreliable_frames = 0;
+                sot_recovery_frames = 0;
+                lost_start_us = 0;
+                frame_error_count = 0;
+                frame_error_start_us = 0;
+                bLatestGmcAvailable = CVI_FALSE;
+                bGmcPredictionActive = CVI_FALSE;
+                memset(&selection, 0, sizeof(selection));
+                app_ipcam_Ai_Object_Track_Gmc_Reset();
+                app_ipcam_Ai_Object_Track_Mode_Set(
+                    app_ipcam_Ai_Object_Track_Idle_Mode_Get());
+            }
+            goto loop_cleanup;
         }
+        frame_error_count = 0;
+        frame_error_start_us = 0;
         frame_acquired = true;
         stPerf.frame_wait_total_us +=
             app_ipcam_Ai_Object_Track_TimeUs() - frame_wait_start_us;
@@ -1803,9 +1863,10 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
             } else {
                 track_init = CVI_TRUE;
                 sot_unreliable_frames = 0;
+                sot_recovery_frames = 0;
+                lost_start_us = 0;
                 bLatestGmcAvailable = CVI_FALSE;
                 bGmcPredictionActive = CVI_FALSE;
-                g_lost_timer_started = false;
                 if (selection.point_prompt && search_type == TDL_FASTSAM) {
                     memcpy(g_GmcExclusion, hint_values,
                            sizeof(g_GmcExclusion));
@@ -1892,9 +1953,12 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                    app_ipcam_Ai_Object_Track_Idle_Mode_Get());
                track_init = CVI_FALSE;
                sot_unreliable_frames = 0;
+               sot_recovery_frames = 0;
+               lost_start_us = 0;
                bLatestGmcAvailable = CVI_FALSE;
                bGmcPredictionActive = CVI_FALSE;
                memset(&selection, 0, sizeof(selection));
+               app_ipcam_Ai_Object_Track_Gmc_Reset();
                goto loop_cleanup;
             }
             stPerf.sot_frames++;
@@ -1926,117 +1990,126 @@ static CVI_VOID *Thread_Object_Track_Proc(CVI_VOID *pArgs)
                 stPerf.sot_lost_frames++;
             }
 
-            if (track_meta.info != NULL &&
-                track_meta.info[0].score >= g_pstObjTrackCfg->sot_min_observed_score) {
-                CVI_BOOL predicted = track_meta.info[0].state ==
-                    TDL_TRACK_STATE_PREDICTED;
+            {
+                CVI_BOOL reliable_candidate = track_meta.info != NULL &&
+                    track_meta.info[0].state == TDL_TRACK_STATE_TRACKED &&
+                    track_meta.info[0].score >=
+                        g_pstObjTrackCfg->sot_min_observed_score;
+                CVI_BOOL reliable = reliable_candidate;
 
-                if (predicted) {
-                    if (sot_unreliable_frames < UINT32_MAX) {
-                        sot_unreliable_frames++;
+                if (lost_start_us != 0 && reliable_candidate) {
+                    /* Avoid ending a search window on a one-frame false recovery. */
+                    if (sot_recovery_frames < UINT32_MAX) {
+                        sot_recovery_frames++;
                     }
-                    if (!g_lost_timer_started) {
-                        g_lost_start_time = get_time_in_ms();
-                        g_lost_timer_started = true;
-                    }
-                } else {
-                    sot_unreliable_frames = 0;
-                    bGmcPredictionActive = CVI_FALSE;
-                    g_lost_timer_started = false;
+                    reliable = sot_recovery_frames >=
+                        OBJECT_TRACK_RECOVERY_CONFIRM_FRAMES;
+                } else if (!reliable_candidate) {
+                    sot_recovery_frames = 0;
                 }
-                if (!predicted) {
+
+                if (reliable) {
+                    sot_unreliable_frames = 0;
+                    sot_recovery_frames = 0;
+                    lost_start_us = 0;
+                    bGmcPredictionActive = CVI_FALSE;
                     g_GmcExclusion[0] = (CVI_S32)track_meta.info[0].bbox.x1;
                     g_GmcExclusion[1] = (CVI_S32)track_meta.info[0].bbox.y1;
                     g_GmcExclusion[2] = (CVI_S32)track_meta.info[0].bbox.x2;
                     g_GmcExclusion[3] = (CVI_S32)track_meta.info[0].bbox.y2;
-                }
-                {
-                    CVI_FLOAT fRawX1 = track_meta.info[0].bbox.x1 *
-                        (CVI_FLOAT)g_pstObjTrackCfg->u32GrpWidth /
-                        g_pstObjTrackCfg->u32SotGrpWidth;
-                    CVI_FLOAT fRawX2 = track_meta.info[0].bbox.x2 *
-                        (CVI_FLOAT)g_pstObjTrackCfg->u32GrpWidth /
-                        g_pstObjTrackCfg->u32SotGrpWidth;
-                    CVI_FLOAT fRawY1 = track_meta.info[0].bbox.y1 *
-                        (CVI_FLOAT)g_pstObjTrackCfg->u32GrpHeight /
-                        g_pstObjTrackCfg->u32SotGrpHeight;
-                    CVI_FLOAT fRawY2 = track_meta.info[0].bbox.y2 *
-                        (CVI_FLOAT)g_pstObjTrackCfg->u32GrpHeight /
-                        g_pstObjTrackCfg->u32SotGrpHeight;
+                    {
+                        CVI_FLOAT fRawX1 = track_meta.info[0].bbox.x1 *
+                            (CVI_FLOAT)g_pstObjTrackCfg->u32GrpWidth /
+                            g_pstObjTrackCfg->u32SotGrpWidth;
+                        CVI_FLOAT fRawX2 = track_meta.info[0].bbox.x2 *
+                            (CVI_FLOAT)g_pstObjTrackCfg->u32GrpWidth /
+                            g_pstObjTrackCfg->u32SotGrpWidth;
+                        CVI_FLOAT fRawY1 = track_meta.info[0].bbox.y1 *
+                            (CVI_FLOAT)g_pstObjTrackCfg->u32GrpHeight /
+                            g_pstObjTrackCfg->u32SotGrpHeight;
+                        CVI_FLOAT fRawY2 = track_meta.info[0].bbox.y2 *
+                            (CVI_FLOAT)g_pstObjTrackCfg->u32GrpHeight /
+                            g_pstObjTrackCfg->u32SotGrpHeight;
 #ifdef OSDC_SUPPORT
-                    CVI_BOOL bDrawReady = CVI_FALSE;
-                    CVI_FLOAT fDisplayX1;
-                    CVI_FLOAT fDisplayY1;
-                    CVI_FLOAT fDisplayX2;
-                    CVI_FLOAT fDisplayY2;
+                        CVI_BOOL bDrawReady = CVI_FALSE;
+                        CVI_FLOAT fDisplayX1;
+                        CVI_FLOAT fDisplayY1;
+                        CVI_FLOAT fDisplayX2;
+                        CVI_FLOAT fDisplayY2;
 #endif
 
-                    {
-                        SMT_MutexAutoLock(g_Mutex, lock);
-                        if (g_stObjDraw.info != NULL) {
-                            g_stObjDraw.size = 1;
-                            g_stObjDraw.info[0].box.x1 = fRawX1;
-                            g_stObjDraw.info[0].box.x2 = fRawX2;
-                            g_stObjDraw.info[0].box.y1 = fRawY1;
-                            g_stObjDraw.info[0].box.y2 = fRawY2;
+                        {
+                            SMT_MutexAutoLock(g_Mutex, lock);
+                            if (g_stObjDraw.info != NULL) {
+                                g_stObjDraw.size = 1;
+                                g_stObjDraw.info[0].box.x1 = fRawX1;
+                                g_stObjDraw.info[0].box.x2 = fRawX2;
+                                g_stObjDraw.info[0].box.y1 = fRawY1;
+                                g_stObjDraw.info[0].box.y2 = fRawY2;
 #ifdef OSDC_SUPPORT
-                            bDrawReady = CVI_TRUE;
+                                bDrawReady = CVI_TRUE;
 #endif
-                        } else {
-                            g_stObjDraw.size = 0;
+                            } else {
+                                g_stObjDraw.size = 0;
+                            }
                         }
-                    }
 #ifdef OSDC_SUPPORT
-                    if (bDrawReady) {
-                        app_ipcam_Ai_Object_Track_OsdPredict(
-                            &stOsdPredictor,
-                            fRawX1, fRawY1, fRawX2, fRawY2,
-                            track_meta.info[0].score,
-                            track_meta.info[0].state,
-                            stFrame.stVFrame.u32TimeRef,
-                            stFrame.stVFrame.u64PTS,
-                            g_pstObjTrackCfg->u32GrpWidth,
-                            g_pstObjTrackCfg->u32GrpHeight,
-                            &fDisplayX1, &fDisplayY1,
-                            &fDisplayX2, &fDisplayY2);
-                        app_ipcam_Osdc_ObjectTrackRect_Publish(
-                            CVI_TRUE,
-                            fDisplayX1, fDisplayY1,
-                            fDisplayX2, fDisplayY2,
-                            g_pstObjTrackCfg->u32GrpWidth,
-                            g_pstObjTrackCfg->u32GrpHeight);
-                    }
+                        if (bDrawReady) {
+                            app_ipcam_Ai_Object_Track_OsdPredict(
+                                &stOsdPredictor,
+                                fRawX1, fRawY1, fRawX2, fRawY2,
+                                track_meta.info[0].score,
+                                track_meta.info[0].state,
+                                stFrame.stVFrame.u32TimeRef,
+                                stFrame.stVFrame.u64PTS,
+                                g_pstObjTrackCfg->u32GrpWidth,
+                                g_pstObjTrackCfg->u32GrpHeight,
+                                &fDisplayX1, &fDisplayY1,
+                                &fDisplayX2, &fDisplayY2);
+                            app_ipcam_Osdc_ObjectTrackRect_Publish(
+                                CVI_TRUE,
+                                track_meta.info[0].state !=
+                                    TDL_TRACK_STATE_TRACKED,
+                                fDisplayX1, fDisplayY1,
+                                fDisplayX2, fDisplayY2,
+                                g_pstObjTrackCfg->u32GrpWidth,
+                                g_pstObjTrackCfg->u32GrpHeight);
+                        }
 #endif
-                }
-            } else {
-                if (track_meta.info != NULL) {
-                    APP_PROF_LOG_PRINT(LEVEL_DEBUG,
-                                       "track score %.3f lower than threshold %.3f\n",
-                                       track_meta.info[0].score,
-                                       g_pstObjTrackCfg->sot_min_observed_score);
-                }
-                if (sot_unreliable_frames < UINT32_MAX) {
-                    sot_unreliable_frames++;
-                }
-                if (sot_unreliable_frames >= OBJECT_TRACK_OSD_HOLD_FRAMES) {
-                    app_ipcam_Ai_Object_Track_ObjDraw_Clear();
-                }
-                if (!g_lost_timer_started) {
-                    g_lost_start_time = get_time_in_ms();
-                    g_lost_timer_started = true;
+                    }
                 } else {
-                    uint32_t current_time = get_time_in_ms();
-                    uint32_t elapsed_time = current_time - g_lost_start_time;
-                    if (elapsed_time >= (uint32_t)(LOST_TIMEOUT_SECONDS * 1000)) {
+                    uint64_t now_us = app_ipcam_Ai_Object_Track_TimeUs();
+
+                    if (track_meta.info != NULL &&
+                        track_meta.info[0].state == TDL_TRACK_STATE_TRACKED &&
+                        track_meta.info[0].score <
+                            g_pstObjTrackCfg->sot_min_observed_score) {
+                        APP_PROF_LOG_PRINT(LEVEL_DEBUG,
+                            "track score %.3f lower than threshold %.3f\n",
+                            track_meta.info[0].score,
+                            g_pstObjTrackCfg->sot_min_observed_score);
+                    }
+                    if (sot_unreliable_frames < UINT32_MAX) {
+                        sot_unreliable_frames++;
+                    }
+                    if (sot_unreliable_frames >=
+                        OBJECT_TRACK_OSD_HOLD_FRAMES) {
+                        app_ipcam_Ai_Object_Track_ObjDraw_Clear();
+                    }
+                    if (lost_start_us == 0) {
+                        lost_start_us = now_us;
+                    } else if (now_us >= lost_start_us &&
+                               now_us - lost_start_us >=
+                                   OBJECT_TRACK_LOST_TIMEOUT_US) {
                         APP_PROF_LOG_PRINT(LEVEL_WARN,
-                                           "The target has been lost for more than [%d] seconds, "
-                                           "switching to idle state\n",
-                                           LOST_TIMEOUT_SECONDS);
+                            "ObjectTrack target lost for 5 seconds, "
+                            "returning to idle\n");
                         app_ipcam_Ai_Object_Track_Mode_Set(
                             app_ipcam_Ai_Object_Track_Idle_Mode_Get());
-                        g_lost_timer_started = false;
                         track_init = CVI_FALSE;
                         sot_unreliable_frames = 0;
+                        sot_recovery_frames = 0;
+                        lost_start_us = 0;
                         bLatestGmcAvailable = CVI_FALSE;
                         bGmcPredictionActive = CVI_FALSE;
                         memset(&selection, 0, sizeof(selection));

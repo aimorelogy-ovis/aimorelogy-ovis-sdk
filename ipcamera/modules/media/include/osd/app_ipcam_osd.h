@@ -25,6 +25,12 @@ extern "C"
 #define OSDC_NUM_MAX 3
 #define OSDC_AI_STR_MAX 20
 
+#define APP_OSD_COLOR_WHITE_RGB       0xFFFFFF
+#define APP_OSD_COLOR_CYAN_RGB        0x00D9FF
+#define APP_OSD_COLOR_AMBER_RGB       0xFFB000
+#define APP_OSD_COLOR_READY_RGB       0xFFC247
+#define APP_OSD_COLOR_LOST_RGB        0xFF3030
+
 #define COLOR_WHITE(FORMATE)  ((FORMATE) ? 0xFFFFFFFF : 0xFFFF)
 #define COLOR_BLACK(FORMATE)  ((FORMATE) ? 0xFF000000 : 0x8000)
 #define COLOR_BLUE(FORMATE)   ((FORMATE) ? 0xFF0000FF : 0x801F)
@@ -66,6 +72,57 @@ typedef enum OSD_TYPE_T {
     TYPE_END
 } OSD_TYPE_E;
 
+typedef enum APP_OSD_COLOR_MODE_T {
+    APP_OSD_COLOR_MODE_FIXED = 0,
+    APP_OSD_COLOR_MODE_MODEL,
+    APP_OSD_COLOR_MODE_BUTT
+} APP_OSD_COLOR_MODE_E;
+
+typedef enum APP_OSD_LABEL_MODE_T {
+    APP_OSD_LABEL_MODE_NONE = 0,
+    APP_OSD_LABEL_MODE_CLASS,
+    APP_OSD_LABEL_MODE_CLASS_SCORE,
+    APP_OSD_LABEL_MODE_BUTT
+} APP_OSD_LABEL_MODE_E;
+
+typedef enum APP_OSD_RETICLE_TEMPLATE_T {
+    APP_OSD_RETICLE_RECTANGLE = 0,
+    APP_OSD_RETICLE_CORNERS,
+    APP_OSD_RETICLE_CROSSHAIR,
+    APP_OSD_RETICLE_CROSSHAIR_DOT,
+    APP_OSD_RETICLE_BRACKET_CROSS,
+    APP_OSD_RETICLE_CIRCLE,
+    APP_OSD_RETICLE_TEMPLATE_BUTT
+} APP_OSD_RETICLE_TEMPLATE_E;
+
+typedef enum APP_OSD_TEXT_POSITION_T {
+    APP_OSD_TEXT_POSITION_CUSTOM = 0,
+    APP_OSD_TEXT_POSITION_TOP_LEFT,
+    APP_OSD_TEXT_POSITION_TOP_RIGHT,
+    APP_OSD_TEXT_POSITION_BOTTOM_LEFT,
+    APP_OSD_TEXT_POSITION_BOTTOM_RIGHT,
+    APP_OSD_TEXT_POSITION_BUTT
+} APP_OSD_TEXT_POSITION_E;
+
+typedef struct APP_OSD_STYLE_CFG_T {
+    CVI_BOOL bDetectionEnable;
+    APP_OSD_COLOR_MODE_E enDetectionColorMode;
+    CVI_U32 u32DetectionColor;
+    CVI_U32 u32DetectionThickness;
+    APP_OSD_LABEL_MODE_E enDetectionLabelMode;
+    CVI_BOOL bTrackingEnable;
+    CVI_U32 u32TrackingColor;
+    CVI_U32 u32TrackingLostColor;
+    CVI_U32 u32TrackingThickness;
+    CVI_BOOL bReticleEnable;
+    APP_OSD_RETICLE_TEMPLATE_E enReticleTemplate;
+    CVI_U32 u32ReticleIdleColor;
+    CVI_U32 u32ReticleReadyColor;
+    CVI_U32 u32ReticleThickness;
+    CVI_BOOL bReticleShowWhileTracking;
+    APP_OSD_TEXT_POSITION_E enTextPosition;
+} APP_OSD_STYLE_CFG_S;
+
 typedef struct APP_OSDC_OBJS_AI_STR_INFO_T
 {
     CVI_U64 u64BitmapPhyAddr[OSDC_AI_STR_MAX];
@@ -98,6 +155,7 @@ typedef struct APP_OSDC_OBJS_INFO_T {
 
 typedef struct APP_PARAM_OSDC_CFG_T {
     CVI_BOOL enable;
+    APP_OSD_STYLE_CFG_S stStyle;
     RGN_HANDLE handle[OSDC_NUM_MAX];
     MMF_CHN_S  mmfChn[OSDC_NUM_MAX];
     CVI_BOOL bShow[OSDC_NUM_MAX];
@@ -122,7 +180,7 @@ int app_ipcam_Osdc_DeInit(void);
 
 #ifdef OBJECT_TRACK_SUPPORT
 CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
-    CVI_BOOL bShow, CVI_FLOAT fX1, CVI_FLOAT fY1,
+    CVI_BOOL bShow, CVI_BOOL bLost, CVI_FLOAT fX1, CVI_FLOAT fY1,
     CVI_FLOAT fX2, CVI_FLOAT fY2,
     CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight);
 #endif
@@ -139,6 +197,7 @@ APP_OSDC_OBJS_INFO_S *app_ipcam_OsdcPrivacy_Param_Get(void);
  *  The following API for command test used             S
  * **************************************************************/
 void app_ipcam_Osdc_Status(APP_PARAM_OSDC_CFG_S *pstOsdcCfg);
+CVI_S32 app_ipcam_Osdc_Reload(const char *pszConfigPath);
 int app_ipcam_CmdTask_Rect_Switch(CVI_MQ_MSG_t *msg, CVI_VOID *userdate);
 /*****************************************************************
  *  The above API for command test used                 E

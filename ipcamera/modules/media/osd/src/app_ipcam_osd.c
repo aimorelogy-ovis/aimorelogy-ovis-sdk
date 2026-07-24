@@ -28,6 +28,9 @@
 #define APP_OSDC_PD_RECT_HANDLE (RGN_MAX_NUM - 1)
 #define APP_OSDC_PD_RECT_LAYER  1
 #define APP_OSDC_PD_IDLE_REFRESH_US 1000000
+#define APP_OSDC_STYLE_THICKNESS_MIN 1
+#define APP_OSDC_STYLE_THICKNESS_MAX 4
+#define APP_OSDC_PI 3.14159265358979323846f
 
 /**************************************************************************
  *                           C O N S T A N T S                            *
@@ -90,17 +93,22 @@ static PIXEL_FORMAT_E g_enOsdcPdRectFormat;
 #ifdef OBJECT_TRACK_SUPPORT
 typedef struct APP_OSDC_TRACK_RECT_STATE_T {
     CVI_BOOL bConfigEnabled;
+    CVI_BOOL bStyleEnabled;
     VPSS_GRP VpssGrp;
     VPSS_CHN VpssChn;
     CVI_U32 u32OutputWidth;
     CVI_U32 u32OutputHeight;
     CVI_BOOL bShow;
+    CVI_BOOL bLost;
     CVI_FLOAT fX1;
     CVI_FLOAT fY1;
     CVI_FLOAT fX2;
     CVI_FLOAT fY2;
     CVI_U32 u32SourceWidth;
     CVI_U32 u32SourceHeight;
+    CVI_U32 u32Color;
+    CVI_U32 u32LostColor;
+    CVI_U32 u32Thickness;
     CVI_U64 u64Generation;
 } APP_OSDC_TRACK_RECT_STATE_S;
 
@@ -114,6 +122,9 @@ static APP_OSDC_TRACK_RECT_STATE_S g_stOsdcTrackRectState = {0};
 static APP_OSDC_CANVAS_CFG_S g_stOsdcCanvasCfg = {0};
 // static OSDC_DRAW_OBJ_S g_ObjsVec[OSDC_OBJS_MAX] = {0};
 static APP_OSDC_OBJS_AI_STR_INFO_S g_objStrAi = {0};
+#ifdef PD_SUPPORT
+static APP_OSDC_OBJS_AI_STR_INFO_S g_objStrPd = {0};
+#endif
 
 #ifdef AI_SUPPORT
 APP_OSDC_AI_RECT_RATIO_S g_stPdRectRatio = {0};
@@ -159,6 +170,66 @@ APP_OSDC_OBJS_INFO_S *app_ipcam_OsdcPrivacy_Param_Get(void)
 }
 #endif
 
+static CVI_U32 app_ipcam_Osdc_Thickness(CVI_U32 u32Thickness)
+{
+    if (u32Thickness < APP_OSDC_STYLE_THICKNESS_MIN) {
+        return APP_OSDC_STYLE_THICKNESS_MIN;
+    }
+    if (u32Thickness > APP_OSDC_STYLE_THICKNESS_MAX) {
+        return APP_OSDC_STYLE_THICKNESS_MAX;
+    }
+    return u32Thickness;
+}
+
+static CVI_U32 app_ipcam_Osdc_RgbToArgb1555(CVI_U32 u32Rgb)
+{
+    CVI_U32 u32Red = (u32Rgb >> 16) & 0xff;
+    CVI_U32 u32Green = (u32Rgb >> 8) & 0xff;
+    CVI_U32 u32Blue = u32Rgb & 0xff;
+
+    return 0x8000 | ((u32Red >> 3) << 10) |
+        ((u32Green >> 3) << 5) | (u32Blue >> 3);
+}
+
+static CVI_U32 app_ipcam_Osdc_ColorToArgb1555(CVI_U32 u32Color)
+{
+    if (u32Color <= 0xffff && (u32Color & 0x8000) != 0) {
+        return u32Color;
+    }
+    return app_ipcam_Osdc_RgbToArgb1555(u32Color);
+}
+
+static CVI_U32 app_ipcam_Osdc_ModelColor(CVI_S32 s32ClassId)
+{
+    static const CVI_U32 au32Palette[] = {
+        0x00D9FF, 0xFFB000, 0x5CE65C, 0xFF5C8A,
+        0xB980FF, 0x4D8DFF, 0xFFD84D, 0x4DE1B8
+    };
+    CVI_U32 u32Index = s32ClassId >= 0 ? (CVI_U32)s32ClassId : 0;
+
+    return au32Palette[u32Index %
+        (sizeof(au32Palette) / sizeof(au32Palette[0]))];
+}
+
+static CVI_U32 app_ipcam_Osdc_DetectionColor(
+    const APP_OSD_STYLE_CFG_S *pstStyle, CVI_S32 s32ClassId)
+{
+    CVI_U32 u32Rgb = pstStyle->u32DetectionColor;
+
+    if (pstStyle->enDetectionColorMode == APP_OSD_COLOR_MODE_MODEL) {
+        u32Rgb = app_ipcam_Osdc_ModelColor(s32ClassId);
+    }
+    return app_ipcam_Osdc_RgbToArgb1555(u32Rgb);
+}
+
+static CVI_VOID app_ipcam_Osdc_Wake(CVI_VOID)
+{
+    pthread_mutex_lock(&g_OsdcWakeMutex);
+    g_u64OsdcWakeGeneration++;
+    pthread_cond_signal(&g_OsdcWakeCond);
+    pthread_mutex_unlock(&g_OsdcWakeMutex);
+}
+
 #ifdef OBJECT_TRACK_SUPPORT
 static CVI_VOID app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(
     const APP_PARAM_OSDC_CFG_S *pstOsdcCfg)
@@ -188,22 +259,31 @@ static CVI_VOID app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(
 
     pthread_mutex_lock(&g_OsdcTrackRectMutex);
     g_stOsdcTrackRectState.bConfigEnabled = bEnabled;
+    g_stOsdcTrackRectState.bStyleEnabled =
+        pstOsdcCfg != NULL && pstOsdcCfg->stStyle.bTrackingEnable;
     g_stOsdcTrackRectState.VpssGrp = VpssGrp;
     g_stOsdcTrackRectState.VpssChn = VpssChn;
     g_stOsdcTrackRectState.u32OutputWidth = u32Width;
     g_stOsdcTrackRectState.u32OutputHeight = u32Height;
+    g_stOsdcTrackRectState.u32Color = pstOsdcCfg != NULL ?
+        pstOsdcCfg->stStyle.u32TrackingColor : APP_OSD_COLOR_AMBER_RGB;
+    g_stOsdcTrackRectState.u32LostColor = pstOsdcCfg != NULL ?
+        pstOsdcCfg->stStyle.u32TrackingLostColor : APP_OSD_COLOR_LOST_RGB;
+    g_stOsdcTrackRectState.u32Thickness = pstOsdcCfg != NULL ?
+        app_ipcam_Osdc_Thickness(pstOsdcCfg->stStyle.u32TrackingThickness) : 3;
     g_stOsdcTrackRectState.u64Generation++;
     pthread_cond_signal(&g_OsdcTrackRectCond);
     pthread_mutex_unlock(&g_OsdcTrackRectMutex);
 }
 
 CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
-    CVI_BOOL bShow, CVI_FLOAT fX1, CVI_FLOAT fY1,
+    CVI_BOOL bShow, CVI_BOOL bLost, CVI_FLOAT fX1, CVI_FLOAT fY1,
     CVI_FLOAT fX2, CVI_FLOAT fY2,
     CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight)
 {
     pthread_mutex_lock(&g_OsdcTrackRectMutex);
     g_stOsdcTrackRectState.bShow = bShow;
+    g_stOsdcTrackRectState.bLost = bLost;
     g_stOsdcTrackRectState.fX1 = fX1;
     g_stOsdcTrackRectState.fY1 = fY1;
     g_stOsdcTrackRectState.fX2 = fX2;
@@ -217,14 +297,6 @@ CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
 #endif
 
 #ifdef PD_SUPPORT
-static CVI_VOID app_ipcam_Osdc_Wake(CVI_VOID)
-{
-    pthread_mutex_lock(&g_OsdcWakeMutex);
-    g_u64OsdcWakeGeneration++;
-    pthread_cond_signal(&g_OsdcWakeCond);
-    pthread_mutex_unlock(&g_OsdcWakeMutex);
-}
-
 static CVI_BOOL app_ipcam_Osdc_PdRect_UnifiedReady(CVI_VOID)
 {
     return g_stOsdcCanvasCfg.createCanvas && g_pstOsdcCfg->enable &&
@@ -389,7 +461,10 @@ static int app_ipcam_Osd_Ai_Bitmap_Update(char *szStr, BITMAP_S *pstBitmap, CVI_
     return s32Ret;
 }
 
-int app_ipcam_ObjsRectInfo_Add_AiStr(RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 OsdcObjsNum, TDLObject *ai_obj, CVI_U32 ai_num)
+static int app_ipcam_ObjsRectInfo_Add_AiStr(
+    RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 OsdcObjsNum,
+    TDLObject *ai_obj, CVI_U32 ai_num,
+    APP_OSD_LABEL_MODE_E enLabelMode, CVI_U32 u32Color)
 {
     CVI_S32 s32Ret = 0;
     BITMAP_S stBitmap;
@@ -401,7 +476,14 @@ int app_ipcam_ObjsRectInfo_Add_AiStr(RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 Os
     memset(&stBitmap, 0, sizeof(BITMAP_S));
     memset(szStr, 0, sizeof(szStr));
     pstObjAttr[OsdcObjsNum].enObjType = RGN_CMPR_BIT_MAP;
-    snprintf(szStr, APP_OSD_STR_LEN_MAX, "id:%d", (int)ai_num);
+    const char *pszName = ai_obj->info[ai_num].name[0] != '\0' ?
+        ai_obj->info[ai_num].name : "object";
+    if (enLabelMode == APP_OSD_LABEL_MODE_CLASS_SCORE) {
+        snprintf(szStr, APP_OSD_STR_LEN_MAX, "%.31s %.2f",
+            pszName, ai_obj->info[ai_num].score);
+    } else {
+        snprintf(szStr, APP_OSD_STR_LEN_MAX, "%.31s", pszName);
+    }
     pszStr = szStr;
     //s32StrLen = strlen(pszStr) - GetNonASCNum(pszStr, strlen(pszStr));
     s32StrLen = strnlen(szStr, APP_OSD_STR_LEN_MAX);
@@ -421,7 +503,7 @@ int app_ipcam_ObjsRectInfo_Add_AiStr(RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 Os
         return -1;
     }
     memset(stBitmap.pData, 0, s32DataLen);
-    s32Ret = app_ipcam_Osd_Ai_Bitmap_Update(pszStr, &stBitmap, COLOR_BLUE(0));
+    s32Ret = app_ipcam_Osd_Ai_Bitmap_Update(pszStr, &stBitmap, u32Color);
     if (s32Ret != CVI_SUCCESS) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Osd_Ai_Bitmap_Update failed!\n");
         free(stBitmap.pData);
@@ -444,8 +526,11 @@ int app_ipcam_ObjsRectInfo_Add_AiStr(RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 Os
         g_objStrAi.maxlen[ai_num] = s32DataLen;
    }
     memcpy(g_objStrAi.pBitmapVirAddr[ai_num], stBitmap.pData, s32DataLen);
-    pstObjAttr[OsdcObjsNum].stRgnRect.stRect.s32X = (int)(g_stObjectTrackRectRatio.ScaleX * ai_obj->info[ai_num].box.x1);
-    pstObjAttr[OsdcObjsNum].stRgnRect.stRect.s32Y = (int)(g_stObjectTrackRectRatio.ScaleY * ai_obj->info[ai_num].box.y1 - OSD_LIB_FONT_H);
+    pstObjAttr[OsdcObjsNum].stBitmap.stRect.s32X =
+        (int)(g_stObjectTrackRectRatio.ScaleX * ai_obj->info[ai_num].box.x1);
+    pstObjAttr[OsdcObjsNum].stBitmap.stRect.s32Y = fmax(0,
+        (int)(g_stObjectTrackRectRatio.ScaleY *
+            ai_obj->info[ai_num].box.y1 - OSD_LIB_FONT_H));
     pstObjAttr[OsdcObjsNum].stBitmap.stRect.u32Width = stBitmap.u32Width;
     pstObjAttr[OsdcObjsNum].stBitmap.stRect.u32Height = stBitmap.u32Height;
     pstObjAttr[OsdcObjsNum].stBitmap.u64BitmapPAddr = (CVI_U32)g_objStrAi.u64BitmapPhyAddr[ai_num];
@@ -453,8 +538,6 @@ int app_ipcam_ObjsRectInfo_Add_AiStr(RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 Os
     return CVI_SUCCESS;
 }
 
-// Impact: OSD can now switch the center selection box color between green and
-// yellow during detection without changing the tracking pipeline.
 static CVI_BOOL app_ipcam_Osd_ObjectTrack_HitCenterBox(const TDLObject *pstAiObj, const int32_t box[4])
 {
     CVI_U32 i = 0;
@@ -476,52 +559,206 @@ static CVI_BOOL app_ipcam_Osd_ObjectTrack_HitCenterBox(const TDLObject *pstAiObj
     return CVI_FALSE;
 }
 
-// Impact: Users can now see the center box state directly on OSD as green,
-// yellow, or red without affecting existing object-track rectangles.
+static CVI_S32 app_ipcam_Osd_ObjectTrack_ReticleSegment_Add(
+    RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 *pu32OsdcObjsNum,
+    CVI_S32 s32X, CVI_S32 s32Y, CVI_U32 u32Width, CVI_U32 u32Height,
+    CVI_U32 u32Color)
+{
+    RGN_CMPR_OBJ_ATTR_S *pstSegment;
+
+    if (*pu32OsdcObjsNum >= OSDC_OBJS_MAX ||
+        u32Width == 0 || u32Height == 0) {
+        return CVI_FAILURE;
+    }
+    pstSegment = &pstObjAttr[*pu32OsdcObjsNum];
+    pstSegment->enObjType = RGN_CMPR_RECT;
+    pstSegment->stRgnRect.stRect.s32X = s32X;
+    pstSegment->stRgnRect.stRect.s32Y = s32Y;
+    pstSegment->stRgnRect.stRect.u32Width = u32Width;
+    pstSegment->stRgnRect.stRect.u32Height = u32Height;
+    pstSegment->stRgnRect.u32Thick = 1;
+    pstSegment->stRgnRect.u32Color = u32Color;
+    pstSegment->stRgnRect.u32IsFill = CVI_TRUE;
+    (*pu32OsdcObjsNum)++;
+    return CVI_SUCCESS;
+}
+
+static CVI_S32 app_ipcam_Osd_ObjectTrack_ReticleCorners_Add(
+    RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 *pu32OsdcObjsNum,
+    CVI_S32 s32X, CVI_S32 s32Y, CVI_U32 u32Width, CVI_U32 u32Height,
+    CVI_U32 u32Thick, CVI_U32 u32Color)
+{
+    CVI_U32 u32Arm = fmax(u32Thick * 3,
+        fmin(u32Width, u32Height) / 4);
+    CVI_S32 s32Right = s32X + u32Width - u32Thick;
+    CVI_S32 s32Bottom = s32Y + u32Height - u32Thick;
+
+#define ADD_RETICLE_SEGMENT(x, y, w, h) \
+    do { \
+        if (app_ipcam_Osd_ObjectTrack_ReticleSegment_Add( \
+                pstObjAttr, pu32OsdcObjsNum, (x), (y), (w), (h), \
+                u32Color) != CVI_SUCCESS) { \
+            return CVI_FAILURE; \
+        } \
+    } while (0)
+
+    ADD_RETICLE_SEGMENT(s32X, s32Y, u32Arm, u32Thick);
+    ADD_RETICLE_SEGMENT(s32X, s32Y, u32Thick, u32Arm);
+    ADD_RETICLE_SEGMENT(s32Right - u32Arm + u32Thick, s32Y,
+        u32Arm, u32Thick);
+    ADD_RETICLE_SEGMENT(s32Right, s32Y, u32Thick, u32Arm);
+    ADD_RETICLE_SEGMENT(s32X, s32Bottom, u32Arm, u32Thick);
+    ADD_RETICLE_SEGMENT(s32X, s32Bottom - u32Arm + u32Thick,
+        u32Thick, u32Arm);
+    ADD_RETICLE_SEGMENT(s32Right - u32Arm + u32Thick, s32Bottom,
+        u32Arm, u32Thick);
+    ADD_RETICLE_SEGMENT(s32Right, s32Bottom - u32Arm + u32Thick,
+        u32Thick, u32Arm);
+    return CVI_SUCCESS;
+}
+
+static CVI_S32 app_ipcam_Osd_ObjectTrack_ReticleCross_Add(
+    RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 *pu32OsdcObjsNum,
+    CVI_S32 s32X, CVI_S32 s32Y, CVI_U32 u32Width, CVI_U32 u32Height,
+    CVI_U32 u32Thick, CVI_U32 u32Color, CVI_BOOL bDot)
+{
+    CVI_S32 s32CenterX = s32X + u32Width / 2;
+    CVI_S32 s32CenterY = s32Y + u32Height / 2;
+    CVI_U32 u32Arm = fmax(u32Thick * 3,
+        fmin(u32Width, u32Height) / 5);
+    CVI_U32 u32Gap = u32Thick * 2;
+
+    ADD_RETICLE_SEGMENT(s32CenterX - u32Gap - u32Arm,
+        s32CenterY - u32Thick / 2, u32Arm, u32Thick);
+    ADD_RETICLE_SEGMENT(s32CenterX + u32Gap,
+        s32CenterY - u32Thick / 2, u32Arm, u32Thick);
+    ADD_RETICLE_SEGMENT(s32CenterX - u32Thick / 2,
+        s32CenterY - u32Gap - u32Arm, u32Thick, u32Arm);
+    ADD_RETICLE_SEGMENT(s32CenterX - u32Thick / 2,
+        s32CenterY + u32Gap, u32Thick, u32Arm);
+    if (bDot) {
+        ADD_RETICLE_SEGMENT(s32CenterX - u32Thick,
+            s32CenterY - u32Thick, u32Thick * 2, u32Thick * 2);
+    }
+    return CVI_SUCCESS;
+}
+
+static CVI_S32 app_ipcam_Osd_ObjectTrack_ReticleCircle_Add(
+    RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 *pu32OsdcObjsNum,
+    CVI_S32 s32X, CVI_S32 s32Y, CVI_U32 u32Width, CVI_U32 u32Height,
+    CVI_U32 u32Thick, CVI_U32 u32Color)
+{
+    CVI_S32 s32CenterX = s32X + u32Width / 2;
+    CVI_S32 s32CenterY = s32Y + u32Height / 2;
+    CVI_FLOAT fRadiusX = u32Width / 2.0f;
+    CVI_FLOAT fRadiusY = u32Height / 2.0f;
+    CVI_U32 u32DotSize = u32Thick * 2;
+    CVI_U32 i;
+
+    for (i = 0; i < 16; i++) {
+        CVI_FLOAT fAngle = 2.0f * APP_OSDC_PI * i / 16.0f;
+        CVI_S32 s32DotX = lroundf(s32CenterX + cosf(fAngle) *
+            (fRadiusX - u32DotSize / 2.0f) - u32DotSize / 2.0f);
+        CVI_S32 s32DotY = lroundf(s32CenterY + sinf(fAngle) *
+            (fRadiusY - u32DotSize / 2.0f) - u32DotSize / 2.0f);
+
+        ADD_RETICLE_SEGMENT(s32DotX, s32DotY, u32DotSize, u32DotSize);
+    }
+    return CVI_SUCCESS;
+}
+
 static CVI_S32 app_ipcam_Osd_ObjectTrack_CenterBox_Add(
     RGN_CMPR_OBJ_ATTR_S *pstObjAttr,
     CVI_U32 *pu32OsdcObjsNum,
-    const TDLObject *pstAiObj)
+    const TDLObject *pstAiObj,
+    const APP_OSD_STYLE_CFG_S *pstStyle)
 {
     int32_t box[4] = {0};
-    CVI_U32 u32Color = COLOR_GREEN(0);
+    CVI_U32 u32Color;
+    CVI_U32 u32Thick;
+    CVI_S32 s32X;
+    CVI_S32 s32Y;
+    CVI_U32 u32Width;
+    CVI_U32 u32Height;
     APP_PARAM_OBJECT_TRACK_MODE mode = app_ipcam_Ai_Object_Track_Mode_Get();
 
-    if (pstObjAttr == NULL || pu32OsdcObjsNum == NULL) {
-        return CVI_FAILURE;
+    if (pstObjAttr == NULL || pu32OsdcObjsNum == NULL ||
+        pstStyle == NULL || !pstStyle->bReticleEnable ||
+        (mode == TRACKING && !pstStyle->bReticleShowWhileTracking)) {
+        return CVI_SUCCESS;
     }
-
     if (*pu32OsdcObjsNum >= OSDC_OBJS_MAX) {
-        APP_PROF_LOG_PRINT(LEVEL_ERROR, "OsdcObjsNum(%d) >= OSDC_OBJS_MAX(%d)!\n", *pu32OsdcObjsNum, OSDC_OBJS_MAX);
         return CVI_FAILURE;
     }
-
     app_ipcam_Ai_Object_Track_DefaultBox_Get(box);
-
     if (mode == TRACKING) {
-        u32Color = COLOR_RED(0);
+        u32Color = app_ipcam_Osdc_RgbToArgb1555(
+            pstStyle->u32TrackingColor);
     } else if (app_ipcam_Osd_ObjectTrack_HitCenterBox(pstAiObj, box)) {
-        u32Color = COLOR_YELLOW(0);
+        u32Color = app_ipcam_Osdc_RgbToArgb1555(
+            pstStyle->u32ReticleReadyColor);
     } else {
-        u32Color = COLOR_GREEN(0);
+        u32Color = app_ipcam_Osdc_RgbToArgb1555(
+            pstStyle->u32ReticleIdleColor);
     }
+    u32Thick = app_ipcam_Osdc_Thickness(pstStyle->u32ReticleThickness);
+    s32X = lroundf(g_stObjectTrackRectRatio.ScaleX * box[0]);
+    s32Y = lroundf(g_stObjectTrackRectRatio.ScaleY * box[1]);
+    u32Width = lroundf(g_stObjectTrackRectRatio.ScaleX *
+        (box[2] - box[0]));
+    u32Height = lroundf(g_stObjectTrackRectRatio.ScaleY *
+        (box[3] - box[1]));
 
-    pstObjAttr[*pu32OsdcObjsNum].stRgnRect.stRect.s32X = (int)(g_stObjectTrackRectRatio.ScaleX * box[0]);
-    pstObjAttr[*pu32OsdcObjsNum].stRgnRect.stRect.s32Y = (int)(g_stObjectTrackRectRatio.ScaleY * box[1]);
-    pstObjAttr[*pu32OsdcObjsNum].stRgnRect.stRect.u32Width = g_stObjectTrackRectRatio.ScaleX * (box[2] - box[0]);
-    pstObjAttr[*pu32OsdcObjsNum].stRgnRect.stRect.u32Height = g_stObjectTrackRectRatio.ScaleY * (box[3] - box[1]);
-    pstObjAttr[*pu32OsdcObjsNum].stRgnRect.u32Thick = 4;
-    pstObjAttr[*pu32OsdcObjsNum].stRgnRect.u32Color = u32Color;
-    pstObjAttr[*pu32OsdcObjsNum].stRgnRect.u32IsFill = CVI_FALSE;
-    pstObjAttr[*pu32OsdcObjsNum].enObjType = RGN_CMPR_RECT;
-    (*pu32OsdcObjsNum)++;
-
-    return CVI_SUCCESS;
+    if (u32Width < u32Thick * 4 || u32Height < u32Thick * 4) {
+        return CVI_FAILURE;
+    }
+    switch (pstStyle->enReticleTemplate) {
+        case APP_OSD_RETICLE_RECTANGLE:
+            pstObjAttr[*pu32OsdcObjsNum].enObjType = RGN_CMPR_RECT;
+            pstObjAttr[*pu32OsdcObjsNum].stRgnRect.stRect.s32X = s32X;
+            pstObjAttr[*pu32OsdcObjsNum].stRgnRect.stRect.s32Y = s32Y;
+            pstObjAttr[*pu32OsdcObjsNum].stRgnRect.stRect.u32Width = u32Width;
+            pstObjAttr[*pu32OsdcObjsNum].stRgnRect.stRect.u32Height = u32Height;
+            pstObjAttr[*pu32OsdcObjsNum].stRgnRect.u32Thick = u32Thick;
+            pstObjAttr[*pu32OsdcObjsNum].stRgnRect.u32Color = u32Color;
+            pstObjAttr[*pu32OsdcObjsNum].stRgnRect.u32IsFill = CVI_FALSE;
+            (*pu32OsdcObjsNum)++;
+            return CVI_SUCCESS;
+        case APP_OSD_RETICLE_CORNERS:
+            return app_ipcam_Osd_ObjectTrack_ReticleCorners_Add(
+                pstObjAttr, pu32OsdcObjsNum, s32X, s32Y,
+                u32Width, u32Height, u32Thick, u32Color);
+        case APP_OSD_RETICLE_CROSSHAIR:
+            return app_ipcam_Osd_ObjectTrack_ReticleCross_Add(
+                pstObjAttr, pu32OsdcObjsNum, s32X, s32Y,
+                u32Width, u32Height, u32Thick, u32Color, CVI_FALSE);
+        case APP_OSD_RETICLE_CROSSHAIR_DOT:
+            return app_ipcam_Osd_ObjectTrack_ReticleCross_Add(
+                pstObjAttr, pu32OsdcObjsNum, s32X, s32Y,
+                u32Width, u32Height, u32Thick, u32Color, CVI_TRUE);
+        case APP_OSD_RETICLE_BRACKET_CROSS:
+            if (app_ipcam_Osd_ObjectTrack_ReticleCorners_Add(
+                    pstObjAttr, pu32OsdcObjsNum, s32X, s32Y,
+                    u32Width, u32Height, u32Thick, u32Color) != CVI_SUCCESS) {
+                return CVI_FAILURE;
+            }
+            return app_ipcam_Osd_ObjectTrack_ReticleCross_Add(
+                pstObjAttr, pu32OsdcObjsNum, s32X, s32Y,
+                u32Width, u32Height, u32Thick, u32Color, CVI_FALSE);
+        case APP_OSD_RETICLE_CIRCLE:
+            return app_ipcam_Osd_ObjectTrack_ReticleCircle_Add(
+                pstObjAttr, pu32OsdcObjsNum, s32X, s32Y,
+                u32Width, u32Height, u32Thick, u32Color);
+        default:
+            return CVI_FAILURE;
+    }
 }
+#undef ADD_RETICLE_SEGMENT
 #endif
 #endif
 
-int app_ipcam_Osd_Bitmap_Update(char *szStr, BITMAP_S *pstBitmap)
+static int app_ipcam_Osd_Bitmap_Update(
+    char *szStr, BITMAP_S *pstBitmap, CVI_U32 u32TextColor)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
     if (NULL == szStr || NULL == pstBitmap)
@@ -539,7 +776,7 @@ int app_ipcam_Osd_Bitmap_Update(char *szStr, BITMAP_S *pstBitmap)
     stFontSize.u32Width = OSD_LIB_FONT_W;
     stFontSize.u32Height = OSD_LIB_FONT_H;
     u32BgColor = 0x7fff;
-    u32Color = 0xffff;
+    u32Color = u32TextColor;
 
     if (szStr == NULL) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "szStr NULL pointer!\n");
@@ -862,12 +1099,89 @@ static CVI_S32 app_ipcam_Osdc_PdRectRegion_Create(CVI_VOID)
 
 static CVI_VOID app_ipcam_Osdc_PdRectRegion_Destroy(CVI_VOID)
 {
+    CVI_U32 i;
+
     if (!g_bOsdcPdRectRegionReady) {
         return;
     }
     CVI_RGN_DetachFromChn(APP_OSDC_PD_RECT_HANDLE, &g_stOsdcPdRectChn);
     CVI_RGN_Destroy(APP_OSDC_PD_RECT_HANDLE);
     g_bOsdcPdRectRegionReady = CVI_FALSE;
+    for (i = 0; i < OSDC_AI_STR_MAX; i++) {
+        if (g_objStrPd.maxlen[i] > 0) {
+            CVI_SYS_IonFree(g_objStrPd.u64BitmapPhyAddr[i],
+                g_objStrPd.pBitmapVirAddr[i]);
+            g_objStrPd.u64BitmapPhyAddr[i] = 0;
+            g_objStrPd.pBitmapVirAddr[i] = NULL;
+            g_objStrPd.maxlen[i] = 0;
+        }
+    }
+    g_objStrPd.ai_str_num = 0;
+}
+
+static CVI_S32 app_ipcam_Osdc_PdLabel_Add(
+    RGN_CMPR_OBJ_ATTR_S *pstObjectAttr, CVI_U32 u32ObjectCount,
+    const TDLObjectInfo *pstObject, CVI_U32 u32ObjectIndex,
+    APP_OSD_LABEL_MODE_E enLabelMode, CVI_U32 u32Color,
+    CVI_S32 s32X, CVI_S32 s32Y)
+{
+    BITMAP_S stBitmap = {0};
+    char szText[APP_OSD_STR_LEN_MAX] = {0};
+    const char *pszName;
+    CVI_S32 s32DataLen;
+    CVI_S32 s32Ret;
+
+    if (pstObject == NULL || u32ObjectIndex >= OSDC_AI_STR_MAX) {
+        return CVI_FAILURE;
+    }
+    pszName = pstObject->name[0] != '\0' ? pstObject->name : "object";
+    if (enLabelMode == APP_OSD_LABEL_MODE_CLASS_SCORE) {
+        snprintf(szText, sizeof(szText), "%.31s %.2f", pszName,
+            pstObject->score);
+    } else {
+        snprintf(szText, sizeof(szText), "%.31s", pszName);
+    }
+    stBitmap.u32Width = OSD_LIB_FONT_W * strnlen(szText, sizeof(szText));
+    stBitmap.u32Height = OSD_LIB_FONT_H;
+    s32DataLen = 2 * stBitmap.u32Width * stBitmap.u32Height;
+    if (s32DataLen <= 0) {
+        return CVI_FAILURE;
+    }
+    if (s32DataLen > g_objStrPd.maxlen[u32ObjectIndex]) {
+        if (g_objStrPd.maxlen[u32ObjectIndex] > 0) {
+            CVI_SYS_IonFree(g_objStrPd.u64BitmapPhyAddr[u32ObjectIndex],
+                g_objStrPd.pBitmapVirAddr[u32ObjectIndex]);
+        }
+        s32Ret = CVI_SYS_IonAlloc(
+            &g_objStrPd.u64BitmapPhyAddr[u32ObjectIndex],
+            (CVI_VOID **)&g_objStrPd.pBitmapVirAddr[u32ObjectIndex],
+            "pd_label", s32DataLen);
+        if (s32Ret != CVI_SUCCESS) {
+            g_objStrPd.u64BitmapPhyAddr[u32ObjectIndex] = 0;
+            g_objStrPd.pBitmapVirAddr[u32ObjectIndex] = NULL;
+            g_objStrPd.maxlen[u32ObjectIndex] = 0;
+            return s32Ret;
+        }
+        g_objStrPd.maxlen[u32ObjectIndex] = s32DataLen;
+    }
+    stBitmap.pData = g_objStrPd.pBitmapVirAddr[u32ObjectIndex];
+    memset(stBitmap.pData, 0, s32DataLen);
+    s32Ret = app_ipcam_Osd_Bitmap_Update(szText, &stBitmap, u32Color);
+    if (s32Ret != CVI_SUCCESS) {
+        return s32Ret;
+    }
+    pstObjectAttr[u32ObjectCount].enObjType = RGN_CMPR_BIT_MAP;
+    pstObjectAttr[u32ObjectCount].stBitmap.stRect.s32X = s32X;
+    pstObjectAttr[u32ObjectCount].stBitmap.stRect.s32Y =
+        fmax(0, s32Y - OSD_LIB_FONT_H);
+    pstObjectAttr[u32ObjectCount].stBitmap.stRect.u32Width = stBitmap.u32Width;
+    pstObjectAttr[u32ObjectCount].stBitmap.stRect.u32Height = stBitmap.u32Height;
+    pstObjectAttr[u32ObjectCount].stBitmap.u64BitmapPAddr =
+        (CVI_U32)g_objStrPd.u64BitmapPhyAddr[u32ObjectIndex];
+    if (g_objStrPd.ai_str_num <= u32ObjectIndex) {
+        g_objStrPd.ai_str_num = u32ObjectIndex + 1;
+    }
+    return CVI_SUCCESS;
 }
 
 static CVI_S32 app_ipcam_Osdc_PdRectRegion_Update(const TDLObject *pstObjects)
@@ -878,6 +1192,7 @@ static CVI_S32 app_ipcam_Osdc_PdRectRegion_Update(const TDLObject *pstObjects)
     CVI_U32 u32ObjectCount = 0;
     CVI_U32 u32SourceWidth;
     CVI_U32 u32SourceHeight;
+    APP_OSD_STYLE_CFG_S stStyle;
     CVI_S32 s32Ret;
 
     if (!g_bOsdcPdRectRegionReady || pstObjects == NULL) {
@@ -892,12 +1207,16 @@ static CVI_S32 app_ipcam_Osdc_PdRectRegion_Update(const TDLObject *pstObjects)
 
     pstCanvasAttr = stCanvasInfo.pstCanvasCmprAttr;
     pstObjectAttr = stCanvasInfo.pstObjAttr;
+    pthread_mutex_lock(&OsdcMutex);
+    stStyle = g_pstOsdcCfg->stStyle;
+    pthread_mutex_unlock(&OsdcMutex);
     u32SourceWidth = pstObjects->width > 0 ? pstObjects->width :
         app_ipcam_Ai_PD_Param_Get()->u32GrpWidth;
     u32SourceHeight = pstObjects->height > 0 ? pstObjects->height :
         app_ipcam_Ai_PD_Param_Get()->u32GrpHeight;
 
-    if (u32SourceWidth > 0 && u32SourceHeight > 0 &&
+    if (stStyle.bDetectionEnable &&
+        u32SourceWidth > 0 && u32SourceHeight > 0 &&
         pstObjects->info != NULL) {
         CVI_U32 u32InputCount = pstObjects->size < OSDC_OBJS_MAX ?
             pstObjects->size : OSDC_OBJS_MAX;
@@ -907,6 +1226,10 @@ static CVI_S32 app_ipcam_Osdc_PdRectRegion_Update(const TDLObject *pstObjects)
             CVI_S32 s32Y1;
             CVI_S32 s32X2;
             CVI_S32 s32Y2;
+
+            if (u32ObjectCount >= OSDC_OBJS_MAX) {
+                break;
+            }
 
             if (!isfinite(pstObject->box.x1) ||
                 !isfinite(pstObject->box.y1) ||
@@ -938,10 +1261,21 @@ static CVI_S32 app_ipcam_Osdc_PdRectRegion_Update(const TDLObject *pstObjects)
                 s32X2 - s32X1;
             pstObjectAttr[u32ObjectCount].stRgnRect.stRect.u32Height =
                 s32Y2 - s32Y1;
-            pstObjectAttr[u32ObjectCount].stRgnRect.u32Thick = 4;
-            pstObjectAttr[u32ObjectCount].stRgnRect.u32Color = COLOR_RED(0);
+            pstObjectAttr[u32ObjectCount].stRgnRect.u32Thick =
+                app_ipcam_Osdc_Thickness(stStyle.u32DetectionThickness);
+            pstObjectAttr[u32ObjectCount].stRgnRect.u32Color =
+                app_ipcam_Osdc_DetectionColor(&stStyle,
+                    pstObject->class_id);
             pstObjectAttr[u32ObjectCount].stRgnRect.u32IsFill = CVI_FALSE;
             u32ObjectCount++;
+            if (stStyle.enDetectionLabelMode != APP_OSD_LABEL_MODE_NONE &&
+                i < OSDC_AI_STR_MAX && u32ObjectCount < OSDC_OBJS_MAX &&
+                app_ipcam_Osdc_PdLabel_Add(pstObjectAttr, u32ObjectCount,
+                    pstObject, i, stStyle.enDetectionLabelMode,
+                    pstObjectAttr[u32ObjectCount - 1].stRgnRect.u32Color,
+                    s32X1, s32Y1) == CVI_SUCCESS) {
+                u32ObjectCount++;
+            }
         }
     }
 
@@ -1224,17 +1558,7 @@ CVI_S32 app_ipcam_OSDCRgn_Destory(void)
     return s32Ret;
 }
 
-/**
- * color format: RGB8888
- * 0xffffffff   white
- * 0xff000000   black
- * 0xff0000ff   blue
- * 0xff00ff00   green
- * 0xffff0000   red
- * 0xff00ffff   cyan
- * 0xffffff00   yellow
- * 0xffff00ff   carmine
- */
+/* Compressed OSD objects use ARGB1555 colors. */
 static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
@@ -1270,6 +1594,7 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
     #ifdef PD_SUPPORT
     if (iOsdcIndex == 0 &&
         g_pstOsdcCfg->bShowPdRect[iOsdcIndex] &&
+        g_pstOsdcCfg->stStyle.bDetectionEnable &&
         app_ipcam_Ai_PD_ProcStatus_Get()) {
         app_ipcam_Ai_PD_ObjDrawInfo_Get(&g_objMetaPd);
         if (g_objMetaPd.size > 0 && g_objMetaPd.info != NULL) {
@@ -1282,8 +1607,12 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
                 pstObjAttr[OsdcObjsNum].stRgnRect.stRect.s32Y = (int)(g_stPdRectRatio.ScaleY * g_objMetaPd.info[i].box.y1);
                 pstObjAttr[OsdcObjsNum].stRgnRect.stRect.u32Width = g_stPdRectRatio.ScaleX * (g_objMetaPd.info[i].box.x2 - g_objMetaPd.info[i].box.x1);
                 pstObjAttr[OsdcObjsNum].stRgnRect.stRect.u32Height = g_stPdRectRatio.ScaleY * (g_objMetaPd.info[i].box.y2 - g_objMetaPd.info[i].box.y1);
-                pstObjAttr[OsdcObjsNum].stRgnRect.u32Thick = 4;
-                pstObjAttr[OsdcObjsNum].stRgnRect.u32Color = COLOR_RED(0);
+                pstObjAttr[OsdcObjsNum].stRgnRect.u32Thick =
+                    app_ipcam_Osdc_Thickness(
+                        g_pstOsdcCfg->stStyle.u32DetectionThickness);
+                pstObjAttr[OsdcObjsNum].stRgnRect.u32Color =
+                    app_ipcam_Osdc_DetectionColor(&g_pstOsdcCfg->stStyle,
+                        g_objMetaPd.info[i].class_id);
                 pstObjAttr[OsdcObjsNum].stRgnRect.u32IsFill = CVI_FALSE;
                 pstObjAttr[OsdcObjsNum].enObjType = RGN_CMPR_RECT;
 
@@ -1373,17 +1702,26 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
 #ifdef OBJECT_TRACK_SUPPORT
 if (iOsdcIndex == 0 &&
     g_pstOsdcCfg->bShowTrackRect[iOsdcIndex] &&
-    app_ipcam_Ai_Object_Track_ProcStatus_Get() &&
-    app_ipcam_Ai_Object_Track_Mode_Get() != TRACKING) {
-    app_ipcam_Ai_Object_Track_ObjDrawInfo_Get(&g_objMetaObjectTrack);
+    app_ipcam_Ai_Object_Track_ProcStatus_Get()) {
+    APP_PARAM_OBJECT_TRACK_MODE enTrackMode =
+        app_ipcam_Ai_Object_Track_Mode_Get();
 
-    s32Ret = app_ipcam_Osd_ObjectTrack_CenterBox_Add(pstObjAttr, &OsdcObjsNum, &g_objMetaObjectTrack);
+    if (enTrackMode != TRACKING) {
+        app_ipcam_Ai_Object_Track_ObjDrawInfo_Get(&g_objMetaObjectTrack);
+    }
+
+    s32Ret = app_ipcam_Osd_ObjectTrack_CenterBox_Add(
+        pstObjAttr, &OsdcObjsNum, &g_objMetaObjectTrack,
+        &g_pstOsdcCfg->stStyle);
     if (s32Ret != CVI_SUCCESS) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Osd_ObjectTrack_CenterBox_Add failed with %#x!\n", s32Ret);
         return CVI_FAILURE;
     }
 
-    if (g_objMetaObjectTrack.size > 0 && g_objMetaObjectTrack.info != NULL) {
+    if (enTrackMode != TRACKING &&
+        g_pstOsdcCfg->stStyle.bDetectionEnable &&
+        g_objMetaObjectTrack.size > 0 &&
+        g_objMetaObjectTrack.info != NULL) {
         for (i = 0; i < g_objMetaObjectTrack.size; i++) {
             if (OsdcObjsNum >= OSDC_OBJS_MAX) {
                 APP_PROF_LOG_PRINT(LEVEL_ERROR, "OsdcObjsNum(%d) > OSDC_OBJS_MAX(%d)!\n", OsdcObjsNum, OSDC_OBJS_MAX);
@@ -1394,15 +1732,25 @@ if (iOsdcIndex == 0 &&
             pstObjAttr[OsdcObjsNum].stRgnRect.stRect.s32Y = (int)(g_stObjectTrackRectRatio.ScaleY * g_objMetaObjectTrack.info[i].box.y1);
             pstObjAttr[OsdcObjsNum].stRgnRect.stRect.u32Width = g_stObjectTrackRectRatio.ScaleX * (g_objMetaObjectTrack.info[i].box.x2 - g_objMetaObjectTrack.info[i].box.x1);
             pstObjAttr[OsdcObjsNum].stRgnRect.stRect.u32Height = g_stObjectTrackRectRatio.ScaleY * (g_objMetaObjectTrack.info[i].box.y2 - g_objMetaObjectTrack.info[i].box.y1);
-            pstObjAttr[OsdcObjsNum].stRgnRect.u32Thick = 4;
-            pstObjAttr[OsdcObjsNum].stRgnRect.u32Color = COLOR_RED(0);
+            CVI_U32 u32ObjectColor = app_ipcam_Osdc_DetectionColor(
+                &g_pstOsdcCfg->stStyle,
+                g_objMetaObjectTrack.info[i].class_id);
+            pstObjAttr[OsdcObjsNum].stRgnRect.u32Thick =
+                app_ipcam_Osdc_Thickness(
+                    g_pstOsdcCfg->stStyle.u32DetectionThickness);
+            pstObjAttr[OsdcObjsNum].stRgnRect.u32Color = u32ObjectColor;
             pstObjAttr[OsdcObjsNum].stRgnRect.u32IsFill = CVI_FALSE;
             pstObjAttr[OsdcObjsNum].enObjType = RGN_CMPR_RECT;
 
             OsdcObjsNum++;
-            if(i < OSDC_AI_STR_MAX && app_ipcam_Ai_Object_Track_Mode_Get() == DETECTION)
+            if (i < OSDC_AI_STR_MAX &&
+                g_pstOsdcCfg->stStyle.enDetectionLabelMode !=
+                    APP_OSD_LABEL_MODE_NONE)
             {
-                s32Ret = app_ipcam_ObjsRectInfo_Add_AiStr(pstObjAttr, OsdcObjsNum, &g_objMetaObjectTrack, i);
+                s32Ret = app_ipcam_ObjsRectInfo_Add_AiStr(
+                    pstObjAttr, OsdcObjsNum, &g_objMetaObjectTrack, i,
+                    g_pstOsdcCfg->stStyle.enDetectionLabelMode,
+                    u32ObjectColor);
                 if (s32Ret != CVI_SUCCESS) {
                     APP_PROF_LOG_PRINT(LEVEL_ERROR,"app_ipcam_ObjsRectInfo_Add_AiStr failed with %#x!\n", s32Ret);
                     if(g_objStrAi.ai_str_num < i)
@@ -1489,7 +1837,9 @@ if (iOsdcIndex == 0 &&
                     return -1;
                 }
                 memset(stBitmap.pData, 0, s32DataLen);
-                s32Ret = app_ipcam_Osd_Bitmap_Update(pszStr, &stBitmap);
+                s32Ret = app_ipcam_Osd_Bitmap_Update(pszStr, &stBitmap,
+                    app_ipcam_Osdc_ColorToArgb1555(
+                        g_pstOsdcCfg->osdcObj[iOsdcIndex][i].color));
                 if (s32Ret != CVI_SUCCESS) {
                     APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Osd_Bitmap_Update failed!\n");
                     free(stBitmap.pData);
@@ -1512,8 +1862,41 @@ if (iOsdcIndex == 0 &&
                 g_pstOsdcCfg->osdcObj[iOsdcIndex][i].maxlen = s32DataLen;
             }
             memcpy(g_pstOsdcCfg->osdcObj[iOsdcIndex][i].pBitmapVirAddr, stBitmap.pData, s32DataLen);
-            pstObjAttr[OsdcObjsNum].stBitmap.stRect.s32X = g_pstOsdcCfg->osdcObj[iOsdcIndex][i].x1 * s32Ratio;
-            pstObjAttr[OsdcObjsNum].stBitmap.stRect.s32Y = g_pstOsdcCfg->osdcObj[iOsdcIndex][i].y1 * s32Ratio;;
+            CVI_S32 s32X = g_pstOsdcCfg->osdcObj[iOsdcIndex][i].x1 * s32Ratio;
+            CVI_S32 s32Y = g_pstOsdcCfg->osdcObj[iOsdcIndex][i].y1 * s32Ratio;
+            if (enType == TYPE_STRING) {
+                CVI_S32 s32OffsetX = s32X;
+                CVI_S32 s32OffsetY = s32Y;
+
+                switch (g_pstOsdcCfg->stStyle.enTextPosition) {
+                    case APP_OSD_TEXT_POSITION_TOP_RIGHT:
+                        s32X = stCanvasInfo.stSize.u32Width -
+                            stBitmap.u32Width - s32OffsetX;
+                        break;
+                    case APP_OSD_TEXT_POSITION_BOTTOM_LEFT:
+                        s32Y = stCanvasInfo.stSize.u32Height -
+                            stBitmap.u32Height - s32OffsetY;
+                        break;
+                    case APP_OSD_TEXT_POSITION_BOTTOM_RIGHT:
+                        s32X = stCanvasInfo.stSize.u32Width -
+                            stBitmap.u32Width - s32OffsetX;
+                        s32Y = stCanvasInfo.stSize.u32Height -
+                            stBitmap.u32Height - s32OffsetY;
+                        break;
+                    case APP_OSD_TEXT_POSITION_CUSTOM:
+                    case APP_OSD_TEXT_POSITION_TOP_LEFT:
+                    default:
+                        break;
+                }
+                s32X = fmax(0, fmin(s32X,
+                    (CVI_S32)stCanvasInfo.stSize.u32Width -
+                    (CVI_S32)stBitmap.u32Width));
+                s32Y = fmax(0, fmin(s32Y,
+                    (CVI_S32)stCanvasInfo.stSize.u32Height -
+                    (CVI_S32)stBitmap.u32Height));
+            }
+            pstObjAttr[OsdcObjsNum].stBitmap.stRect.s32X = s32X;
+            pstObjAttr[OsdcObjsNum].stBitmap.stRect.s32Y = s32Y;
             pstObjAttr[OsdcObjsNum].stBitmap.stRect.u32Width = stBitmap.u32Width;
             pstObjAttr[OsdcObjsNum].stBitmap.stRect.u32Height = stBitmap.u32Height;
             pstObjAttr[OsdcObjsNum].stBitmap.u64BitmapPAddr = (CVI_U32)g_pstOsdcCfg->osdcObj[iOsdcIndex][i].u64BitmapPhyAddr;
@@ -1665,7 +2048,7 @@ static CVI_BOOL app_ipcam_Osdc_ObjectTrackRect_Build(
     CVI_S32 s32X2 = 0;
     CVI_S32 s32Y2 = 0;
     CVI_U32 u32MinSize = 0;
-    CVI_U16 u16Thick = 4;
+    CVI_U16 u16Thick = pstState->u32Thickness;
 
     memset(pstDrawRect, 0, sizeof(*pstDrawRect));
     *pVpssGrp = VPSS_INVALID_GRP;
@@ -1676,7 +2059,7 @@ static CVI_BOOL app_ipcam_Osdc_ObjectTrackRect_Build(
     }
     *pVpssGrp = pstState->VpssGrp;
     *pVpssChn = pstState->VpssChn;
-    if (!pstState->bShow ||
+    if (!pstState->bStyleEnabled || !pstState->bShow ||
         pstState->u32SourceWidth == 0 || pstState->u32SourceHeight == 0 ||
         pstState->u32OutputWidth == 0 || pstState->u32OutputHeight == 0) {
         return CVI_TRUE;
@@ -1714,7 +2097,8 @@ static CVI_BOOL app_ipcam_Osdc_ObjectTrackRect_Build(
 
     pstDrawRect->astRect[0].bEnable = CVI_TRUE;
     pstDrawRect->astRect[0].u16Thick = u16Thick;
-    pstDrawRect->astRect[0].u32BgColor = 0x00ff0000;
+    pstDrawRect->astRect[0].u32BgColor = (pstState->bLost ?
+        pstState->u32LostColor : pstState->u32Color) & 0x00ffffff;
     pstDrawRect->astRect[0].stRect.s32X = s32X1;
     pstDrawRect->astRect[0].stRect.s32Y = s32Y1;
     pstDrawRect->astRect[0].stRect.u32Width = s32X2 - s32X1;
@@ -1996,28 +2380,80 @@ int app_ipcam_Osdc_DeInit(void)
 
 void app_ipcam_Osdc_Status(APP_PARAM_OSDC_CFG_S *pstOsdcCfg)
 {
+    CVI_BOOL bOldEnable;
+    CVI_U64 au64BitmapPhyAddr[OSDC_NUM_MAX][OSDC_OBJS_MAX] = {{0}};
+    CVI_VOID *apBitmapVirAddr[OSDC_NUM_MAX][OSDC_OBJS_MAX] = {{0}};
+    CVI_U32 au32BitmapMaxLen[OSDC_NUM_MAX][OSDC_OBJS_MAX] = {{0}};
+    CVI_U32 i;
+    CVI_U32 j;
+
     if (NULL == pstOsdcCfg) {
         return ;
     }
-    if ((pstOsdcCfg->enable == CVI_TRUE) && (g_stOsdcCanvasCfg.createCanvas == CVI_FALSE)) {
-        g_stOsdcCfg.enable = CVI_TRUE;
-        app_ipcam_Osdc_Init();
-    } else if ((g_stOsdcCanvasCfg.createCanvas == CVI_TRUE) && (pstOsdcCfg->enable == CVI_FALSE)) {
-        app_ipcam_Osdc_DeInit();
-        g_stOsdcCfg.enable = CVI_FALSE;
-    }
-    if (g_stOsdcCfg.enable) {
+    bOldEnable = g_stOsdcCfg.enable;
+    if (bOldEnable != pstOsdcCfg->enable) {
+        if (bOldEnable) {
+            app_ipcam_Osdc_DeInit();
+        }
         pthread_mutex_lock(&OsdcMutex);
-        memcpy(&g_stOsdcCfg, pstOsdcCfg, sizeof(APP_PARAM_OSDC_CFG_S));
+        memcpy(&g_stOsdcCfg, pstOsdcCfg, sizeof(g_stOsdcCfg));
+        pthread_mutex_unlock(&OsdcMutex);
+        if (g_stOsdcCfg.enable) {
+            app_ipcam_Osdc_Init();
+        }
+        return;
+    }
+
+    pthread_mutex_lock(&OsdcMutex);
+    if (bOldEnable) {
+        for (i = 0; i < OSDC_NUM_MAX; i++) {
+            for (j = 0; j < OSDC_OBJS_MAX; j++) {
+                au64BitmapPhyAddr[i][j] =
+                    g_stOsdcCfg.osdcObj[i][j].u64BitmapPhyAddr;
+                apBitmapVirAddr[i][j] =
+                    g_stOsdcCfg.osdcObj[i][j].pBitmapVirAddr;
+                au32BitmapMaxLen[i][j] =
+                    g_stOsdcCfg.osdcObj[i][j].maxlen;
+            }
+        }
+    }
+    memcpy(&g_stOsdcCfg, pstOsdcCfg, sizeof(g_stOsdcCfg));
+    if (bOldEnable) {
+        for (i = 0; i < OSDC_NUM_MAX; i++) {
+            for (j = 0; j < OSDC_OBJS_MAX; j++) {
+                g_stOsdcCfg.osdcObj[i][j].u64BitmapPhyAddr =
+                    au64BitmapPhyAddr[i][j];
+                g_stOsdcCfg.osdcObj[i][j].pBitmapVirAddr =
+                    apBitmapVirAddr[i][j];
+                g_stOsdcCfg.osdcObj[i][j].maxlen =
+                    au32BitmapMaxLen[i][j];
+            }
+        }
 #ifdef OBJECT_TRACK_SUPPORT
         app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(&g_stOsdcCfg);
 #endif
-        pthread_mutex_unlock(&OsdcMutex);
+    }
+    pthread_mutex_unlock(&OsdcMutex);
+    if (bOldEnable) {
 #ifdef PD_SUPPORT
         app_ipcam_Osdc_PdRect_EnsureEventMode();
         app_ipcam_Osdc_PdRect_Publish();
+#else
+        app_ipcam_Osdc_Wake();
 #endif
     }
+}
+
+CVI_S32 app_ipcam_Osdc_Reload(const char *pszConfigPath)
+{
+    APP_PARAM_OSDC_CFG_S stOsdcCfg;
+
+    if (pszConfigPath == NULL ||
+        Load_Param_Osdc_Config(pszConfigPath, &stOsdcCfg) != CVI_SUCCESS) {
+        return CVI_FAILURE;
+    }
+    app_ipcam_Osdc_Status(&stOsdcCfg);
+    return CVI_SUCCESS;
 }
 
 
