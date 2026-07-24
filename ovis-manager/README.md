@@ -157,7 +157,7 @@ DELETE /api/v1/tracking/target
 
 OSD 配置位于 `values.overlay`。`texts` 当前最多包含一项自定义文字，可设置内容、主/子码流、位置、偏移和颜色；`detection`、`tracking` 与 `reticle` 分别控制检测框、跟踪框和中心准星样式。准星模板及粗细范围由能力接口的 `overlay` 节点返回。仅修改 OSD 时，校验接口返回 `overlay_reload`，应用接口通过进程内热加载生效，不重启视频编码、UVC 或 RTSP；包含其他配置变化时仍按原流程重启并支持失败回滚。
 
-AI BNR 与目标检测、人脸检测、移动检测、人体姿态和单目标跟踪严格互斥。旧客户端请求缺少 `ai_isp` 时，Manager 保留 active INI 中的 BNR 状态后再执行统一校验。能力接口通过 `required_main_fps: 30` 告知 Web 端仅在 SC235HAI 30 fps sensor 模式下开放开关；Manager 本地接口不额外限制 BNR 帧率。固件未同时具备已认证模型元数据、可读 BModel 和 SDR PQ Bin 时，能力接口返回 `supported: false`，默认配置始终保持关闭。旧 CFG 缺少 `teaisp_bnr_enable` 时会自动补为 `0`。
+AI BNR 与目标检测、人脸检测、移动检测、人体姿态和单目标跟踪严格互斥。旧客户端请求缺少 `ai_isp` 时，Manager 保留 active INI 中的 BNR 状态后再执行统一校验。能力接口通过 `required_main_fps: 30` 告知 Web 端仅在 SC235HAI 30 fps sensor 模式下开放开关；Manager 本地接口不额外限制 BNR 帧率。固件未同时具备已认证模型元数据、可读 BModel 和 `/mnt/data/ai-bnr/cvi_sdr_bin` 专用 SDR PQ Bin 时，能力接口返回 `supported: false`，默认配置始终保持关闭。旧 CFG 缺少 `teaisp_bnr_enable` 时会自动补为 `0`。
 
 UVC 使用 high-speed isochronous 传输，并保留动态 30/60 fps 描述符。内核 UVC
 gadget 分配 128 个 ISO request，约覆盖 16 ms 的 high-speed microframe；该深度用于吸收

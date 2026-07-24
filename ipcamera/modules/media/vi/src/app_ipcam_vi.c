@@ -131,6 +131,12 @@ APP_PARAM_VI_CTX_S *app_ipcam_Vi_Param_Get(void)
     return g_pstViCtx;
 }
 
+static const CVI_CHAR *app_ipcam_Vi_PqBinPath(VI_PIPE ViPipe)
+{
+    return app_ipcam_TeaispBnr_IsEnabled(ViPipe) ?
+        APP_TEAISP_BNR_PQ_BIN_PATH : PQ_BIN_SDR;
+}
+
 static CVI_S32 app_ipcam_Isp_AfFilter_Init(CVI_VOID)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
@@ -704,7 +710,7 @@ CVI_U8 app_ipcam_Framerate_Get(CVI_U8 viPipe)
 int app_ipcam_Vi_Isp_Init(void)
 {
     CVI_S32 s32Ret;
-    const CVI_CHAR *pPqBinPath = PQ_BIN_SDR;
+    const CVI_CHAR *pPqBinPath = app_ipcam_Vi_PqBinPath(0);
 
     VI_PIPE              ViPipe;
     ISP_PUB_ATTR_S       stPubAttr;
@@ -952,8 +958,10 @@ int app_ipcam_Vi_Isp_Start(void)
     for (CVI_U32 i = 0; i < g_pstViCtx->u32WorkSnsCnt; i++) 
     {
         APP_PARAM_PIPE_CFG_T *pstPipeCfg = &g_pstViCtx->astPipeInfo[i];
-        const CVI_CHAR *pPqBinPath = PQ_BIN_SDR;
+        const CVI_CHAR *pPqBinPath;
+
         ViPipe = pstPipeCfg->aPipe[0];
+        pPqBinPath = app_ipcam_Vi_PqBinPath(ViPipe);
         CVI_VI_GetDevAttr(ViPipe, &pstDevAttr);
         s32Ret = CVI_BIN_SetBinName(pstDevAttr.stWDRAttr.enWDRMode, pPqBinPath);
         if (s32Ret != CVI_SUCCESS) {

@@ -84,11 +84,7 @@
 #define OVIS_AI_BNR_MODEL "/usr/share/ipcamera/cv184x/bmodel_0326_blc1_patch2.bmodel"
 #endif
 #ifndef OVIS_AI_BNR_PQ_BIN
-#ifdef OVIS_IPCAMERA_PQTOOL
-#define OVIS_AI_BNR_PQ_BIN "/mnt/data/cvi_sdr_bin"
-#else
-#define OVIS_AI_BNR_PQ_BIN "/mnt/cfg/param/cvi_sdr_bin"
-#endif
+#define OVIS_AI_BNR_PQ_BIN "/mnt/data/ai-bnr/cvi_sdr_bin"
 #endif
 #define OVIS_ACCOUNT_FILE "/mnt/cfg/ovis-manager/ovis.account"
 #define OVIS_DEVICE_ID_FILE "/mnt/cfg/ovis-manager/device-id"
