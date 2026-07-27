@@ -1404,6 +1404,21 @@ int32_t TDL_Tracking(TDLHandle handle, uint64_t frame_id, TDLObject *obj_meta,
     track_meta->info[i].bbox.x2 = track_info.box_info_.x2;
     track_meta->info[i].bbox.y1 = track_info.box_info_.y1;
     track_meta->info[i].bbox.y2 = track_info.box_info_.y2;
+    track_meta->info[i].score = track_info.box_info_.score;
+    switch (track_info.status_) {
+      case TrackStatus::NEW:
+        track_meta->info[i].state = TDL_TRACK_STATE_PREDICTED;
+        break;
+      case TrackStatus::TRACKED:
+        track_meta->info[i].state = TDL_TRACK_STATE_TRACKED;
+        break;
+      case TrackStatus::LOST:
+        track_meta->info[i].state = TDL_TRACK_STATE_LOST;
+        break;
+      default:
+        track_meta->info[i].state = TDL_TRACK_STATE_REMOVED;
+        break;
+    }
     if (obj_meta != nullptr && obj_meta->info != nullptr &&
         track_info.obj_idx_ >= 0 &&
         static_cast<uint32_t>(track_info.obj_idx_) < obj_meta->size) {

@@ -7,10 +7,62 @@
 #include <limits>
 #include <memory>
 #include <sstream>
+#include <utility>
 #include <vector>
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#endif
 
 #include "utils/detection_helper.hpp"
 #include "utils/tdl_log.hpp"
+
+namespace {
+
+void nms_objects_in_place(std::vector<ObjectBoxInfo> &objects,
+                          float iou_threshold,
+                          std::vector<uint8_t> &mask) {
+  std::sort(objects.begin(), objects.end(),
+            [](const ObjectBoxInfo &a, const ObjectBoxInfo &b) {
+              return a.score > b.score;
+            });
+
+  mask.assign(objects.size(), 0);
+  size_t output_count = 0;
+  for (size_t selected = 0; selected < objects.size(); selected++) {
+    if (mask[selected] != 0) {
+      continue;
+    }
+
+    const ObjectBoxInfo selected_box = objects[selected];
+    objects[output_count++] = selected_box;
+    const float area1 = (selected_box.x2 - selected_box.x1 + 1.0f) *
+                        (selected_box.y2 - selected_box.y1 + 1.0f);
+    for (size_t candidate = selected + 1; candidate < objects.size();
+         candidate++) {
+      if (mask[candidate] != 0) {
+        continue;
+      }
+      const ObjectBoxInfo &box = objects[candidate];
+      const float x1 = std::max(selected_box.x1, box.x1);
+      const float y1 = std::max(selected_box.y1, box.y1);
+      const float width = std::min(selected_box.x2, box.x2) - x1 + 1.0f;
+      const float height = std::min(selected_box.y2, box.y2) - y1 + 1.0f;
+      if (width <= 0.0f || height <= 0.0f) {
+        continue;
+      }
+      const float area2 = (box.x2 - box.x1 + 1.0f) *
+                          (box.y2 - box.y1 + 1.0f);
+      const float intersection = width * height;
+      if (intersection / (area1 + area2 - intersection) > iou_threshold) {
+        mask[candidate] = 1;
+      }
+    }
+  }
+  objects.resize(output_count);
+}
+
+}  // namespace
+
 template <typename T>
 inline void parse_cls_info(T *p_cls_ptr, int num_anchor, int num_cls,
                            int anchor_idx, int cls_offset, float qscale,
@@ -130,30 +182,11 @@ inline void collect_passing_cls(const T *cls_ptr, int num_anchor, int num_cls,
                                 float inverse_threshold,
                                 std::vector<int> &anchor_indices,
                                 std::vector<int> &class_indices,
-                                std::vector<float> &logits) {
-  if (num_cls <= 4) {
-    for (int anchor = 0; anchor < num_anchor; anchor++) {
-      T max_raw = std::numeric_limits<T>::lowest();
-      int max_cls = -1;
-      for (int cls = 0; cls < num_cls; cls++) {
-        T raw = cls_ptr[(cls + cls_offset) * num_anchor + anchor];
-        if (raw > max_raw) {
-          max_raw = raw;
-          max_cls = cls;
-        }
-      }
-      float max_logit = max_raw * qscale;
-      if (max_logit >= inverse_threshold) {
-        anchor_indices.push_back(anchor);
-        class_indices.push_back(max_cls);
-        logits.push_back(max_logit);
-      }
-    }
-    return;
-  }
-
-  std::vector<T> max_raw(num_anchor, std::numeric_limits<T>::lowest());
-  std::vector<int> max_cls(num_anchor, -1);
+                                std::vector<float> &logits,
+                                std::vector<T> &max_raw,
+                                std::vector<int> &max_cls) {
+  max_raw.assign(num_anchor, std::numeric_limits<T>::lowest());
+  max_cls.assign(num_anchor, -1);
   for (int cls = 0; cls < num_cls; cls++) {
     const T *class_ptr = cls_ptr + (cls + cls_offset) * num_anchor;
     for (int anchor = 0; anchor < num_anchor; anchor++) {
@@ -167,6 +200,61 @@ inline void collect_passing_cls(const T *cls_ptr, int num_anchor, int num_cls,
 
   for (int anchor = 0; anchor < num_anchor; anchor++) {
     float max_logit = max_raw[anchor] * qscale;
+    if (max_logit >= inverse_threshold) {
+      anchor_indices.push_back(anchor);
+      class_indices.push_back(max_cls[anchor]);
+      logits.push_back(max_logit);
+    }
+  }
+}
+
+inline void collect_passing_cls_int8(
+    const int8_t *cls_ptr, int num_anchor, int num_cls, int cls_offset,
+    float qscale, float inverse_threshold, std::vector<int> &anchor_indices,
+    std::vector<int> &class_indices, std::vector<float> &logits,
+    std::vector<int8_t> &max_raw, std::vector<uint8_t> &max_cls) {
+  const int8_t *first_class = cls_ptr + cls_offset * num_anchor;
+  int anchor = 0;
+
+  max_raw.resize(num_anchor);
+  max_cls.assign(num_anchor, 0);
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+  for (; anchor + 16 <= num_anchor; anchor += 16) {
+    vst1q_s8(max_raw.data() + anchor,
+             vld1q_s8(first_class + anchor));
+  }
+#endif
+  for (; anchor < num_anchor; anchor++) {
+    max_raw[anchor] = first_class[anchor];
+  }
+
+  for (int cls = 1; cls < num_cls; cls++) {
+    const int8_t *class_ptr =
+        cls_ptr + (cls + cls_offset) * num_anchor;
+    anchor = 0;
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    const uint8x16_t class_ids = vdupq_n_u8(static_cast<uint8_t>(cls));
+    for (; anchor + 16 <= num_anchor; anchor += 16) {
+      const int8x16_t raw = vld1q_s8(class_ptr + anchor);
+      const int8x16_t current = vld1q_s8(max_raw.data() + anchor);
+      const uint8x16_t select = vcgtq_s8(raw, current);
+      const uint8x16_t current_ids =
+          vld1q_u8(max_cls.data() + anchor);
+      vst1q_s8(max_raw.data() + anchor, vmaxq_s8(raw, current));
+      vst1q_u8(max_cls.data() + anchor,
+                vbslq_u8(select, class_ids, current_ids));
+    }
+#endif
+    for (; anchor < num_anchor; anchor++) {
+      if (class_ptr[anchor] > max_raw[anchor]) {
+        max_raw[anchor] = class_ptr[anchor];
+        max_cls[anchor] = static_cast<uint8_t>(cls);
+      }
+    }
+  }
+
+  for (anchor = 0; anchor < num_anchor; anchor++) {
+    const float max_logit = max_raw[anchor] * qscale;
     if (max_logit >= inverse_threshold) {
       anchor_indices.push_back(anchor);
       class_indices.push_back(max_cls[anchor]);
@@ -204,6 +292,10 @@ int32_t YoloV8Detection::onModelOpened() {
   int input_h = input_shape[2];
   int input_w = input_shape[3];
   strides.clear();
+  class_out_names.clear();
+  bbox_out_names.clear();
+  bbox_class_out_names.clear();
+  output_branches_.clear();
   const auto &output_layers = net_->getOutputNames();
   size_t num_output = output_layers.size();
 
@@ -284,10 +376,69 @@ int32_t YoloV8Detection::onModelOpened() {
     return -1;
   }
 
+  input_tensor_name_ = input_layer;
+  input_tensor_info_ = net_->getTensorInfo(input_tensor_name_);
+  size_t total_anchors = 0;
+  for (int stride : strides) {
+    OutputBranch branch;
+    std::string class_name;
+    std::string box_name;
+
+    branch.stride = stride;
+    if (class_out_names.count(stride) != 0) {
+      class_name = class_out_names[stride];
+      box_name = bbox_out_names[stride];
+    } else {
+      class_name = bbox_class_out_names[stride];
+      box_name = class_name;
+      branch.cls_offset = num_box_channel_;
+    }
+
+    branch.class_info = net_->getTensorInfo(class_name);
+    branch.box_info = net_->getTensorInfo(box_name);
+    branch.class_tensor = net_->getOutputTensor(class_name);
+    branch.box_tensor = net_->getOutputTensor(box_name);
+    branch.num_anchor = branch.class_info.shape[2] * branch.class_info.shape[3];
+    branch.box_num_anchor = branch.box_info.shape[2] * branch.box_info.shape[3];
+    branch.box_feat_w = branch.box_info.shape[3];
+    branch.cls_qscale =
+        branch.class_info.tensor_size / branch.class_info.tensor_elem == 1
+            ? branch.class_info.qscale
+            : 1.0f;
+    branch.box_qscale = branch.box_info.qscale;
+    if (branch.box_info.data_type == TDLDataType::INT8) {
+      branch.exp_lut = make_int8_exp_lut(branch.box_qscale);
+    } else if (branch.box_info.data_type == TDLDataType::UINT8) {
+      branch.exp_lut = make_uint8_exp_lut(branch.box_qscale);
+    }
+    total_anchors += branch.num_anchor;
+    output_branches_.push_back(std::move(branch));
+  }
+
+  class_boxes_.resize(num_cls_);
+  for (auto &boxes : class_boxes_) {
+    boxes.reserve(64);
+  }
+  passing_anchor_indices_.reserve(total_anchors);
+  passing_class_indices_.reserve(total_anchors);
+  passing_logits_.reserve(total_anchors);
+  inverse_threshold_ = std::log(model_threshold_ / (1.0f - model_threshold_));
+
   return 0;
 }
 
 YoloV8Detection::~YoloV8Detection() {}
+
+void YoloV8Detection::setModelThreshold(float threshold) {
+  BaseModel::setModelThreshold(threshold);
+  if (threshold <= 0.0f) {
+    inverse_threshold_ = -std::numeric_limits<float>::infinity();
+  } else if (threshold >= 1.0f) {
+    inverse_threshold_ = std::numeric_limits<float>::infinity();
+  } else {
+    inverse_threshold_ = std::log(threshold / (1.0f - threshold));
+  }
+}
 
 // the bbox featuremap shape is b x 4*regmax x h   x w
 void YoloV8Detection::decodeBboxFeatureMap(int batch_idx, int stride,
@@ -359,136 +510,93 @@ void YoloV8Detection::decodeBboxFeatureMap(int batch_idx, int stride,
 int32_t YoloV8Detection::outputParse(
     const std::vector<std::shared_ptr<BaseImage>> &images,
     std::vector<std::shared_ptr<ModelOutputInfo>> &out_datas) {
-  std::string input_tensor_name = net_->getInputNames()[0];
-  TensorInfo input_tensor = net_->getTensorInfo(input_tensor_name);
-  uint32_t input_width = input_tensor.shape[3];
-  uint32_t input_height = input_tensor.shape[2];
+  const uint32_t input_width = input_tensor_info_.shape[3];
+  const uint32_t input_height = input_tensor_info_.shape[2];
   float input_width_f = float(input_width);
   float input_height_f = float(input_height);
-  float inverse_th = std::log(model_threshold_ / (1 - model_threshold_));
-  LOGI(
-      "outputParse,batch size:%d,input shape:%d,%d,%d,%d,model "
-      "threshold:%f,inverse th:%f",
-      images.size(), input_tensor.shape[0], input_tensor.shape[1],
-      input_tensor.shape[2], input_tensor.shape[3], model_threshold_,
-      inverse_th);
-
-  // std::stringstream ss;
-  for (uint32_t b = 0; b < (uint32_t)input_tensor.shape[0]; b++) {
+  for (uint32_t b = 0; b < images.size(); b++) {
     uint32_t image_width = images[b]->getWidth();
     uint32_t image_height = images[b]->getHeight();
 
-    std::map<int, std::vector<ObjectBoxInfo>> lb_boxes;
-    for (size_t i = 0; i < strides.size(); i++) {
-      int stride = strides[i];
-      std::string cls_name;
-      std::string box_name;
-      int cls_offset = 0;
-      if (class_out_names.count(stride)) {
-        cls_name = class_out_names[stride];
-        box_name = bbox_out_names[stride];
-      } else if (bbox_class_out_names.count(stride)) {
-        cls_name = bbox_class_out_names[stride];
-        box_name = bbox_class_out_names[stride];
-        cls_offset = num_box_channel_;
-      }
-      TensorInfo classinfo = net_->getTensorInfo(cls_name);
-      std::shared_ptr<BaseTensor> cls_tensor = net_->getOutputTensor(cls_name);
-      TensorInfo boxinfo = net_->getTensorInfo(box_name);
-      std::shared_ptr<BaseTensor> box_tensor = net_->getOutputTensor(box_name);
-
-      int num_per_pixel = classinfo.tensor_size / classinfo.tensor_elem;
-
-      int num_cls = num_cls_;
-      int num_anchor = classinfo.shape[2] * classinfo.shape[3];
-      LOGI("stride:%d,featw:%d,feath:%d,numperpixel:%d,numcls:%d,qscale:%f\n",
-           stride, classinfo.shape[3], classinfo.shape[2],
-           classinfo.tensor_size / classinfo.tensor_elem, num_cls,
-           classinfo.qscale);
-      float cls_qscale = num_per_pixel == 1 ? classinfo.qscale : 1;
-      int box_num_anchor = boxinfo.shape[2] * boxinfo.shape[3];
-      int box_feat_w = boxinfo.shape[3];
-      float box_qscale = boxinfo.qscale;
-
-      std::array<float, 256> int8_exp_lut;
-      std::array<float, 256> uint8_exp_lut;
-      if (boxinfo.data_type == TDLDataType::INT8) {
-        int8_exp_lut = make_int8_exp_lut(box_qscale);
-      } else if (boxinfo.data_type == TDLDataType::UINT8) {
-        uint8_exp_lut = make_uint8_exp_lut(box_qscale);
-      }
-
+    for (auto &boxes : class_boxes_) {
+      boxes.clear();
+    }
+    for (const OutputBranch &branch : output_branches_) {
       int8_t *cls_int8 = nullptr;
       uint8_t *cls_uint8 = nullptr;
       float *cls_float = nullptr;
-      if (classinfo.data_type == TDLDataType::INT8) {
-        cls_int8 = cls_tensor->getBatchPtr<int8_t>(b);
-      } else if (classinfo.data_type == TDLDataType::UINT8) {
-        cls_uint8 = cls_tensor->getBatchPtr<uint8_t>(b);
-      } else if (classinfo.data_type == TDLDataType::FP32) {
-        cls_float = cls_tensor->getBatchPtr<float>(b);
+      if (branch.class_info.data_type == TDLDataType::INT8) {
+        cls_int8 = branch.class_tensor->getBatchPtr<int8_t>(b);
+      } else if (branch.class_info.data_type == TDLDataType::UINT8) {
+        cls_uint8 = branch.class_tensor->getBatchPtr<uint8_t>(b);
+      } else if (branch.class_info.data_type == TDLDataType::FP32) {
+        cls_float = branch.class_tensor->getBatchPtr<float>(b);
       } else {
         LOGE("unsupported class data type:%d\n",
-             static_cast<int>(classinfo.data_type));
+             static_cast<int>(branch.class_info.data_type));
         return -1;
       }
 
       int8_t *box_int8 = nullptr;
       uint8_t *box_uint8 = nullptr;
       float *box_float = nullptr;
-      if (boxinfo.data_type == TDLDataType::INT8) {
-        box_int8 = box_tensor->getBatchPtr<int8_t>(b);
-      } else if (boxinfo.data_type == TDLDataType::UINT8) {
-        box_uint8 = box_tensor->getBatchPtr<uint8_t>(b);
-      } else if (boxinfo.data_type == TDLDataType::FP32) {
-        box_float = box_tensor->getBatchPtr<float>(b);
+      if (branch.box_info.data_type == TDLDataType::INT8) {
+        box_int8 = branch.box_tensor->getBatchPtr<int8_t>(b);
+      } else if (branch.box_info.data_type == TDLDataType::UINT8) {
+        box_uint8 = branch.box_tensor->getBatchPtr<uint8_t>(b);
+      } else if (branch.box_info.data_type == TDLDataType::FP32) {
+        box_float = branch.box_tensor->getBatchPtr<float>(b);
       } else {
         LOGE("unsupported box data type:%d\n",
-             static_cast<int>(boxinfo.data_type));
+             static_cast<int>(branch.box_info.data_type));
         return -1;
       }
-
-      std::vector<int> passing_anchor_indices;
-      std::vector<int> passing_class_indices;
-      std::vector<float> passing_logits;
-      passing_anchor_indices.reserve(128);
-      passing_class_indices.reserve(128);
-      passing_logits.reserve(128);
+      passing_anchor_indices_.clear();
+      passing_class_indices_.clear();
+      passing_logits_.clear();
       if (cls_int8 != nullptr) {
-        collect_passing_cls(cls_int8, num_anchor, num_cls, cls_offset,
-                            cls_qscale, inverse_th, passing_anchor_indices,
-                            passing_class_indices, passing_logits);
+        collect_passing_cls_int8(
+            cls_int8, branch.num_anchor, num_cls_, branch.cls_offset,
+            branch.cls_qscale, inverse_threshold_, passing_anchor_indices_,
+            passing_class_indices_, passing_logits_, max_class_int8_,
+            max_class_ids8_);
       } else if (cls_uint8 != nullptr) {
-        collect_passing_cls(cls_uint8, num_anchor, num_cls, cls_offset,
-                            cls_qscale, inverse_th, passing_anchor_indices,
-                            passing_class_indices, passing_logits);
+        collect_passing_cls(
+            cls_uint8, branch.num_anchor, num_cls_, branch.cls_offset,
+            branch.cls_qscale, inverse_threshold_, passing_anchor_indices_,
+            passing_class_indices_, passing_logits_, max_class_uint8_,
+            max_class_indices_);
       } else {
-        collect_passing_cls(cls_float, num_anchor, num_cls, cls_offset,
-                            cls_qscale, inverse_th, passing_anchor_indices,
-                            passing_class_indices, passing_logits);
+        collect_passing_cls(
+            cls_float, branch.num_anchor, num_cls_, branch.cls_offset,
+            branch.cls_qscale, inverse_threshold_, passing_anchor_indices_,
+            passing_class_indices_, passing_logits_, max_class_float_,
+            max_class_indices_);
       }
-
-      for (size_t candidate = 0; candidate < passing_anchor_indices.size();
+      for (size_t candidate = 0; candidate < passing_anchor_indices_.size();
            candidate++) {
-        int anchor = passing_anchor_indices[candidate];
-        int max_logit_c = passing_class_indices[candidate];
-        float max_logit = passing_logits[candidate];
+        int anchor = passing_anchor_indices_[candidate];
+        int max_logit_c = passing_class_indices_[candidate];
+        float max_logit = passing_logits_[candidate];
         float score = 1 / (1 + exp(-max_logit));
         float box_x1 = 0.0f;
         float box_y1 = 0.0f;
         float box_x2 = 0.0f;
         float box_y2 = 0.0f;
         if (box_int8 != nullptr) {
-          parse_dfl_box_lut(box_int8, box_num_anchor, anchor, box_feat_w,
-                            stride, int8_exp_lut, &box_x1, &box_y1, &box_x2,
-                            &box_y2);
+          parse_dfl_box_lut(
+              box_int8, branch.box_num_anchor, anchor, branch.box_feat_w,
+              branch.stride, branch.exp_lut, &box_x1, &box_y1, &box_x2,
+              &box_y2);
         } else if (box_uint8 != nullptr) {
-          parse_dfl_box_lut(box_uint8, box_num_anchor, anchor, box_feat_w,
-                            stride, uint8_exp_lut, &box_x1, &box_y1, &box_x2,
-                            &box_y2);
+          parse_dfl_box_lut(
+              box_uint8, branch.box_num_anchor, anchor, branch.box_feat_w,
+              branch.stride, branch.exp_lut, &box_x1, &box_y1, &box_x2,
+              &box_y2);
         } else {
-          parse_dfl_box(box_float, box_num_anchor, anchor, box_feat_w, stride,
-                        box_qscale, &box_x1, &box_y1, &box_x2, &box_y2);
+          parse_dfl_box(box_float, branch.box_num_anchor, anchor,
+                        branch.box_feat_w, branch.stride, branch.box_qscale,
+                        &box_x1, &box_y1, &box_x2, &box_y2);
         }
         ObjectBoxInfo bbox;
         bbox.score = score;
@@ -497,39 +605,37 @@ int32_t YoloV8Detection::outputParse(
         bbox.x2 = std::max(0.0f, std::min(box_x2, input_width_f));
         bbox.y2 = std::max(0.0f, std::min(box_y2, input_height_f));
         bbox.class_id = max_logit_c;
-        // LOGI("bbox:[%f,%f,%f,%f],score:%f,label:%d,logit:%f\n", bbox.x1,
-        //      bbox.y1, bbox.x2, bbox.y2, bbox.score, max_logit_c, max_logit);
-
-        lb_boxes[max_logit_c].push_back(bbox);
+        class_boxes_[max_logit_c].push_back(bbox);
       }
     }
-    DetectionHelper::nmsObjects(lb_boxes, nms_threshold_);
-    std::vector<float> scale_params =
-        batch_rescale_params_[input_tensor_name][b];
-    // LOGI("scale_params:%f,%f,%f,%f", scale_params[0], scale_params[1],
-    //      scale_params[2], scale_params[3]);
-    // ss << "batch:" << b << "\n";
+
+    size_t output_count = 0;
+    for (auto &boxes : class_boxes_) {
+      nms_objects_in_place(boxes, nms_threshold_, nms_mask_);
+      output_count += boxes.size();
+    }
+    const std::vector<float> &scale_params =
+        batch_rescale_params_[input_tensor_name_][b];
 
     std::shared_ptr<ModelBoxInfo> obj = std::make_shared<ModelBoxInfo>();
     obj->image_width = image_width;
     obj->image_height = image_height;
-    for (auto &bbox : lb_boxes) {
-      for (auto &b : bbox.second) {
-        DetectionHelper::rescaleBbox(b, scale_params);
-        b.x1 = std::max(0.0f, std::min(b.x1, (float)image_width));
-        b.y1 = std::max(0.0f, std::min(b.y1, (float)image_height));
-        b.x2 = std::max(0.0f, std::min(b.x2, (float)image_width));
-        b.y2 = std::max(0.0f, std::min(b.y2, (float)image_height));
-        if (type_mapping_.count(b.class_id)) {
-          b.object_type = type_mapping_[b.class_id];
+    obj->bboxes.reserve(output_count);
+    for (auto &boxes : class_boxes_) {
+      for (auto &box : boxes) {
+        DetectionHelper::rescaleBbox(box, scale_params);
+        box.x1 = std::max(0.0f, std::min(box.x1, (float)image_width));
+        box.y1 = std::max(0.0f, std::min(box.y1, (float)image_height));
+        box.x2 = std::max(0.0f, std::min(box.x2, (float)image_width));
+        box.y2 = std::max(0.0f, std::min(box.y2, (float)image_height));
+        auto type = type_mapping_.find(box.class_id);
+        if (type != type_mapping_.end()) {
+          box.object_type = type->second;
         }
-        obj->bboxes.push_back(b);
-        // ss << "bbox:[" << b.x1 << "," << b.y1 << "," << b.x2 << "," << b.y2
-        //    << "],score:" << b.score << ",label:" << bbox.first << "\n";
+        obj->bboxes.push_back(box);
       }
     }
     out_datas.push_back(obj);
   }
-  // LOGI("outputParse done,ss:%s", ss.str().c_str());
   return 0;
 }

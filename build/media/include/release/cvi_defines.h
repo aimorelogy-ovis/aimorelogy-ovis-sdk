@@ -253,7 +253,7 @@ enum ENUM_CHIP_ID {
 #define RGN_EX_MAX_NUM_VPSS       16
 #define RGN_EX_MAX_WIDTH          3840
 
-#define RGN_MAX_BUF_NUM           2
+#define RGN_MAX_BUF_NUM           3
 #define RGN_MAX_NUM               108
 
 /*************************************/
@@ -444,4 +444,3 @@ enum ENUM_CHIP_ID {
 #endif /* __cplusplus */
 
 #endif /* __U_CVI_DEFINES_H__ */
-

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -75,6 +76,36 @@ int service_run_action(enum service_action action, char *output, size_t size)
 int usb_schedule_output_reboot(char *output, size_t size)
 {
 	return run_script_action(OVIS_USB_SERVICE_SCRIPT, "output-reboot", output, size);
+}
+
+int service_reload_overlay(char *output, size_t size)
+{
+	char pid_text[32];
+	char *end;
+	long parsed;
+	FILE *file;
+
+	if (output == NULL || size == 0)
+		return -1;
+	file = fopen(OVIS_PID_FILE, "r");
+	if (file == NULL || fgets(pid_text, sizeof(pid_text), file) == NULL) {
+		if (file != NULL)
+			fclose(file);
+		snprintf(output, size, "ipcamera PID unavailable");
+		return -1;
+	}
+	fclose(file);
+	errno = 0;
+	parsed = strtol(pid_text, &end, 10);
+	while (*end == '\r' || *end == '\n')
+		end++;
+	if (errno != 0 || parsed <= 1 || *end != '\0' ||
+	    kill((pid_t)parsed, 0) != 0 || kill((pid_t)parsed, SIGUSR2) != 0) {
+		snprintf(output, size, "ipcamera overlay reload failed");
+		return -1;
+	}
+	snprintf(output, size, "ipcamera overlay reload requested");
+	return 0;
 }
 
 int service_get_status(char *json, size_t size)

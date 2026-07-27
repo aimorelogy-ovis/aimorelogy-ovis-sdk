@@ -84,11 +84,7 @@
 #define OVIS_AI_BNR_MODEL "/usr/share/ipcamera/cv184x/bmodel_0326_blc1_patch2.bmodel"
 #endif
 #ifndef OVIS_AI_BNR_PQ_BIN
-#ifdef OVIS_IPCAMERA_PQTOOL
-#define OVIS_AI_BNR_PQ_BIN "/mnt/data/cvi_sdr_bin"
-#else
-#define OVIS_AI_BNR_PQ_BIN "/mnt/cfg/param/cvi_sdr_bin"
-#endif
+#define OVIS_AI_BNR_PQ_BIN "/mnt/data/ai-bnr/cvi_sdr_bin"
 #endif
 #define OVIS_ACCOUNT_FILE "/mnt/cfg/ovis-manager/ovis.account"
 #define OVIS_DEVICE_ID_FILE "/mnt/cfg/ovis-manager/device-id"
@@ -127,6 +123,7 @@ int usb_provision_run(void);
 int service_get_status(char *json, size_t size);
 int service_run_action(enum service_action action, char *output, size_t size);
 int usb_schedule_output_reboot(char *output, size_t size);
+int service_reload_overlay(char *output, size_t size);
 int config_get_output_flags(int *rtsp_enabled, int *uvc_enabled);
 unsigned long task_submit(enum service_action action);
 unsigned long config_task_submit_apply(const char *revision);

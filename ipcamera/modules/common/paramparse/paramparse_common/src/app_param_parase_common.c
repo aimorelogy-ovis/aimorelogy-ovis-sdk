@@ -19,6 +19,11 @@
 static char *input_file;
 static char ParamCfgFile[64] = PARAM_CFG_INI;
 
+const char *app_ipcam_Param_ConfigPath_Get(void)
+{
+    return ParamCfgFile;
+}
+
 /**************************************************************************
  *               F U N C T I O N    D E C L A R A T I O N S               *
  **************************************************************************/

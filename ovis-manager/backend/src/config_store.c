@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,33 @@ struct config_values {
 	int sub_fps;
 	int sub_bitrate;
 	int osd_enabled;
+	int overlay_text_present;
+	int text_enabled;
+	int text_main_enabled;
+	int text_sub_enabled;
+	char text_content[64];
+	char text_position[24];
+	int text_x;
+	int text_y;
+	uint32_t text_color;
+	int overlay_detection_present;
+	int detection_osd_enabled;
+	char detection_color_mode[16];
+	uint32_t detection_color;
+	int detection_thickness;
+	char detection_label_mode[24];
+	int overlay_tracking_present;
+	int tracking_osd_enabled;
+	uint32_t tracking_color;
+	uint32_t tracking_lost_color;
+	int tracking_thickness;
+	int overlay_reticle_present;
+	int reticle_enabled;
+	char reticle_template[24];
+	uint32_t reticle_idle_color;
+	uint32_t reticle_ready_color;
+	int reticle_thickness;
+	int reticle_show_while_tracking;
 	int object_enabled;
 	double object_threshold;
 	int object_width;
@@ -195,6 +223,132 @@ static int read_double(const char *path, const char *section, const char *key,
 	return errno == 0 && end != text && *trim(end) == '\0' ? 0 : -1;
 }
 
+static int read_uint32(const char *path, const char *section, const char *key,
+	uint32_t *value)
+{
+	char text[64];
+	char *end;
+	unsigned long parsed;
+
+	if (read_ini_value(path, section, key, text, sizeof(text)) != 0)
+		return -1;
+	errno = 0;
+	parsed = strtoul(text, &end, 0);
+	if (errno != 0 || end == text || *trim(end) != '\0' ||
+	    parsed > UINT32_MAX)
+		return -1;
+	*value = (uint32_t)parsed;
+	return 0;
+}
+
+static void unquote(char *text)
+{
+	size_t length = strlen(text);
+
+	if (length >= 2 && text[0] == '"' && text[length - 1] == '"') {
+		memmove(text, text + 1, length - 2);
+		text[length - 2] = '\0';
+	}
+}
+
+static void overlay_defaults(struct config_values *values)
+{
+	values->text_enabled = 0;
+	values->text_main_enabled = 1;
+	values->text_sub_enabled = 0;
+	values->text_x = 20;
+	values->text_y = 20;
+	values->text_color = 0xffffff;
+	snprintf(values->text_position, sizeof(values->text_position), "top-left");
+	values->detection_osd_enabled = 1;
+	snprintf(values->detection_color_mode,
+		sizeof(values->detection_color_mode), "fixed");
+	values->detection_color = 0x00d9ff;
+	values->detection_thickness = 2;
+	snprintf(values->detection_label_mode,
+		sizeof(values->detection_label_mode), "none");
+	values->tracking_osd_enabled = 1;
+	values->tracking_color = 0xffb000;
+	values->tracking_lost_color = 0xff3030;
+	values->tracking_thickness = 3;
+	values->reticle_enabled = 1;
+	snprintf(values->reticle_template,
+		sizeof(values->reticle_template), "corners");
+	values->reticle_idle_color = 0xffffff;
+	values->reticle_ready_color = 0xffc247;
+	values->reticle_thickness = 2;
+	values->reticle_show_while_tracking = 0;
+}
+
+static void load_overlay_values(const char *path, struct config_values *values)
+{
+	char text[160];
+
+	overlay_defaults(values);
+	if (read_int(path, "osd_style", "text_enabled",
+			&values->text_enabled) != 0) {
+		read_int(path, "osdc0_obj_info1", "bShow",
+			&values->text_main_enabled);
+		read_int(path, "osdc1_obj_info1", "bShow",
+			&values->text_sub_enabled);
+		values->text_enabled = values->text_main_enabled ||
+			values->text_sub_enabled;
+	} else {
+		read_int(path, "osd_style", "text_main_enabled",
+			&values->text_main_enabled);
+		read_int(path, "osd_style", "text_sub_enabled",
+			&values->text_sub_enabled);
+	}
+	if (read_ini_value(path, "osdc0_obj_info1", "str", text,
+			sizeof(text)) == 0) {
+		unquote(text);
+		snprintf(values->text_content, sizeof(values->text_content), "%s", text);
+	}
+	read_int(path, "osdc0_obj_info1", "x1", &values->text_x);
+	read_int(path, "osdc0_obj_info1", "y1", &values->text_y);
+	read_uint32(path, "osdc0_obj_info1", "color", &values->text_color);
+	if (read_ini_value(path, "osd_style", "text_position", text,
+			sizeof(text)) == 0)
+		snprintf(values->text_position, sizeof(values->text_position), "%s", text);
+	read_int(path, "osd_style", "detection_enabled",
+		&values->detection_osd_enabled);
+	if (read_ini_value(path, "osd_style", "detection_color_mode", text,
+			sizeof(text)) == 0)
+		snprintf(values->detection_color_mode,
+			sizeof(values->detection_color_mode), "%s", text);
+	read_uint32(path, "osd_style", "detection_color", &values->detection_color);
+	read_int(path, "osd_style", "detection_thickness",
+		&values->detection_thickness);
+	if (read_ini_value(path, "osd_style", "detection_label_mode", text,
+			sizeof(text)) == 0)
+		snprintf(values->detection_label_mode,
+			sizeof(values->detection_label_mode), "%s", text);
+	read_int(path, "osd_style", "tracking_enabled",
+		&values->tracking_osd_enabled);
+	read_uint32(path, "osd_style", "tracking_color", &values->tracking_color);
+	read_uint32(path, "osd_style", "tracking_lost_color",
+		&values->tracking_lost_color);
+	read_int(path, "osd_style", "tracking_thickness",
+		&values->tracking_thickness);
+	read_int(path, "osd_style", "reticle_enabled", &values->reticle_enabled);
+	if (read_ini_value(path, "osd_style", "reticle_template", text,
+			sizeof(text)) == 0)
+		snprintf(values->reticle_template,
+			sizeof(values->reticle_template), "%s", text);
+	read_uint32(path, "osd_style", "reticle_idle_color",
+		&values->reticle_idle_color);
+	read_uint32(path, "osd_style", "reticle_ready_color",
+		&values->reticle_ready_color);
+	read_int(path, "osd_style", "reticle_thickness",
+		&values->reticle_thickness);
+	read_int(path, "osd_style", "reticle_show_while_tracking",
+		&values->reticle_show_while_tracking);
+	values->overlay_text_present = 1;
+	values->overlay_detection_present = 1;
+	values->overlay_tracking_present = 1;
+	values->overlay_reticle_present = 1;
+}
+
 static int threshold_to_sensitivity(int threshold)
 {
 	return ((255 - threshold) * 100 + 127) / 255;
@@ -269,6 +423,7 @@ static int load_values(const char *path, struct config_values *values)
 	}
 	values->motion_sensitivity = threshold_to_sensitivity(motion_threshold);
 	values->ai_bnr_present = 1;
+	load_overlay_values(path, values);
 	return 0;
 }
 
@@ -380,6 +535,11 @@ static void add_detection_model(cJSON *parent, const struct config_values *value
 	cJSON_AddStringToObject(model, "runtime_model", values->object_model_id);
 }
 
+static void color_to_hex(uint32_t color, char text[8])
+{
+	snprintf(text, 8, "#%06X", color & 0xffffff);
+}
+
 static cJSON *values_to_json(const struct config_values *values)
 {
 	cJSON *root = cJSON_CreateObject();
@@ -390,6 +550,12 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON *main_stream;
 	cJSON *sub_stream;
 	cJSON *overlay;
+	cJSON *texts;
+	cJSON *text;
+	cJSON *streams;
+	cJSON *overlay_detection;
+	cJSON *overlay_tracking;
+	cJSON *reticle;
 	cJSON *ai_isp;
 	cJSON *bnr;
 	cJSON *detection;
@@ -399,6 +565,7 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON *human_pose;
 	cJSON *tracking;
 	cJSON *single_object;
+	char color[8];
 	const char *search_method = values->object_tracking_search_type == 3 ?
 		"fastsam" : values->object_tracking_search_type == 2 ?
 		"color" : "box";
@@ -435,6 +602,53 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON_AddNumberToObject(sub_stream, "fps", values->sub_fps);
 	cJSON_AddNumberToObject(sub_stream, "bitrate_kbps", values->sub_bitrate);
 	cJSON_AddBoolToObject(overlay, "enabled", values->osd_enabled);
+	texts = cJSON_AddArrayToObject(overlay, "texts");
+	text = cJSON_CreateObject();
+	streams = cJSON_AddArrayToObject(text, "streams");
+	cJSON_AddStringToObject(text, "id", "primary");
+	cJSON_AddBoolToObject(text, "enabled", values->text_enabled);
+	cJSON_AddStringToObject(text, "content", values->text_content);
+	if (values->text_main_enabled)
+		cJSON_AddItemToArray(streams, cJSON_CreateString("main"));
+	if (values->text_sub_enabled)
+		cJSON_AddItemToArray(streams, cJSON_CreateString("sub"));
+	cJSON_AddStringToObject(text, "position", values->text_position);
+	cJSON_AddNumberToObject(text, "x", values->text_x);
+	cJSON_AddNumberToObject(text, "y", values->text_y);
+	color_to_hex(values->text_color, color);
+	cJSON_AddStringToObject(text, "color", color);
+	cJSON_AddItemToArray(texts, text);
+	overlay_detection = cJSON_AddObjectToObject(overlay, "detection");
+	cJSON_AddBoolToObject(overlay_detection, "enabled",
+		values->detection_osd_enabled);
+	cJSON_AddStringToObject(overlay_detection, "colorMode",
+		values->detection_color_mode);
+	color_to_hex(values->detection_color, color);
+	cJSON_AddStringToObject(overlay_detection, "color", color);
+	cJSON_AddNumberToObject(overlay_detection, "thickness",
+		values->detection_thickness);
+	cJSON_AddStringToObject(overlay_detection, "labelMode",
+		values->detection_label_mode);
+	overlay_tracking = cJSON_AddObjectToObject(overlay, "tracking");
+	cJSON_AddBoolToObject(overlay_tracking, "enabled",
+		values->tracking_osd_enabled);
+	color_to_hex(values->tracking_color, color);
+	cJSON_AddStringToObject(overlay_tracking, "color", color);
+	color_to_hex(values->tracking_lost_color, color);
+	cJSON_AddStringToObject(overlay_tracking, "lostColor", color);
+	cJSON_AddNumberToObject(overlay_tracking, "thickness",
+		values->tracking_thickness);
+	reticle = cJSON_AddObjectToObject(overlay, "reticle");
+	cJSON_AddBoolToObject(reticle, "enabled", values->reticle_enabled);
+	cJSON_AddStringToObject(reticle, "template", values->reticle_template);
+	color_to_hex(values->reticle_idle_color, color);
+	cJSON_AddStringToObject(reticle, "idleColor", color);
+	color_to_hex(values->reticle_ready_color, color);
+	cJSON_AddStringToObject(reticle, "readyColor", color);
+	cJSON_AddNumberToObject(reticle, "thickness",
+		values->reticle_thickness);
+	cJSON_AddBoolToObject(reticle, "showWhileTracking",
+		values->reticle_show_while_tracking);
 	cJSON_AddBoolToObject(bnr, "enabled", values->ai_bnr_enabled);
 	cJSON_AddBoolToObject(object, "enabled", values->object_enabled);
 	cJSON_AddNumberToObject(object, "threshold", values->object_threshold);
@@ -472,7 +686,7 @@ static cJSON *values_to_json(const struct config_values *values)
 int config_capabilities_json(char *json, size_t size)
 {
 	static const char capabilities[] =
-		"{\"schema_version\":5,\"outputs\":{"
+		"{\"schema_version\":6,\"outputs\":{"
 		"\"rtsp\":{\"supported\":true,\"default_enabled\":false},"
 		"\"uvc\":{\"supported\":true,\"default_enabled\":true,"
 		"\"profile\":{\"codec\":\"mjpeg\",\"width\":1920,\"height\":1080,\"fps\":30}}},"
@@ -481,6 +695,23 @@ int config_capabilities_json(char *json, size_t size)
 		"\"fps_options\":[15,25,30,60],\"bitrate_min\":512,\"bitrate_max\":15000}]},"
 		"\"sub\":{\"profiles\":[{\"id\":\"768x572\",\"width\":768,\"height\":572,"
 		"\"fps_options\":[15,25,30],\"bitrate_min\":128,\"bitrate_max\":4000}]}},"
+		"\"overlay\":{\"supported\":true,"
+		"\"maxTexts\":1,\"textMaxBytes\":63,\"utf8Text\":false,"
+		"\"max_texts\":1,\"text_max_bytes\":63,"
+		"\"sub_text_max_bytes\":31,"
+		"\"text_positions\":[\"custom\",\"top-left\",\"top-right\","
+		"\"bottom-left\",\"bottom-right\"],\"color_modes\":[\"fixed\",\"model\"],"
+		"\"label_modes\":[\"none\",\"class\",\"class_score\"],"
+		"\"thickness\":{\"min\":1,\"max\":4},"
+		"\"thickness_min\":1,\"thickness_max\":4,"
+		"\"colorModes\":[\"fixed\",\"model\"],"
+		"\"labelModes\":[\"none\",\"class\",\"class_score\"],"
+		"\"reticleTemplates\":[\"rectangle\",\"corners\",\"crosshair\","
+		"\"crosshair_dot\",\"bracket_cross\",\"circle\"],"
+		"\"reticle_templates\":[\"rectangle\",\"corners\",\"crosshair\","
+		"\"crosshair_dot\",\"bracket_cross\",\"circle\"],"
+		"\"streams\":{\"main\":{\"text\":true,\"ai\":true},"
+		"\"sub\":{\"text\":true,\"ai\":false}}},"
 		"\"features\":{\"osd\":true,\"object_detection\":true,"
 		"\"face_detection\":true,\"motion_detection\":true,"
 		"\"human_pose\":true,\"object_tracking\":true,"
@@ -679,6 +910,151 @@ static int parse_detection_model(cJSON *model, struct config_values *values,
 	return -1;
 }
 
+static int parse_color(const char *text, uint32_t *color)
+{
+	char *end;
+	unsigned long parsed;
+
+	if (text == NULL || strlen(text) != 7 || text[0] != '#')
+		return -1;
+	errno = 0;
+	parsed = strtoul(text + 1, &end, 16);
+	if (errno != 0 || *end != '\0' || parsed > 0xffffff)
+		return -1;
+	*color = (uint32_t)parsed;
+	return 0;
+}
+
+static int parse_overlay(cJSON *overlay, struct config_values *values,
+	char *error, size_t error_size)
+{
+	cJSON *texts;
+	cJSON *text;
+	cJSON *streams;
+	cJSON *stream;
+	cJSON *detection;
+	cJSON *tracking;
+	cJSON *reticle;
+	const char *content;
+	const char *position;
+	const char *color;
+	const char *mode;
+	int main_enabled = 0;
+	int sub_enabled = 0;
+
+	texts = cJSON_GetObjectItemCaseSensitive(overlay, "texts");
+	if (texts != NULL) {
+		if (!cJSON_IsArray(texts) || cJSON_GetArraySize(texts) > 1) {
+			snprintf(error, error_size, "自定义文字最多支持一项");
+			return -1;
+		}
+		values->overlay_text_present = 1;
+		if (cJSON_GetArraySize(texts) == 1) {
+			text = cJSON_GetArrayItem(texts, 0);
+			streams = cJSON_GetObjectItemCaseSensitive(text, "streams");
+			if (!cJSON_IsObject(text) ||
+			    bool_item(text, "enabled", &values->text_enabled) != 0 ||
+			    string_item(text, "content", &content) != 0 ||
+			    string_item(text, "position", &position) != 0 ||
+			    int_item(text, "x", &values->text_x) != 0 ||
+			    int_item(text, "y", &values->text_y) != 0 ||
+			    string_item(text, "color", &color) != 0 ||
+			    !cJSON_IsArray(streams) || parse_color(color,
+				&values->text_color) != 0) {
+				snprintf(error, error_size, "自定义文字配置无效");
+				return -1;
+			}
+			if (strlen(content) >= sizeof(values->text_content) ||
+			    strlen(position) >= sizeof(values->text_position)) {
+				snprintf(error, error_size, "自定义文字内容或位置过长");
+				return -1;
+			}
+			cJSON_ArrayForEach(stream, streams) {
+				if (!cJSON_IsString(stream) || stream->valuestring == NULL) {
+					snprintf(error, error_size, "文字码流配置无效");
+					return -1;
+				}
+				if (strcmp(stream->valuestring, "main") == 0)
+					main_enabled = 1;
+				else if (strcmp(stream->valuestring, "sub") == 0)
+					sub_enabled = 1;
+				else {
+					snprintf(error, error_size, "文字码流仅支持 main 或 sub");
+					return -1;
+				}
+			}
+			values->text_main_enabled = main_enabled;
+			values->text_sub_enabled = sub_enabled;
+			snprintf(values->text_content, sizeof(values->text_content),
+				"%s", content);
+			snprintf(values->text_position, sizeof(values->text_position),
+				"%s", position);
+		} else {
+			values->text_enabled = 0;
+		}
+	}
+
+	detection = cJSON_GetObjectItemCaseSensitive(overlay, "detection");
+	if (detection != NULL) {
+		values->overlay_detection_present = 1;
+		if (!cJSON_IsObject(detection) ||
+		    bool_item(detection, "enabled", &values->detection_osd_enabled) != 0 ||
+		    string_item(detection, "colorMode", &mode) != 0 ||
+		    string_item(detection, "color", &color) != 0 ||
+		    int_item(detection, "thickness", &values->detection_thickness) != 0 ||
+		    string_item(detection, "labelMode", &position) != 0 ||
+		    parse_color(color, &values->detection_color) != 0) {
+			snprintf(error, error_size, "检测框样式配置无效");
+			return -1;
+		}
+		snprintf(values->detection_color_mode,
+			sizeof(values->detection_color_mode), "%s", mode);
+		snprintf(values->detection_label_mode,
+			sizeof(values->detection_label_mode), "%s", position);
+	}
+
+	tracking = cJSON_GetObjectItemCaseSensitive(overlay, "tracking");
+	if (tracking != NULL) {
+		const char *lost_color;
+
+		values->overlay_tracking_present = 1;
+		if (!cJSON_IsObject(tracking) ||
+		    bool_item(tracking, "enabled", &values->tracking_osd_enabled) != 0 ||
+		    string_item(tracking, "color", &color) != 0 ||
+		    string_item(tracking, "lostColor", &lost_color) != 0 ||
+		    int_item(tracking, "thickness", &values->tracking_thickness) != 0 ||
+		    parse_color(color, &values->tracking_color) != 0 ||
+		    parse_color(lost_color, &values->tracking_lost_color) != 0) {
+			snprintf(error, error_size, "跟踪框样式配置无效");
+			return -1;
+		}
+	}
+
+	reticle = cJSON_GetObjectItemCaseSensitive(overlay, "reticle");
+	if (reticle != NULL) {
+		const char *idle_color;
+		const char *ready_color;
+
+		values->overlay_reticle_present = 1;
+		if (!cJSON_IsObject(reticle) ||
+		    bool_item(reticle, "enabled", &values->reticle_enabled) != 0 ||
+		    string_item(reticle, "template", &mode) != 0 ||
+		    string_item(reticle, "idleColor", &idle_color) != 0 ||
+		    string_item(reticle, "readyColor", &ready_color) != 0 ||
+		    int_item(reticle, "thickness", &values->reticle_thickness) != 0 ||
+		    bool_item(reticle, "showWhileTracking",
+			&values->reticle_show_while_tracking) != 0 ||
+		    parse_color(idle_color, &values->reticle_idle_color) != 0 ||
+		    parse_color(ready_color, &values->reticle_ready_color) != 0) {
+			snprintf(error, error_size, "中心准星样式配置无效");
+			return -1;
+		}
+		snprintf(values->reticle_template,
+			sizeof(values->reticle_template), "%s", mode);
+	}
+	return 0;
+}
+
 static int parse_payload(const char *body, struct config_values *values,
 	char revision[33], char *error, size_t error_size)
 {
@@ -711,6 +1087,7 @@ static int parse_payload(const char *body, struct config_values *values,
 	int result = -1;
 
 	memset(values, 0, sizeof(*values));
+	overlay_defaults(values);
 	if (!cJSON_IsObject(root))
 		goto done;
 	values_json = object_item(root, "values");
@@ -747,6 +1124,8 @@ static int parse_payload(const char *body, struct config_values *values,
 	values->object_tracking_det_width = OVIS_AI_TRACK_DET_WIDTH;
 	values->object_tracking_det_height = OVIS_AI_TRACK_DET_HEIGHT;
 	if (parse_detection_model(object_model, values, error, error_size) != 0)
+		goto done;
+	if (parse_overlay(overlay, values, error, error_size) != 0)
 		goto done;
 	if (string_item(root, "revision", &revision_text) != 0 || strlen(revision_text) > 32 ||
 	    bool_item(rtsp, "enabled", &values->rtsp_enabled) != 0 ||
@@ -856,8 +1235,108 @@ static int processing_size_valid(int width, int height, int max_width,
 		(width % 2) == 0 && (height % 2) == 0;
 }
 
+static int one_of(const char *value, const char *const options[], size_t count)
+{
+	size_t index;
+
+	for (index = 0; index < count; index++) {
+		if (strcmp(value, options[index]) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int text_content_valid(const char *text)
+{
+	size_t index;
+	size_t length = strlen(text);
+
+	if (length > 63)
+		return 0;
+	for (index = 0; index < length; index++) {
+		unsigned char value = (unsigned char)text[index];
+		if (value < 0x20 || value > 0x7e || value == '"' || value == ';')
+			return 0;
+	}
+	return 1;
+}
+
+static void inherit_overlay_values(struct config_values *values,
+	const struct config_values *active)
+{
+	if (!values->overlay_text_present) {
+		values->text_enabled = active->text_enabled;
+		values->text_main_enabled = active->text_main_enabled;
+		values->text_sub_enabled = active->text_sub_enabled;
+		values->text_x = active->text_x;
+		values->text_y = active->text_y;
+		values->text_color = active->text_color;
+		snprintf(values->text_content, sizeof(values->text_content), "%s",
+			active->text_content);
+		snprintf(values->text_position, sizeof(values->text_position), "%s",
+			active->text_position);
+	}
+	if (!values->overlay_detection_present) {
+		values->detection_osd_enabled = active->detection_osd_enabled;
+		values->detection_color = active->detection_color;
+		values->detection_thickness = active->detection_thickness;
+		snprintf(values->detection_color_mode,
+			sizeof(values->detection_color_mode), "%s",
+			active->detection_color_mode);
+		snprintf(values->detection_label_mode,
+			sizeof(values->detection_label_mode), "%s",
+			active->detection_label_mode);
+	}
+	if (!values->overlay_tracking_present) {
+		values->tracking_osd_enabled = active->tracking_osd_enabled;
+		values->tracking_color = active->tracking_color;
+		values->tracking_lost_color = active->tracking_lost_color;
+		values->tracking_thickness = active->tracking_thickness;
+	}
+	if (!values->overlay_reticle_present) {
+		values->reticle_enabled = active->reticle_enabled;
+		values->reticle_idle_color = active->reticle_idle_color;
+		values->reticle_ready_color = active->reticle_ready_color;
+		values->reticle_thickness = active->reticle_thickness;
+		values->reticle_show_while_tracking =
+			active->reticle_show_while_tracking;
+		snprintf(values->reticle_template,
+			sizeof(values->reticle_template), "%s",
+			active->reticle_template);
+	}
+}
+
+static int non_overlay_values_equal(const struct config_values *left,
+	const struct config_values *right)
+{
+	struct config_values left_copy = *left;
+	struct config_values right_copy = *right;
+	size_t overlay_offset = offsetof(struct config_values, osd_enabled);
+	size_t overlay_size = offsetof(struct config_values, object_enabled) -
+		overlay_offset;
+
+	memset((char *)&left_copy + overlay_offset, 0, overlay_size);
+	memset((char *)&right_copy + overlay_offset, 0, overlay_size);
+	left_copy.ai_bnr_present = 0;
+	right_copy.ai_bnr_present = 0;
+	left_copy.object_model_update = 0;
+	right_copy.object_model_update = 0;
+	return memcmp(&left_copy, &right_copy, sizeof(left_copy)) == 0;
+}
+
 static cJSON *validate_values(const struct config_values *values)
 {
+	static const char *const text_positions[] = {
+		"custom", "top-left", "top-right", "bottom-left", "bottom-right"
+	};
+	static const char *const color_modes[] = { "fixed", "model" };
+	static const char *const label_modes[] = {
+		"none", "class", "class_score"
+	};
+	static const char *const reticle_templates[] = {
+		"rectangle", "corners", "crosshair", "crosshair_dot",
+		"bracket_cross", "circle"
+	};
 	cJSON *errors = cJSON_CreateArray();
 	int active_tpu_features =
 		(values->object_enabled || values->object_tracking_enabled) +
@@ -883,6 +1362,46 @@ static cJSON *validate_values(const struct config_values *values)
 		add_issue(errors, "video.sub.fps", "UNSUPPORTED_FPS", "子码流不支持此帧率");
 	if (values->sub_bitrate < 128 || values->sub_bitrate > 4000)
 		add_issue(errors, "video.sub.bitrate_kbps", "OUT_OF_RANGE", "子码流码率范围为 128-4000 Kbps");
+	if (!text_content_valid(values->text_content))
+		add_issue(errors, "overlay.texts[0].content", "INVALID_TEXT",
+			"自定义文字仅支持不超过 63 字节的可打印 ASCII 字符");
+	if (values->text_enabled && !values->text_main_enabled &&
+	    !values->text_sub_enabled)
+		add_issue(errors, "overlay.texts[0].streams", "EMPTY_STREAMS",
+			"启用自定义文字时至少选择一个码流");
+	if (values->text_enabled && values->text_sub_enabled &&
+	    strlen(values->text_content) > 31)
+		add_issue(errors, "overlay.texts[0].content", "SUB_STREAM_TEXT_TOO_LONG",
+			"子码流文字最多支持 31 个 ASCII 字符");
+	if (!one_of(values->text_position, text_positions,
+			sizeof(text_positions) / sizeof(text_positions[0])))
+		add_issue(errors, "overlay.texts[0].position", "UNSUPPORTED_VALUE",
+			"不支持此文字位置");
+	if (values->text_x < 0 || values->text_x > 1919 ||
+	    values->text_y < 0 || values->text_y > 1079)
+		add_issue(errors, "overlay.texts[0]", "OUT_OF_RANGE",
+			"文字偏移必须位于 1920x1080 画布范围内");
+	if (!one_of(values->detection_color_mode, color_modes,
+			sizeof(color_modes) / sizeof(color_modes[0])))
+		add_issue(errors, "overlay.detection.colorMode", "UNSUPPORTED_VALUE",
+			"检测框颜色模式仅支持 fixed 或 model");
+	if (!one_of(values->detection_label_mode, label_modes,
+			sizeof(label_modes) / sizeof(label_modes[0])))
+		add_issue(errors, "overlay.detection.labelMode", "UNSUPPORTED_VALUE",
+			"不支持此检测标签模式");
+	if (values->detection_thickness < 1 || values->detection_thickness > 4)
+		add_issue(errors, "overlay.detection.thickness", "OUT_OF_RANGE",
+			"检测框粗细范围为 1-4");
+	if (values->tracking_thickness < 1 || values->tracking_thickness > 4)
+		add_issue(errors, "overlay.tracking.thickness", "OUT_OF_RANGE",
+			"跟踪框粗细范围为 1-4");
+	if (!one_of(values->reticle_template, reticle_templates,
+			sizeof(reticle_templates) / sizeof(reticle_templates[0])))
+		add_issue(errors, "overlay.reticle.template", "UNSUPPORTED_VALUE",
+			"不支持此中心准星模板");
+	if (values->reticle_thickness < 1 || values->reticle_thickness > 4)
+		add_issue(errors, "overlay.reticle.thickness", "OUT_OF_RANGE",
+			"中心准星粗细范围为 1-4");
 	if (values->object_threshold < 0 || values->object_threshold > 1)
 		add_issue(errors, "detection.object.threshold", "OUT_OF_RANGE", "目标检测阈值必须在 0 到 1 之间");
 	if (!processing_size_valid(values->object_width, values->object_height,
@@ -947,6 +1466,13 @@ int config_validate_json(const char *body, char *json, size_t size,
 	}
 	if (!values.ai_bnr_present)
 		values.ai_bnr_enabled = active_values.ai_bnr_enabled;
+	if (!values.object_model_update) {
+		snprintf(values.object_model_id, sizeof(values.object_model_id), "%s",
+			active_values.object_model_id);
+		snprintf(values.object_model_path, sizeof(values.object_model_path), "%s",
+			active_values.object_model_path);
+	}
+	inherit_overlay_values(&values, &active_values);
 	root = cJSON_CreateObject();
 	errors = validate_values(&values);
 	warnings = cJSON_CreateArray();
@@ -964,8 +1490,15 @@ int config_validate_json(const char *body, char *json, size_t size,
 	cJSON_AddItemToObject(root, "errors", errors);
 	cJSON_AddItemToObject(root, "warnings", warnings);
 	if (valid) {
-		cJSON_AddItemToArray(requires, cJSON_CreateString("ipcamera_restart"));
-		if (values.uvc_enabled != active_values.uvc_enabled) {
+		if (non_overlay_values_equal(&values, &active_values)) {
+			cJSON_AddItemToArray(requires,
+				cJSON_CreateString("overlay_reload"));
+		} else {
+			cJSON_AddItemToArray(requires,
+				cJSON_CreateString("ipcamera_restart"));
+		}
+		if (!non_overlay_values_equal(&values, &active_values) &&
+		    values.uvc_enabled != active_values.uvc_enabled) {
 			cJSON_AddItemToArray(requires, cJSON_CreateString("usb_gadget_restart"));
 			cJSON_AddItemToArray(requires, cJSON_CreateString("management_reconnect"));
 		}
@@ -1131,6 +1664,22 @@ static int set_update_int(struct ini_update *updates, size_t update_count,
 	return -1;
 }
 
+static int set_update_value(struct ini_update *updates, size_t update_count,
+	const char *section, const char *key, const char *value)
+{
+	size_t index;
+
+	for (index = 0; index < update_count; index++) {
+		if (strcmp(updates[index].section, section) == 0 &&
+		    strcmp(updates[index].key, key) == 0) {
+			snprintf(updates[index].value, sizeof(updates[index].value),
+				"%s", value);
+			return 0;
+		}
+	}
+	return -1;
+}
+
 static int has_section(const char *path, const char *wanted_section)
 {
 	char line[1024];
@@ -1186,6 +1735,105 @@ static int append_missing_output_config(const char *path)
 		return -1;
 	}
 	return fclose(file);
+}
+
+static int migrate_legacy_overlay(const char *path)
+{
+	struct ini_update updates[] = {
+		{ "osdc0_obj_info0", "bShow", "0", 0 },
+		{ "osdc0_obj_info1", "bShow", "0", 0 },
+		{ "osdc0_obj_info1", "color", "0xffffff", 0 },
+		{ "osdc0_obj_info1", "x1", "20", 0 },
+		{ "osdc0_obj_info1", "y1", "20", 0 },
+		{ "osdc0_obj_info1", "str", "\"\"", 0 },
+		{ "osdc1_obj_info0", "bShow", "0", 0 },
+		{ "osdc1_obj_info1", "bShow", "0", 0 },
+		{ "osdc1_obj_info1", "color", "0xffffff", 0 },
+		{ "osdc1_obj_info1", "x1", "20", 0 },
+		{ "osdc1_obj_info1", "y1", "20", 0 },
+		{ "osdc1_obj_info1", "str", "\"\"", 0 },
+	};
+	char migrated[512];
+	FILE *file;
+
+	if (has_section(path, "osd_style"))
+		return 0;
+	file = fopen(path, "a");
+	if (file == NULL)
+		return -1;
+	fputs("\n[osd_style]\n"
+		"config_version  = 1\n"
+		"detection_enabled = 1\n"
+		"detection_color_mode = fixed\n"
+		"detection_color = 0x00d9ff\n"
+		"detection_thickness = 2\n"
+		"detection_label_mode = none\n"
+		"tracking_enabled = 1\n"
+		"tracking_color  = 0xffb000\n"
+		"tracking_lost_color = 0xff3030\n"
+		"tracking_thickness = 3\n"
+		"reticle_enabled = 1\n"
+		"reticle_template = corners\n"
+		"reticle_idle_color = 0xffffff\n"
+		"reticle_ready_color = 0xffc247\n"
+		"reticle_thickness = 2\n"
+		"reticle_show_while_tracking = 0\n"
+		"text_enabled    = 0\n"
+		"text_main_enabled = 1\n"
+		"text_sub_enabled = 0\n"
+		"text_position   = top-left\n", file);
+	if (fflush(file) != 0 || fsync(fileno(file)) != 0) {
+		fclose(file);
+		return -1;
+	}
+	if (fclose(file) != 0)
+		return -1;
+	snprintf(migrated, sizeof(migrated), "%s.overlay.tmp", path);
+	if (write_updates(path, migrated, updates,
+			sizeof(updates) / sizeof(updates[0])) != 0)
+		return -1;
+	if (rename(migrated, path) != 0) {
+		unlink(migrated);
+		return -1;
+	}
+	return 0;
+}
+
+static int ensure_overlay_style_keys(const char *path)
+{
+	static const struct {
+		const char *key;
+		const char *value;
+	} defaults[] = {
+		{ "config_version", "1" },
+		{ "detection_enabled", "1" },
+		{ "detection_color_mode", "fixed" },
+		{ "detection_color", "0x00d9ff" },
+		{ "detection_thickness", "2" },
+		{ "detection_label_mode", "none" },
+		{ "tracking_enabled", "1" },
+		{ "tracking_color", "0xffb000" },
+		{ "tracking_lost_color", "0xff3030" },
+		{ "tracking_thickness", "3" },
+		{ "reticle_enabled", "1" },
+		{ "reticle_template", "corners" },
+		{ "reticle_idle_color", "0xffffff" },
+		{ "reticle_ready_color", "0xffc247" },
+		{ "reticle_thickness", "2" },
+		{ "reticle_show_while_tracking", "0" },
+		{ "text_enabled", "0" },
+		{ "text_main_enabled", "1" },
+		{ "text_sub_enabled", "0" },
+		{ "text_position", "top-left" },
+	};
+	size_t index;
+
+	for (index = 0; index < sizeof(defaults) / sizeof(defaults[0]); index++) {
+		if (ensure_ini_key(path, "osd_style", defaults[index].key,
+				defaults[index].value) != 0)
+			return -1;
+	}
+	return 0;
 }
 
 static int append_missing_runtime_sections(const char *path)
@@ -1541,7 +2189,9 @@ static int migrate_runtime_config(const char *path)
 		!has_section(path, "vpssgrp6") ||
 		!has_section(path, "vpssgrp6.chn0");
 	if (append_missing_output_config(path) != 0 ||
-	    append_missing_runtime_sections(path) != 0)
+	    append_missing_runtime_sections(path) != 0 ||
+	    migrate_legacy_overlay(path) != 0 ||
+	    ensure_overlay_style_keys(path) != 0)
 		return -1;
 	if (ensure_ini_key(path, "ai_object_track_config", "config_version", "1") != 0)
 		return -1;
@@ -1837,10 +2487,40 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "vencchn3", "src_dev_id", "0", 0 },
 		{ "vencchn3", "vpss_grp", "0", 0 },
 		{ "vi_cfg_isp0", "teaisp_bnr_enable", "", 0 },
+		{ "osd_style", "detection_enabled", "", 0 },
+		{ "osd_style", "detection_color_mode", "", 0 },
+		{ "osd_style", "detection_color", "", 0 },
+		{ "osd_style", "detection_thickness", "", 0 },
+		{ "osd_style", "detection_label_mode", "", 0 },
+		{ "osd_style", "tracking_enabled", "", 0 },
+		{ "osd_style", "tracking_color", "", 0 },
+		{ "osd_style", "tracking_lost_color", "", 0 },
+		{ "osd_style", "tracking_thickness", "", 0 },
+		{ "osd_style", "reticle_enabled", "", 0 },
+		{ "osd_style", "reticle_template", "", 0 },
+		{ "osd_style", "reticle_idle_color", "", 0 },
+		{ "osd_style", "reticle_ready_color", "", 0 },
+		{ "osd_style", "reticle_thickness", "", 0 },
+		{ "osd_style", "reticle_show_while_tracking", "", 0 },
+		{ "osd_style", "text_enabled", "", 0 },
+		{ "osd_style", "text_main_enabled", "", 0 },
+		{ "osd_style", "text_sub_enabled", "", 0 },
+		{ "osd_style", "text_position", "", 0 },
+		{ "osdc0_obj_info1", "bShow", "", 0 },
+		{ "osdc0_obj_info1", "color", "", 0 },
+		{ "osdc0_obj_info1", "x1", "", 0 },
+		{ "osdc0_obj_info1", "y1", "", 0 },
+		{ "osdc0_obj_info1", "str", "", 0 },
+		{ "osdc1_obj_info1", "bShow", "", 0 },
+		{ "osdc1_obj_info1", "color", "", 0 },
+		{ "osdc1_obj_info1", "x1", "", 0 },
+		{ "osdc1_obj_info1", "y1", "", 0 },
+		{ "osdc1_obj_info1", "str", "", 0 },
 		{ "ai_pd_config", "model_id", "", 0 },
 		{ "ai_pd_config", "model_path", "", 0 },
 	};
 	char validation_error[256];
+	char value[160];
 	int runtime_sub_enabled;
 	size_t model_update_index = sizeof(updates) / sizeof(updates[0]) - 2;
 	enum {
@@ -1966,6 +2646,88 @@ static int stage_values(const struct config_values *values, char revision[17],
 		snprintf(error, error_size, "无法生成输出服务或 AI 资源配置");
 		return -1;
 	}
+	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "detection_enabled",
+			values->detection_osd_enabled) != 0 ||
+	    set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "detection_color_mode",
+			values->detection_color_mode) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "detection_thickness",
+			values->detection_thickness) != 0 ||
+	    set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "detection_label_mode",
+			values->detection_label_mode) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "tracking_enabled",
+			values->tracking_osd_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "tracking_thickness",
+			values->tracking_thickness) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "reticle_enabled", values->reticle_enabled) != 0 ||
+	    set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "reticle_template",
+			values->reticle_template) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "reticle_thickness",
+			values->reticle_thickness) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "reticle_show_while_tracking",
+			values->reticle_show_while_tracking) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "text_enabled", values->text_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "text_main_enabled",
+			values->text_main_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "text_sub_enabled",
+			values->text_sub_enabled) != 0 ||
+	    set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "text_position", values->text_position) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osdc0_obj_info1", "bShow",
+			values->text_enabled && values->text_main_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osdc0_obj_info1", "x1", values->text_x) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osdc0_obj_info1", "y1", values->text_y) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osdc1_obj_info1", "bShow",
+			values->text_enabled && values->text_sub_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osdc1_obj_info1", "x1", values->text_x) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osdc1_obj_info1", "y1", values->text_y) != 0) {
+		snprintf(error, error_size, "无法生成 OSD 样式配置");
+		return -1;
+	}
+#define SET_OSD_COLOR(section, key, color_value) \
+	do { \
+		snprintf(value, sizeof(value), "0x%06x", \
+			(unsigned int)((color_value) & 0xffffff)); \
+		if (set_update_value(updates, sizeof(updates) / sizeof(updates[0]), \
+				(section), (key), value) != 0) { \
+			snprintf(error, error_size, "无法生成 OSD 颜色配置"); \
+			return -1; \
+		} \
+	} while (0)
+	SET_OSD_COLOR("osd_style", "detection_color", values->detection_color);
+	SET_OSD_COLOR("osd_style", "tracking_color", values->tracking_color);
+	SET_OSD_COLOR("osd_style", "tracking_lost_color", values->tracking_lost_color);
+	SET_OSD_COLOR("osd_style", "reticle_idle_color", values->reticle_idle_color);
+	SET_OSD_COLOR("osd_style", "reticle_ready_color", values->reticle_ready_color);
+	SET_OSD_COLOR("osdc0_obj_info1", "color", values->text_color);
+	SET_OSD_COLOR("osdc1_obj_info1", "color", values->text_color);
+#undef SET_OSD_COLOR
+	snprintf(value, sizeof(value), "\"%s\"", values->text_content);
+	if (set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"osdc0_obj_info1", "str", value) != 0 ||
+	    set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"osdc1_obj_info1", "str", value) != 0) {
+		snprintf(error, error_size, "无法生成 OSD 文字配置");
+		return -1;
+	}
 	{
 		int shared_width = values->object_tracking_enabled ?
 			values->object_tracking_det_width : values->human_pose_enabled ?
@@ -2046,6 +2808,7 @@ int config_stage_json(const char *body, char *json, size_t size,
 	char active_revision[17];
 	char staged_revision[17];
 	cJSON *issues;
+	int overlay_only;
 	int result = -3;
 
 	error[0] = '\0';
@@ -2057,6 +2820,14 @@ int config_stage_json(const char *body, char *json, size_t size,
 	}
 	if (!values.ai_bnr_present)
 		values.ai_bnr_enabled = active_values.ai_bnr_enabled;
+	if (!values.object_model_update) {
+		snprintf(values.object_model_id, sizeof(values.object_model_id), "%s",
+			active_values.object_model_id);
+		snprintf(values.object_model_path, sizeof(values.object_model_path), "%s",
+			active_values.object_model_path);
+	}
+	inherit_overlay_values(&values, &active_values);
+	overlay_only = non_overlay_values_equal(&values, &active_values);
 	issues = validate_values(&values);
 	if (issues == NULL) {
 		snprintf(error, error_size, "内存不足");
@@ -2081,7 +2852,9 @@ int config_stage_json(const char *body, char *json, size_t size,
 	if (stage_values(&values, staged_revision, error, error_size) != 0)
 		goto done;
 	if (snprintf(json, size, "{\"saved\":true,\"revision\":\"%s\","
-			"\"restart_required\":true}", staged_revision) >= (int)size) {
+			"\"restart_required\":%s,\"reload_required\":%s}",
+			staged_revision, overlay_only ? "false" : "true",
+			overlay_only ? "true" : "false") >= (int)size) {
 		snprintf(error, error_size, "保存响应过大");
 		unlink(OVIS_CONFIG_PENDING);
 		goto done;
@@ -2276,6 +3049,8 @@ int config_rebase_backup_away_from_model(const char *id,
 static int apply_staged_locked(const char *revision, char *message,
 	size_t message_size, int *rolled_back)
 {
+	struct config_values old_values;
+	struct config_values new_values;
 	char staged_revision[17];
 	char validation_error[256];
 	char service_output[512];
@@ -2283,6 +3058,7 @@ static int apply_staged_locked(const char *revision, char *message,
 	int old_uvc_enabled;
 	int new_uvc_enabled;
 	int uvc_changed;
+	int overlay_only;
 	int restart_result;
 	int rollback_result;
 
@@ -2297,14 +3073,15 @@ static int apply_staged_locked(const char *revision, char *message,
 		snprintf(message, message_size, "待应用配置版本不匹配");
 		return -1;
 	}
-	if (read_int(OVIS_CONFIG_FILE, "output_config", "uvc_enable",
-			&old_uvc_enabled) != 0 ||
-	    read_int(OVIS_CONFIG_PENDING, "output_config", "uvc_enable",
-			&new_uvc_enabled) != 0) {
+	if (load_values(OVIS_CONFIG_FILE, &old_values) != 0 ||
+	    load_values(OVIS_CONFIG_PENDING, &new_values) != 0) {
 		snprintf(message, message_size, "无法读取 UVC 输出状态");
 		return -1;
 	}
+	old_uvc_enabled = old_values.uvc_enabled;
+	new_uvc_enabled = new_values.uvc_enabled;
 	uvc_changed = old_uvc_enabled != new_uvc_enabled;
+	overlay_only = non_overlay_values_equal(&old_values, &new_values);
 	if (atomic_copy(OVIS_CONFIG_FILE, OVIS_CONFIG_BACKUP) != 0) {
 		snprintf(message, message_size, "备份当前配置失败");
 		return -1;
@@ -2314,7 +3091,10 @@ static int apply_staged_locked(const char *revision, char *message,
 		return -1;
 	}
 	unlink(OVIS_CONFIG_PENDING);
-	if (uvc_changed) {
+	if (overlay_only) {
+		restart_result = service_reload_overlay(service_output,
+			sizeof(service_output));
+	} else if (uvc_changed) {
 		restart_result = usb_schedule_output_reboot(service_output,
 			sizeof(service_output));
 	} else {
@@ -2322,15 +3102,21 @@ static int apply_staged_locked(const char *revision, char *message,
 			sizeof(service_output));
 	}
 	if (restart_result == 0) {
-		snprintf(message, message_size, "%s",
-			uvc_changed ? "配置已保存，设备正在重启" : "配置应用成功");
+		snprintf(message, message_size, "%s", overlay_only ?
+			"OSD 配置已实时应用" : uvc_changed ?
+			"配置已保存，设备正在重启" : "配置应用成功");
 		audit_log("config.apply", "success");
 		return 0;
 	}
 	rollback_result = atomic_copy(OVIS_CONFIG_BACKUP, OVIS_CONFIG_FILE);
 	if (rollback_result == 0 && !uvc_changed) {
-		rollback_result = service_run_action(SERVICE_RESTART, rollback_output,
-			sizeof(rollback_output));
+		if (overlay_only) {
+			rollback_result = service_reload_overlay(rollback_output,
+				sizeof(rollback_output));
+		} else {
+			rollback_result = service_run_action(SERVICE_RESTART,
+				rollback_output, sizeof(rollback_output));
+		}
 	}
 	if (rollback_result == 0) {
 		*rolled_back = 1;

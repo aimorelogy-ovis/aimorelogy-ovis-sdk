@@ -107,6 +107,9 @@ s32 vpss_set_rgn_cfg(vpss_grp grp_id, vpss_chn chn_id, u32 layer,
 	s32 ret;
 	struct vpss_grp_ctx *grp_ctx;
 	struct vpss_chn_ctx *chn_ctx;
+	struct vpss_hal_ctx *hal_ctx;
+	struct vpss_job *job_item;
+	unsigned long flags;
 
 	if (cfg == NULL) {
 		TRACE_VPSS(DBG_ERR, "cfs is nulL.\n");
@@ -126,6 +129,22 @@ s32 vpss_set_rgn_cfg(vpss_grp grp_id, vpss_chn chn_id, u32 layer,
 
 	osal_mutex_lock(&grp_ctx->lock);
 	osal_memcpy(&chn_ctx->rgn_cfg[layer], cfg, sizeof(*cfg));
+
+	/* Keep queued online frames on the newest overlay instead of replaying
+	 * canvas addresses captured by older application updates. */
+	hal_ctx = (struct vpss_hal_ctx *)grp_ctx->hal_ctx_ptr;
+	if (hal_ctx) {
+		osal_spin_lock_irqsave(&hal_ctx->task_lock, &flags);
+		osal_list_for_each_entry(job_item, &hal_ctx->job_online_queue, list) {
+			if (job_item->grp_id != grp_id ||
+			    osal_atomic_read(&job_item->job_state) != JOB_WAIT)
+				continue;
+			osal_memcpy(
+				&job_item->cfg.chn_cfg[chn_id].rgn_cfg[layer],
+				cfg, sizeof(*cfg));
+		}
+		osal_spin_unlock_irqrestore(&hal_ctx->task_lock, &flags);
+	}
 	osal_mutex_unlock(&grp_ctx->lock);
 
 	return 0;
@@ -381,4 +400,3 @@ s32 vpss_is_rgn_addr_in_use(vpss_grp grp_id, vpss_chn chn_id, u32 layer,
 	osal_mutex_unlock(&grp_ctx->lock);
 	return 0;
 }
-

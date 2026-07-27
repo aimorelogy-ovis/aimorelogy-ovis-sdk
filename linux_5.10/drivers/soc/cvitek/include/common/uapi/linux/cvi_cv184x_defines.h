@@ -236,7 +236,7 @@ enum ENUM_CHIP_ID {
 // vo rgn define
 #define RGN_MAX_NUM_VO            8
 
-#define RGN_MAX_BUF_NUM           2
+#define RGN_MAX_BUF_NUM           3
 #define RGN_MAX_NUM               108
 
 /*************************************/
@@ -380,4 +380,3 @@ enum ENUM_CHIP_ID {
 #endif /* __cplusplus */
 
 #endif /* __U_CVI_CV180X_DEFINES_H__ */
-

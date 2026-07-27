@@ -256,7 +256,8 @@ CVI_S32 platform_rgn_getcanvasinfo(RGN_HANDLE Handle, RGN_CANVAS_INFO_S *pstCanv
 
 	s32Ret = rgn_get_canvas_info(fd, Handle, pstCanvasInfo);
 	if (s32Ret != CVI_SUCCESS) {
-		CVI_TRACE_RGN(CVI_DBG_ERR, "Get RGN canvas information fail.\n");
+		if (s32Ret != CVI_ERR_RGN_BUSY)
+			CVI_TRACE_RGN(CVI_DBG_ERR, "Get RGN canvas information fail.\n");
 		return s32Ret;
 	}
 

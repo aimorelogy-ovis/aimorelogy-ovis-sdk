@@ -36,6 +36,9 @@ static CVI_BOOL g_bMisc;
  **************************************************************************/
 static int app_ipcam_Exit(void);
 static volatile sig_atomic_t g_s32ExitSignal = 0;
+#ifdef OSDC_SUPPORT
+static volatile sig_atomic_t g_s32OsdcReloadRequested = 0;
+#endif
 
 #define IPCAMERA_READY_FILE_DEFAULT "/var/run/ipcamera.ready"
 
@@ -83,6 +86,15 @@ static CVI_VOID app_ipcam_Usr1Sig_handle(CVI_S32 signo)
         app_ipcam_JpgCapFlag_Set(CVI_TRUE);
     }
 }
+
+#ifdef OSDC_SUPPORT
+static CVI_VOID app_ipcam_Usr2Sig_handle(CVI_S32 signo)
+{
+    if (SIGUSR2 == signo) {
+        g_s32OsdcReloadRequested = 1;
+    }
+}
+#endif
 
 static int app_ipcam_Peripheral_Init(void)
 {
@@ -304,6 +316,9 @@ int main(int argc, char *argv[])
     signal(SIGINT, app_ipcam_ExitSig_handle);
     signal(SIGTERM, app_ipcam_ExitSig_handle);
     signal(SIGUSR1, app_ipcam_Usr1Sig_handle);
+#ifdef OSDC_SUPPORT
+    signal(SIGUSR2, app_ipcam_Usr2Sig_handle);
+#endif
     /* RTSP clients can reset a TCP connection while the server is sending.
      * Keep that socket failure local to the RTSP session. */
     signal(SIGPIPE, SIG_IGN);
@@ -410,7 +425,17 @@ int main(int argc, char *argv[])
     //APP_CHK_RET(app_ipcam_CmdTask_Create(), "running cmd test");
 
     while (g_s32ExitSignal == 0) {
-        sleep(1);
+#ifdef OSDC_SUPPORT
+        if (g_s32OsdcReloadRequested) {
+            g_s32OsdcReloadRequested = 0;
+            if (app_ipcam_Osdc_Reload(
+                    app_ipcam_Param_ConfigPath_Get()) != CVI_SUCCESS) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "reload OSD config failed\n");
+            }
+        }
+#endif
+        usleep(100 * 1000);
     }
 
     signal(SIGINT, SIG_IGN);

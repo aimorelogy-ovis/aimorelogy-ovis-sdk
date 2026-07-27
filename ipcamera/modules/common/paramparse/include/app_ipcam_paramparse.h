@@ -83,6 +83,11 @@ const char ** app_ipcam_Param_get_ai_supported_model();
 #endif
 
 int app_ipcam_Param_Load(void);
+const char *app_ipcam_Param_ConfigPath_Get(void);
+
+#ifdef OSDC_SUPPORT
+int Load_Param_Osdc_Config(const char *file, APP_PARAM_OSDC_CFG_S *Osdc);
+#endif
 
 int app_ipcam_Opts_Parse(int argc, char *argv[]);
 

@@ -135,8 +135,9 @@ function pack_rootfs
   make rootfs
 )}
 
-function _ipcamera_pqtool_enabled()
+function _ipcamera_config_enabled()
 {
+  local symbol="$1"
   local app_config="$TOP_DIR/ipcamera/.config"
 
   if [[ ! -r "$app_config" ]]; then
@@ -144,7 +145,12 @@ function _ipcamera_pqtool_enabled()
   fi
 
   [[ "$BUILD_TURNKEY_IPC" = "y" ]] &&
-    grep -q '^CONFIG_MODULE_PQTOOL=y$' "$app_config"
+    grep -q "^${symbol}=y$" "$app_config"
+}
+
+function _ipcamera_pqtool_enabled()
+{
+  _ipcamera_config_enabled CONFIG_MODULE_PQTOOL
 }
 
 function _clear_pq_bins()
@@ -154,6 +160,25 @@ function _clear_pq_bins()
   command rm -f "$output_dir"/cvi_sdr_bin
   command rm -f "$output_dir"/cvi_sdr_ir_bin
   command rm -f "$output_dir"/cvi_wdr_bin
+}
+
+function _copy_ai_bnr_pq_bin()
+{
+  local source_dir="$ISP_TUNING_PATH/${CHIP_ARCH,,}/src/$SENSOR_TUNING_PARAM"
+  local source_bin="$source_dir/${SENSOR_TUNING_PARAM}_sdr_aibnr.bin"
+  local output_dir="$OUTPUT_DIR/data/ai-bnr"
+
+  command rm -f "$output_dir"/cvi_sdr_bin
+  if ! _ipcamera_config_enabled CONFIG_MODULE_AI_BNR; then
+    return 0
+  fi
+  if [[ ! -r "$source_bin" ]]; then
+    print_error "AI BNR PQ bin not found: $source_bin"
+    return 1
+  fi
+
+  command mkdir -p "$output_dir"
+  command cp "$source_bin" "$output_dir"/cvi_sdr_bin
 }
 
 function pack_data
@@ -169,6 +194,7 @@ function pack_data
     ./copyBin.sh "$OUTPUT_DIR"/data/ "$SENSOR_TUNING_PARAM"
     popd
   fi
+  _copy_ai_bnr_pq_bin || return "$?"
   pushd "$OUTPUT_DIR"/data;echo "If you can dream it, you can do it." > sample;popd
   cd "$BUILD_PATH" || return
   make data

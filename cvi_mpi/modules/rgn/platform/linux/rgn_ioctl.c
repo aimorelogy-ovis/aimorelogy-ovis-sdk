@@ -13,6 +13,7 @@
 #include <sys/ioctl.h>
 
 #include <cvi_comm_video.h>
+#include <cvi_errno.h>
 #include "rgn_ioctl.h"
 #include "rgn_uapi.h"
 
@@ -30,8 +31,11 @@ static inline CVI_S32 SDK_CTRL_GET_CFG(int _fd, void *_cfg1, void *_cfg2, int _i
 
 	rc = ioctl(_fd, RGN_IOC_G_CTRL, &ec1);
 	if (rc < 0) {
-		fprintf(stderr, "RGN_SDK_IOC_G_CTRL(%d-%d) - %s NG, %s\n",
-			ec1.id, ec1.sdk_id, __func__, strerror(errno));
+		if (!(_ioctl == RGN_SDK_GET_CANVAS_INFO &&
+		      rc == CVI_ERR_RGN_BUSY)) {
+			fprintf(stderr, "RGN_SDK_IOC_G_CTRL(%d-%d) - %s NG, %s\n",
+				ec1.id, ec1.sdk_id, __func__, strerror(errno));
+		}
 		return rc;
 	}
 	return 0;
