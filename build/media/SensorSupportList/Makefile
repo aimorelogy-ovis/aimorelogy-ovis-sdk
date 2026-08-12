@@ -198,6 +198,9 @@ sms_sc635ai:
 sms_sc831hai:
 	$(call MAKE_SENSOR, ${@})
 
+sms_sc835hai:
+	$(call MAKE_SENSOR, ${@})
+
 sms_sc1330:
 	$(call MAKE_SENSOR, ${@})
 
@@ -310,6 +313,9 @@ techpoint_tp2860:
 	$(call MAKE_SENSOR, ${@})
 
 lontium_lt6911:
+	$(call MAKE_SENSOR, ${@})
+
+sms_sc835:
 	$(call MAKE_SENSOR, ${@})
 
 all_sensor:

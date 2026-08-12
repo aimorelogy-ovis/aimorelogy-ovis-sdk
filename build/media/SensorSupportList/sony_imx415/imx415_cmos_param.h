@@ -13,196 +13,32 @@ extern "C" {
 #include "imx415_cmos_ex.h"
 
 static const IMX415_MODE_S g_astImx415_mode[IMX415_MODE_NUM] = {
-	[IMX415_MODE_4M25] = {
-		.name = "4M25",
-		.astImg[0] = {
-			.stSnsSize = {
-				.u32Width = 2568,
-				.u32Height = 1440,
-			},
-			.stWndRect = {
-				.s32X = 4,
-				.s32Y = 0,
-				.u32Width = 2560,
-				.u32Height = 1440,
-			},
-			.stMaxSize = {
-				.u32Width = 2568,
-				.u32Height = 1440,
-			},
-		},
-		.f32MaxFps = 25,
-		.f32MinFps = 0.0,
-		.u32HtsDef = 0x044c,
-		.u32VtsDef = 0x0a8e, // 25fps
-		.stExp[0] = {
-			.u16Min = 8,
-			.u16Max = 0x0a8e - 4,
-			.u16Def = 8,
-			.u16Step = 1,
-		},
-		.stAgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 32381, // 30db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-		.stDgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 128913, // 42db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-	},
-	[IMX415_MODE_8M25] = {
-		.name = "8M25",
-		.astImg[0] = {
-			.stSnsSize = {
-				.u32Width = 3864,
-				.u32Height = 2192,
-			},
-			.stWndRect = {
-				.s32X = 12,
-				.s32Y = 16,
-				.u32Width = 3840,
-				.u32Height = 2160,
-			},
-			.stMaxSize = {
-				.u32Width = 3864,
-				.u32Height = 2192,
-			},
-		},
-		.f32MaxFps = 25,
-		.f32MinFps = 0.0,
-		.u32HtsDef = 0x044c,
-		.u32VtsDef = 0x0a8e,
-		.stExp[0] = {
-			.u16Min = 8,
-			.u16Max = 0x0a8e - 4,
-			.u16Def = 8,
-			.u16Step = 1,
-		},
-		.stAgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 32381, // 30db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-		.stDgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 128913, // 42db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-	},
-	[IMX415_MODE_8M30] = {
-		.name = "8M30",
-		.astImg[0] = {
-			.stSnsSize = {
-				.u32Width = 3864,
-				.u32Height = 2192,
-			},
-			.stWndRect = {
-				.s32X = 12,
-				.s32Y = 16,
-				.u32Width = 3840,
-				.u32Height = 2160,
-			},
-			.stMaxSize = {
-				.u32Width = 3864,
-				.u32Height = 2192,
-			},
-		},
-		.f32MaxFps = 30,
-		.f32MinFps = 0.0,
-		.u32HtsDef = 0x0215,
-		.u32VtsDef = 0x1197,
-		.stExp[0] = {
-			.u16Min = 8,
-			.u16Max = 0x1197 - 4,
-			.u16Def = 8,
-			.u16Step = 1,
-		},
-		.stAgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 32381, // 30db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-		.stDgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 128913, // 42db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-	},
-	[IMX415_MODE_5M25] = {
-		.name = "5M25",
-		.astImg[0] = {
-			.stSnsSize = {
-				.u32Width = 2568,
-				.u32Height = 2160,
-			},
-			.stWndRect = {
-				.s32X = 4,
-				.s32Y = 0,
-				.u32Width = 2560,
-				.u32Height = 2160,
-			},
-			.stMaxSize = {
-				.u32Width = 2568,
-				.u32Height = 2160,
-			},
-		},
-		.f32MaxFps = 25,
-		.f32MinFps = 0.0,
-		.u32HtsDef = 0x044c,
-		.u32VtsDef = 0x0a8e,
-		.stExp[0] = {
-			.u16Min = 8,
-			.u16Max = 0x0a8e - 4,
-			.u16Def = 8,
-			.u16Step = 1,
-		},
-		.stAgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 32381, // 30db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-		.stDgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 128913, // 42db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-	},
 	[IMX415_MODE_2M60] = {
-		.name = "2M60",
+		.name = "2M30",
 		.astImg[0] = {
 			.stSnsSize = {
-				.u32Width = 1944,
-				.u32Height = 1097,
+				.u32Width = 1920,
+				.u32Height = 1080,
 			},
 			.stWndRect = {
-				.s32X = 6,
-				.s32Y = 11,
+				.s32X = 0,
+				.s32Y = 0,
 				.u32Width = 1920,
 				.u32Height = 1080,
 			},
 			.stMaxSize = {
-				.u32Width = 1944,
-				.u32Height = 1097,
+				.u32Width = 1920,
+				.u32Height = 1080,
 			},
 		},
-		.f32MaxFps = 60,
+		.f32MaxFps = 30,
 		.f32MinFps = 0.0,
-		.u32HtsDef = 0x021E,
-		.u32VtsDef = 0x08EB,
+		.u32HtsDef = 0x4c04,
+		.u32VtsDef = 0xca08,
 		.stExp[0] = {
-			.u16Min = 4,
-			.u16Max = 0x08EB - 8,
-			.u16Def = 400,
+			.u16Min = 8,
+			.u16Max = 0xca08 - 4,
+			.u16Def = 8,
 			.u16Step = 1,
 		},
 		.stAgain[0] = {
@@ -214,83 +50,6 @@ static const IMX415_MODE_S g_astImx415_mode[IMX415_MODE_NUM] = {
 		.stDgain[0] = {
 			.u32Min = 1024,
 			.u32Max = 128913, // 42db
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-	},
-	[IMX415_MODE_4M25_WDR] = {
-		.name = "4M25_WDR",
-		/* sef */
-		.astImg[0] = {
-			.stSnsSize = {
-				.u32Width = 2616,
-				.u32Height = 1964,
-			},
-			.stWndRect = {
-				.s32X = 12,
-				.s32Y = 12,
-				.u32Width = 2592,
-				.u32Height = 1944,
-			},
-			.stMaxSize = {
-				.u32Width = 2616,
-				.u32Height = 1964,
-			},
-		},
-		/* lef */
-		.astImg[1] = {
-			.stSnsSize = {
-				.u32Width = 2616,
-				.u32Height = 1964,
-			},
-			.stWndRect = {
-				.s32X = 12,
-				.s32Y = 12,
-				.u32Width = 2592,
-				.u32Height = 1944,
-			},
-			.stMaxSize = {
-				.u32Width = 2616,
-				.u32Height = 1964,
-			},
-		},
-		.f32MaxFps = 30,
-		.f32MinFps = 0.13, /* 0x1194 * 30 / 0xFFFFF */
-		.u32HtsDef = 0x0898,
-		.u32VtsDef = 0x1194,
-		.stExp[0] = {
-			.u16Min = 8,
-			.u16Max = 481,
-			.u16Def = 8,
-			.u16Step = 1,
-		},
-		.stExp[1] = {
-			.u16Min = 128,
-			.u16Max = 7696,
-			.u16Def = 128,
-			.u16Step = 1,
-		},
-		.stAgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 62416,
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-		.stAgain[1] = {
-			.u32Min = 1024,
-			.u32Max = 62416,
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-		.stDgain[0] = {
-			.u32Min = 1024,
-			.u32Max = 38485,
-			.u32Def = 1024,
-			.u32Step = 1,
-		},
-		.stDgain[1] = {
-			.u32Min = 1024,
-			.u32Max = 38485,
 			.u32Def = 1024,
 			.u32Step = 1,
 		},
@@ -434,7 +193,7 @@ struct combo_dev_attr_s imx415_rx_attr = {
 	.mac_clk = RX_MAC_CLK_900M,
 	.mipi_attr = {
 		.raw_data_type = RAW_DATA_12BIT,
-		.lane_id = {4, 0, 1, 2, 3},
+		.lane_id = {0, 1, 2, 3, 4},
 		.pn_swap = {0, 0, 0, 0, 0},
 		.wdr_mode = CVI_MIPI_WDR_MODE_NONE,
 		.dphy = {
@@ -444,7 +203,7 @@ struct combo_dev_attr_s imx415_rx_attr = {
 	},
 	.mclk = {
 		.cam = 0,
-		.freq = CAMPLL_FREQ_37P125M,
+		.freq = CAMPLL_FREQ_27M,
 	},
 	.devno = 0,
 };

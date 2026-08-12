@@ -116,8 +116,8 @@ static CVI_S32 cmos_get_ae_default(VI_PIPE ViPipe, AE_SENSOR_DEFAULT_S *pstAeSns
 	pstAeSnsDft->u32FullLinesStd = pstSnsState->u32FLStd;
 	pstAeSnsDft->u32FlickerFreq = 50 * 256;
 	pstAeSnsDft->u32FullLinesMax = IMX415_FULL_LINES_MAX;
-	if (pstSnsState->u8ImgMode == IMX415_MODE_2M60) {
-		pstAeSnsDft->u32HmaxTimes = (1000000) / (pstSnsState->u32FLStd * 60);
+	if (pstSnsState->u8ImgMode == IMX415_MODE_2M30) {
+		pstAeSnsDft->u32HmaxTimes = (1000000) / (pstSnsState->u32FLStd * 30);
 	} else if (pstSnsState->u8ImgMode == IMX415_MODE_8M30) {
 		pstAeSnsDft->u32HmaxTimes = (1000000) / (pstSnsState->u32FLStd * 30);
 	} else {
@@ -252,12 +252,9 @@ static CVI_S32 cmos_fps_set(VI_PIPE ViPipe, CVI_FLOAT f32Fps, AE_SENSOR_DEFAULT_
 		}
 		u32VMAX = (u32VMAX > IMX415_FULL_LINES_MAX) ? IMX415_FULL_LINES_MAX : u32VMAX;
 		break;
-
-	case IMX415_MODE_4M25:
-	case IMX415_MODE_8M25:
+		
 	case IMX415_MODE_8M30:
-	case IMX415_MODE_5M25:
-	case IMX415_MODE_2M60:
+	case IMX415_MODE_2M30:
 		if ((f32Fps <= f32MaxFps) && (f32Fps >= f32MinFps)) {
 			u32VMAX = u32Vts * f32MaxFps / DIV_0_TO_1_FLOAT(f32Fps);
 		} else {
@@ -795,46 +792,9 @@ static CVI_S32 cmos_set_image_mode(VI_PIPE ViPipe, ISP_CMOS_SENSOR_IMAGE_MODE_S 
 	u8SensorImageMode = pstSnsState->u8ImgMode;
 	pstSnsState->bSyncInit = CVI_FALSE;
 
-	if (pstSensorImageMode->f32Fps <= 25) {
-		if (pstSnsState->enWDRMode == WDR_MODE_NONE) {
-			if (IMX415_RES_IS_4M(pstSensorImageMode->u16Width, pstSensorImageMode->u16Height))
-				u8SensorImageMode = IMX415_MODE_4M25;
-			else if (IMX415_RES_IS_8M(pstSensorImageMode->u16Width, pstSensorImageMode->u16Height))
-				u8SensorImageMode = IMX415_MODE_8M25;
-			else if (IMX415_RES_IS_5M(pstSensorImageMode->u16Width, pstSensorImageMode->u16Height))
-				u8SensorImageMode = IMX415_MODE_5M25;
-			else {
-				CVI_TRACE_SNS(CVI_DBG_ERR, "Not support! Width:%d, Height:%d, Fps:%f, WDRMode:%d\n",
-				       pstSensorImageMode->u16Width,
-				       pstSensorImageMode->u16Height,
-				       pstSensorImageMode->f32Fps,
-				       pstSnsState->enWDRMode);
-				return CVI_FAILURE;
-			}
-		} else if (pstSnsState->enWDRMode == WDR_MODE_2To1_LINE) {
-			if (IMX415_RES_IS_4M(pstSensorImageMode->u16Width, pstSensorImageMode->u16Height))
-				u8SensorImageMode = IMX415_MODE_4M25_WDR;
-			else {
-				CVI_TRACE_SNS(CVI_DBG_ERR, "Not support! Width:%d, Height:%d, Fps:%f, WDRMode:%d\n",
-				       pstSensorImageMode->u16Width,
-				       pstSensorImageMode->u16Height,
-				       pstSensorImageMode->f32Fps,
-				       pstSnsState->enWDRMode);
-				return CVI_FAILURE;
-			}
-		} else {
-			CVI_TRACE_SNS(CVI_DBG_ERR, "Not support! Width:%d, Height:%d, Fps:%f, WDRMode:%d\n",
-			       pstSensorImageMode->u16Width,
-			       pstSensorImageMode->u16Height,
-			       pstSensorImageMode->f32Fps,
-			       pstSnsState->enWDRMode);
-			return CVI_FAILURE;
-		}
-	} else if (pstSensorImageMode->f32Fps <= 60) {
-		if (IMX415_RES_IS_8M(pstSensorImageMode->u16Width, pstSensorImageMode->u16Height))
-				u8SensorImageMode = IMX415_MODE_8M30;
-		else if (IMX415_RES_IS_1080(pstSensorImageMode->u16Width, pstSensorImageMode->u16Height)) {
-				u8SensorImageMode = IMX415_MODE_2M60;
+   if (pstSensorImageMode->f32Fps <= 60) {
+     if (IMX415_RES_IS_1080(pstSensorImageMode->u16Width, pstSensorImageMode->u16Height)) {
+				u8SensorImageMode = IMX415_MODE_2M30;
 		}
 		else {
 				CVI_TRACE_SNS(CVI_DBG_ERR, "Not support! Width:%d, Height:%d, Fps:%f, WDRMode:%d\n",

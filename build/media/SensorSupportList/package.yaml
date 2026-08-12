@@ -144,6 +144,7 @@ build_config:
     - sms_sc535hai
     - sms_sc635ai
     - sms_sc831hai
+    - sms_sc835hai
     - sms_sc1330
     - sms_sc1336_1L
     - sms_sc1346_1L
@@ -152,6 +153,7 @@ build_config:
     - sms_sc3335
     - sms_sc3336
     - sms_sc2335
+    - sms_sc835
     - sms_sc4336
     - sms_sc4336p
     - sms_sc202l
@@ -242,6 +244,7 @@ source_file:
   - sms_sc535hai/*.c ? <CONFIG_SENSOR_SMS_SC535HAI>
   - sms_sc635ai/*.c ? <CONFIG_SENSOR_SMS_SC635AI>
   - sms_sc831hai/*.c ? <CONFIG_SENSOR_SMS_SC831HAI>
+  - sms_sc835hai/*.c ? <CONFIG_SENSOR_SMS_SC835HAI>
   - sms_sc1330/*.c ? <CONFIG_SENSOR_SMS_SC1330>
   - sms_sc1336_1L/*.c ? <CONFIG_SENSOR_SMS_SC1336_1L>
   - sms_sc1346_1L/*.c ? <CONFIG_SENSOR_SMS_SC1346_1L>
@@ -250,6 +253,7 @@ source_file:
   - sms_sc3335/*.c ? <CONFIG_SENSOR_SMS_SC3335>
   - sms_sc3336/*.c ? <CONFIG_SENSOR_SMS_SC3336>
   - sms_sc2335/*.c ? <CONFIG_SENSOR_SMS_SC2335>
+  - sms_sc835/*.c ? <CONFIG_SENSOR_SMS_SC835>
   - sms_sc4336/*.c ? <CONFIG_SENSOR_SMS_SC4336>
   - sms_sc4336p/*.c ? <CONFIG_SENSOR_SMS_SC4336P>
   - sms_sc202l/*.c ? <CONFIG_SENSOR_SMS_SC202L>

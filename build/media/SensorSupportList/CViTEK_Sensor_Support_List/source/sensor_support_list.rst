@@ -534,6 +534,19 @@ This data sheet and All information contained herein is provided "As is" without
      -
      -
      - 16:9
+     - 1920*1080
+     - MIPI
+     - 30
+     - Linear
+     -
+     -
+     -
+
+   * -
+     -
+     -
+     -
+     - 16:9
      - 2560*1440
      - MIPI
      - 25
