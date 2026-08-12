@@ -6,6 +6,8 @@ int cvi_board_init(void)
 	PINMUX_CONFIG(CAM_RST0, XGPIOA_2);        /* CAM-RSTn, GPIO482 */
 	PINMUX_CONFIG(IIC3_SCL, IIC3_SCL);        /* CAM-SCL */
 	PINMUX_CONFIG(IIC3_SDA, IIC3_SDA);        /* CAM-SDA */
+	mmio_clrsetbits_32(0x03001b14, 0xc, 0x4); /* CAM-SCL pull-up */
+	mmio_clrsetbits_32(0x03001b18, 0xc, 0x4); /* CAM-SDA pull-up */
 	PINMUX_CONFIG(PAD_MIPIRX4N, XGPIOC_2);    /* CAM0 PAD_MIPIRX4N, GPIO418 */
 	PINMUX_CONFIG(PAD_MIPIRX4P, XGPIOC_3);    /* CAM0 PAD_MIPIRX4P, GPIO419 */
 
