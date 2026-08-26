@@ -14,7 +14,7 @@
 #include "dsi_ota7290b.h"
 #include "dsi_ota7290b_1920.h"
 #include "dsi_st7701.h"
-#include "bt656_ms7024.h"
+#include "bt656_ms7024_NULL_NULL_NULL.h"
 #include "lvds_lcm185x56.h"
 
 #include "cvi_vo.h"

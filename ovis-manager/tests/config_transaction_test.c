@@ -62,6 +62,7 @@ static void clean_test_directory(void)
 	unlink("/tmp/ovis-manager-config-test/active.ini.tmp");
 	unlink("/tmp/ovis-manager-config-test/active.ini.migrated");
 	unlink("/tmp/ovis-manager-config-test/active.ini.migrated.tmp");
+	unlink("/tmp/ovis-manager-config-test/active.ini.display.tmp");
 	unlink("/tmp/ovis-manager-config-test/pending.ini");
 	unlink("/tmp/ovis-manager-config-test/pending.ini.tmp");
 	unlink("/tmp/ovis-manager-config-test/backup.ini");
@@ -250,6 +251,59 @@ static char *make_object_frame_payload(cJSON *document, int width, int height)
 	return json;
 }
 
+static char *make_display_payload(cJSON *document, int enabled, const char *mode)
+{
+	cJSON *payload = cJSON_CreateObject();
+	cJSON *revision = cJSON_GetObjectItemCaseSensitive(document, "revision");
+	cJSON *values = cJSON_Duplicate(
+		cJSON_GetObjectItemCaseSensitive(document, "values"), 1);
+	cJSON *outputs = cJSON_GetObjectItemCaseSensitive(values, "outputs");
+	cJSON *display = cJSON_GetObjectItemCaseSensitive(outputs, "display");
+	char *json;
+
+	cJSON_ReplaceItemInObjectCaseSensitive(display, "enabled",
+		cJSON_CreateBool(enabled));
+	cJSON_ReplaceItemInObjectCaseSensitive(display, "mode",
+		cJSON_CreateString(mode));
+	cJSON_AddItemToObject(payload, "revision", cJSON_Duplicate(revision, 1));
+	cJSON_AddItemToObject(payload, "values", values);
+	json = cJSON_PrintUnformatted(payload);
+	cJSON_Delete(payload);
+	return json;
+}
+
+static void stage_display_and_apply(int enabled)
+{
+	char current_revision[33];
+	char staged_revision[33];
+	char validation[4096];
+	char response[4096];
+	char error[256];
+	char message[512];
+	cJSON *document = read_document(current_revision, sizeof(current_revision));
+	cJSON *saved;
+	cJSON *item;
+	char *payload = make_display_payload(document, enabled, OVIS_DISPLAY_MODE);
+	int rolled_back = 0;
+
+	cJSON_Delete(document);
+	if (config_validate_json(payload, validation, sizeof(validation), error,
+			sizeof(error)) != 0 ||
+	    config_stage_json(payload, response, sizeof(response), error,
+			sizeof(error)) != 0)
+		fail("display configuration could not be staged");
+	free(payload);
+	saved = cJSON_Parse(response);
+	item = cJSON_GetObjectItemCaseSensitive(saved, "revision");
+	if (!cJSON_IsString(item))
+		fail("display staged revision is missing");
+	snprintf(staged_revision, sizeof(staged_revision), "%s", item->valuestring);
+	cJSON_Delete(saved);
+	if (config_apply_staged(staged_revision, message, sizeof(message),
+			&rolled_back) != 0 || rolled_back)
+		fail("display configuration could not be applied");
+}
+
 static void stage_and_apply(int fps, int bitrate, int sensitivity, int sub_enabled,
 	int rtsp_enabled, int uvc_enabled, int motion_enabled,
 	int object_tracking_enabled, int fail_first_restart, int expect_success,
@@ -310,7 +364,9 @@ int main(void)
 	if (!active_config_value_equals("vi_cfg_isp0", "teaisp_bnr_enable", "0"))
 		fail("AI BNR migration did not preserve the default disabled state");
 	if (config_capabilities_json(capabilities, sizeof(capabilities)) != 0 ||
-	    strstr(capabilities, "\"schema_version\":6") == NULL ||
+		    strstr(capabilities, "\"schema_version\":7") == NULL ||
+		    strstr(capabilities, "\"display\":{\"supported\":true") == NULL ||
+		    strstr(capabilities, "\"id\":\"720x480_60\"") == NULL ||
 	    strstr(capabilities, "\"overlay\":{\"supported\":true") == NULL ||
 	    strstr(capabilities, "\"reticleTemplates\"") == NULL ||
 	    strstr(capabilities, "\"reticle_templates\"") == NULL ||
@@ -334,7 +390,7 @@ int main(void)
 	    !active_config_value_equals("vpssgrp0.chn2", "attach_en", "1") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "attach_pool", "1") ||
 	    !active_config_value_equals("vpssgrp0.chn2", "dst_framerate", "-1") ||
-	    !active_config_value_equals("vb_config", "vb_pool_cnt", "9") ||
+		    !active_config_value_equals("vb_config", "vb_pool_cnt", "10") ||
 	    !active_config_value_equals("vb_pool_1", "frame_width", "640") ||
 	    !active_config_value_equals("vb_pool_1", "frame_height", "384") ||
 	    !active_config_value_equals("vb_pool_1", "frame_fmt",
@@ -353,7 +409,7 @@ int main(void)
 	    !active_config_value_equals("vb_pool_8", "frame_height", "1080") ||
 	    !active_config_value_equals("vb_pool_8", "blk_cnt", "4") ||
 	    !active_config_value_equals("vb_pool_8", "bEnable", "0") ||
-	    !active_config_value_equals("vpss_config", "vpss_grp", "7") ||
+		    !active_config_value_equals("vpss_config", "vpss_grp", "8") ||
 	    !active_config_value_equals("vpssgrp1", "chn_cnt", "1") ||
 	    !active_config_value_equals("vpssgrp6", "grp_enable", "0") ||
 	    !active_config_value_equals("vpssgrp6", "src_dev_id", "0") ||
@@ -382,8 +438,18 @@ int main(void)
 		    "PIXEL_FORMAT_NV12") ||
 	    !active_config_value_equals("vb_pool_2", "frame_fmt", "PIXEL_FORMAT_NV12") ||
 	    !active_config_value_equals("vpssgrp5", "grp_enable", "0") ||
-	    !active_config_value_equals("output_config", "rtsp_enable", "0") ||
-	    !active_config_value_equals("output_config", "uvc_enable", "1"))
+		    !active_config_value_equals("output_config", "rtsp_enable", "0") ||
+		    !active_config_value_equals("output_config", "uvc_enable", "1") ||
+		    !active_config_value_equals("display_config", "vo_cnt", "0") ||
+		    !active_config_value_equals("display_config_0", "panel_type",
+			    OVIS_DISPLAY_PANEL_TYPE) ||
+		    !active_config_value_equals("display_config_0", "src_dev_id", "7") ||
+		    !active_config_value_equals("vb_pool_9", "bEnable", "0") ||
+		    !active_config_value_equals("vb_pool_9", "frame_width", "720") ||
+		    !active_config_value_equals("vb_pool_9", "frame_height", "480") ||
+		    !active_config_value_equals("vpssgrp7", "grp_enable", "0") ||
+		    !active_config_value_equals("vpssgrp7", "dst_dev_id", "7") ||
+		    !active_config_value_equals("vpssgrp7.chn0", "attach_pool", "9"))
 		fail("ObjectTrack VPSS topology migration failed");
 	document = read_document(revision_before, sizeof(revision_before));
 	payload = make_frontend_payload(document, 60, 1);
@@ -539,6 +605,42 @@ int main(void)
 	    !active_config_value_equals("output_config", "uvc_enable", "0"))
 		fail("failed UVC reboot scheduling changed the running service or config");
 
+	document = read_document(revision_after, sizeof(revision_after));
+	payload = make_display_payload(document, 1, "unsupported");
+	if (config_validate_json(payload, validation, sizeof(validation), error,
+			sizeof(error)) != 1 ||
+	    strstr(validation, "UNSUPPORTED_DISPLAY_MODE") == NULL)
+		fail("unsupported display mode was not rejected");
+	free(payload);
+	cJSON_Delete(document);
+	service_calls = 0;
+	usb_reboot_calls = 0;
+	stage_display_and_apply(1);
+	if (service_calls != 1 || usb_reboot_calls != 0 ||
+	    !active_config_value_equals("display_config", "vo_cnt", "1") ||
+	    !active_config_value_equals("vpssgrp7", "grp_enable", "1") ||
+	    !active_config_value_equals("vb_pool_9", "bEnable", "1"))
+		fail("display output did not enable its processing resources");
+	document = read_document(revision_after, sizeof(revision_after));
+	{
+		cJSON *values = cJSON_GetObjectItemCaseSensitive(document, "values");
+		cJSON *outputs = cJSON_GetObjectItemCaseSensitive(values, "outputs");
+		cJSON *display = cJSON_GetObjectItemCaseSensitive(outputs, "display");
+		if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(display, "enabled")) ||
+		    strcmp(cJSON_GetObjectItemCaseSensitive(display, "mode")->valuestring,
+			    OVIS_DISPLAY_MODE) != 0)
+			fail("display output did not round-trip");
+	}
+	cJSON_Delete(document);
+	service_calls = 0;
+	usb_reboot_calls = 0;
+	stage_display_and_apply(0);
+	if (service_calls != 1 || usb_reboot_calls != 0 ||
+	    !active_config_value_equals("display_config", "vo_cnt", "0") ||
+	    !active_config_value_equals("vpssgrp7", "grp_enable", "0") ||
+	    !active_config_value_equals("vb_pool_9", "bEnable", "0"))
+		fail("display output did not release its processing resources");
+
 	fail_service_calls = 0;
 	if (config_apply_defaults(message, sizeof(message), &rolled_back) != 0)
 		fail("default configuration could not be applied");
@@ -569,6 +671,9 @@ int main(void)
 		fail("reset did not disable unused VPSS feature groups");
 	if (!active_config_value_equals("output_config", "rtsp_enable", "0") ||
 	    !active_config_value_equals("output_config", "uvc_enable", "1") ||
+	    !active_config_value_equals("display_config", "vo_cnt", "0") ||
+	    !active_config_value_equals("vpssgrp7", "grp_enable", "0") ||
+	    !active_config_value_equals("vb_pool_9", "bEnable", "0") ||
 	    !active_config_value_equals("vpssgrp0.chn1", "chn_enable", "0") ||
 	    !active_config_value_equals("vencchn2", "bEnable", "0") ||
 	    !active_config_value_equals("osdc_config1", "bShow", "0"))

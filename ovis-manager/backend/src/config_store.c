@@ -19,6 +19,9 @@ struct config_values {
 	int ai_bnr_present;
 	int rtsp_enabled;
 	int uvc_enabled;
+	int display_enabled;
+	int display_present;
+	char display_mode[24];
 	int main_fps;
 	int main_bitrate;
 	int sub_enabled;
@@ -362,12 +365,16 @@ static int sensitivity_to_threshold(int sensitivity)
 static int load_values(const char *path, struct config_values *values)
 {
 	int motion_threshold;
+	char display_panel[64];
 
 	memset(values, 0, sizeof(*values));
 	if (read_int(path, "vi_cfg_isp0", "teaisp_bnr_enable",
 			&values->ai_bnr_enabled) != 0 ||
 	    read_int(path, "output_config", "rtsp_enable", &values->rtsp_enabled) != 0 ||
 	    read_int(path, "output_config", "uvc_enable", &values->uvc_enabled) != 0 ||
+	    read_int(path, "display_config", "vo_cnt", &values->display_enabled) != 0 ||
+	    read_ini_value(path, "display_config_0", "panel_type", display_panel,
+			sizeof(display_panel)) != 0 ||
 	    read_int(path, "vencchn0", "dst_framerate", &values->main_fps) != 0 ||
 	    read_int(path, "vencchn0", "bit_rate", &values->main_bitrate) != 0 ||
 	    read_int(path, "output_config", "sub_enable", &values->sub_enabled) != 0 ||
@@ -415,6 +422,12 @@ static int load_values(const char *path, struct config_values *values)
 	    read_ini_value(path, "ai_pd_config", "model_path", values->object_model_path,
 		sizeof(values->object_model_path)) != 0)
 		return -1;
+	if ((values->display_enabled != 0 && values->display_enabled != 1) ||
+	    strcmp(display_panel, OVIS_DISPLAY_PANEL_TYPE) != 0)
+		return -1;
+	values->display_present = 1;
+	snprintf(values->display_mode, sizeof(values->display_mode), "%s",
+		OVIS_DISPLAY_MODE);
 	if (values->object_model_path[0] == '"') {
 		size_t length = strlen(values->object_model_path);
 		memmove(values->object_model_path, values->object_model_path + 1, length);
@@ -546,6 +559,7 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON *outputs;
 	cJSON *rtsp;
 	cJSON *uvc;
+	cJSON *display;
 	cJSON *video;
 	cJSON *main_stream;
 	cJSON *sub_stream;
@@ -575,6 +589,7 @@ static cJSON *values_to_json(const struct config_values *values)
 	outputs = cJSON_AddObjectToObject(root, "outputs");
 	rtsp = cJSON_AddObjectToObject(outputs, "rtsp");
 	uvc = cJSON_AddObjectToObject(outputs, "uvc");
+	display = cJSON_AddObjectToObject(outputs, "display");
 	video = cJSON_AddObjectToObject(root, "video");
 	main_stream = cJSON_AddObjectToObject(video, "main");
 	sub_stream = cJSON_AddObjectToObject(video, "sub");
@@ -588,12 +603,14 @@ static cJSON *values_to_json(const struct config_values *values)
 	human_pose = cJSON_AddObjectToObject(detection, "human_pose");
 	tracking = cJSON_AddObjectToObject(root, "tracking");
 	single_object = cJSON_AddObjectToObject(tracking, "single_object");
-	if (uvc == NULL || bnr == NULL || single_object == NULL) {
+	if (uvc == NULL || display == NULL || bnr == NULL || single_object == NULL) {
 		cJSON_Delete(root);
 		return NULL;
 	}
 	cJSON_AddBoolToObject(rtsp, "enabled", values->rtsp_enabled);
 	cJSON_AddBoolToObject(uvc, "enabled", values->uvc_enabled);
+	cJSON_AddBoolToObject(display, "enabled", values->display_enabled);
+	cJSON_AddStringToObject(display, "mode", values->display_mode);
 	cJSON_AddStringToObject(main_stream, "profile", "1080p");
 	cJSON_AddNumberToObject(main_stream, "fps", values->main_fps);
 	cJSON_AddNumberToObject(main_stream, "bitrate_kbps", values->main_bitrate);
@@ -686,10 +703,13 @@ static cJSON *values_to_json(const struct config_values *values)
 int config_capabilities_json(char *json, size_t size)
 {
 	static const char capabilities[] =
-		"{\"schema_version\":6,\"outputs\":{"
+		"{\"schema_version\":7,\"outputs\":{"
 		"\"rtsp\":{\"supported\":true,\"default_enabled\":false},"
 		"\"uvc\":{\"supported\":true,\"default_enabled\":true,"
-		"\"profile\":{\"codec\":\"mjpeg\",\"width\":1920,\"height\":1080,\"fps\":30}}},"
+		"\"profile\":{\"codec\":\"mjpeg\",\"width\":1920,\"height\":1080,\"fps\":30}},"
+		"\"display\":{\"supported\":true,\"default_enabled\":false,"
+		"\"apply_mode\":\"ipcamera_restart\",\"modes\":["
+		"{\"id\":\"720x480_60\",\"width\":720,\"height\":480,\"fps\":60}]}},"
 		"\"video\":{"
 		"\"main\":{\"profiles\":[{\"id\":\"1080p\",\"width\":1920,\"height\":1080,"
 		"\"fps_options\":[15,25,30,60],\"bitrate_min\":512,\"bitrate_max\":15000}]},"
@@ -1063,6 +1083,7 @@ static int parse_payload(const char *body, struct config_values *values,
 	cJSON *outputs;
 	cJSON *rtsp;
 	cJSON *uvc;
+	cJSON *display;
 	cJSON *video;
 	cJSON *main_stream;
 	cJSON *sub_stream;
@@ -1081,6 +1102,7 @@ static int parse_payload(const char *body, struct config_values *values,
 	const char *revision_text;
 	const char *main_profile;
 	const char *sub_profile;
+	const char *display_mode;
 	const char *search_method;
 	const char *default_target_source = NULL;
 	int new_tracking_schema = 0;
@@ -1094,6 +1116,18 @@ static int parse_payload(const char *body, struct config_values *values,
 	outputs = object_item(values_json, "outputs");
 	rtsp = object_item(outputs, "rtsp");
 	uvc = object_item(outputs, "uvc");
+	display = outputs == NULL ? NULL :
+		cJSON_GetObjectItemCaseSensitive(outputs, "display");
+	if (display != NULL) {
+		if (!cJSON_IsObject(display) ||
+		    bool_item(display, "enabled", &values->display_enabled) != 0 ||
+		    string_item(display, "mode", &display_mode) != 0 ||
+		    strlen(display_mode) >= sizeof(values->display_mode))
+			goto done;
+		values->display_present = 1;
+		snprintf(values->display_mode, sizeof(values->display_mode), "%s",
+			display_mode);
+	}
 	video = object_item(values_json, "video");
 	main_stream = object_item(video, "main");
 	sub_stream = object_item(video, "sub");
@@ -1306,6 +1340,17 @@ static void inherit_overlay_values(struct config_values *values,
 	}
 }
 
+static void inherit_display_values(struct config_values *values,
+	const struct config_values *active)
+{
+	if (values->display_present)
+		return;
+	values->display_enabled = active->display_enabled;
+	values->display_present = 1;
+	snprintf(values->display_mode, sizeof(values->display_mode), "%s",
+		active->display_mode);
+}
+
 static int non_overlay_values_equal(const struct config_values *left,
 	const struct config_values *right)
 {
@@ -1319,6 +1364,8 @@ static int non_overlay_values_equal(const struct config_values *left,
 	memset((char *)&right_copy + overlay_offset, 0, overlay_size);
 	left_copy.ai_bnr_present = 0;
 	right_copy.ai_bnr_present = 0;
+	left_copy.display_present = 0;
+	right_copy.display_present = 0;
 	left_copy.object_model_update = 0;
 	right_copy.object_model_update = 0;
 	return memcmp(&left_copy, &right_copy, sizeof(left_copy)) == 0;
@@ -1354,6 +1401,9 @@ static cJSON *validate_values(const struct config_values *values)
 	if (values->rtsp_enabled == values->uvc_enabled)
 		add_issue(errors, "outputs", "OUTPUT_MODE_CONFLICT",
 			"UVC 和 RTSP 必须且只能启用一项");
+	if (strcmp(values->display_mode, OVIS_DISPLAY_MODE) != 0)
+		add_issue(errors, "outputs.display.mode", "UNSUPPORTED_DISPLAY_MODE",
+			"当前固件仅支持 720x480@60 MS7024 输出模式");
 	if (!main_fps_supported(values->main_fps))
 		add_issue(errors, "video.main.fps", "UNSUPPORTED_FPS", "主码流不支持此帧率");
 	if (values->main_bitrate < 512 || values->main_bitrate > 15000)
@@ -1472,6 +1522,7 @@ int config_validate_json(const char *body, char *json, size_t size,
 		snprintf(values.object_model_path, sizeof(values.object_model_path), "%s",
 			active_values.object_model_path);
 	}
+	inherit_display_values(&values, &active_values);
 	inherit_overlay_values(&values, &active_values);
 	root = cJSON_CreateObject();
 	errors = validate_values(&values);
@@ -1844,10 +1895,17 @@ static int append_missing_runtime_sections(const char *path)
 	int need_uvc_pool = !has_section(path, "vb_pool_8");
 	int need_uvc_group = !has_section(path, "vpssgrp6");
 	int need_uvc_channel = !has_section(path, "vpssgrp6.chn0");
+	int need_display_pool = !has_section(path, "vb_pool_9");
+	int need_display_group = !has_section(path, "vpssgrp7");
+	int need_display_channel = !has_section(path, "vpssgrp7.chn0");
+	int need_display_config = !has_section(path, "display_config");
+	int need_display_device = !has_section(path, "display_config_0");
 	FILE *file;
 
 	if (!need_human_pose && !need_object_tracking && !need_sot_pool &&
-	    !need_uvc_pool && !need_uvc_group && !need_uvc_channel)
+	    !need_uvc_pool && !need_uvc_group && !need_uvc_channel &&
+	    !need_display_pool && !need_display_group && !need_display_channel &&
+	    !need_display_config && !need_display_device)
 		return 0;
 	file = fopen(path, "a");
 	if (file == NULL)
@@ -1970,11 +2028,233 @@ static int append_missing_runtime_sections(const char *path)
 			"attach_en       = 1\n"
 			"attach_pool     = 8\n", file);
 	}
+	if (need_display_pool) {
+		fputs("\n[vb_pool_9]\n"
+			"bEnable         = 0\n"
+			"frame_width     = 720\n"
+			"frame_height    = 480\n"
+			"frame_fmt       = PIXEL_FORMAT_NV12\n"
+			"data_bitwidth   = DATA_BITWIDTH_8\n"
+			"compress_mode   = COMPRESS_MODE_NONE\n"
+			"blk_cnt         = 4\n"
+			"mem_size        = 0\n", file);
+	}
+	if (need_display_group) {
+		fputs("\n[vpssgrp7]\n"
+			"group_id        = 7\n"
+			"grp_enable      = 0\n"
+			"pixel_fmt       = PIXEL_FORMAT_NV12\n"
+			"src_framerate   = -1\n"
+			"dst_framerate   = -1\n"
+			"vpss_dev        = 0\n"
+			"max_w           = 1920\n"
+			"max_h           = 1080\n"
+			"chn_cnt         = 1\n"
+			"crop_en         = 0\n"
+			"crop_coor       = VPSS_CROP_RATIO_COOR\n"
+			"crop_rect_x     = 0\n"
+			"crop_rect_y     = 0\n"
+			"crop_rect_w     = 0\n"
+			"crop_rect_h     = 0\n"
+			"bind_mode       = 1\n"
+			"src_mod_id      = CVI_ID_VPSS\n"
+			"src_dev_id      = 0\n"
+			"src_chn_id      = 0\n"
+			"dst_mod_id      = CVI_ID_VPSS\n"
+			"dst_dev_id      = 7\n"
+			"dst_chn_id      = 0\n", file);
+	}
+	if (need_display_channel) {
+		fputs("\n[vpssgrp7.chn0]\n"
+			"chn_enable      = 1\n"
+			"width           = 720\n"
+			"height          = 480\n"
+			"video_fmt       = VIDEO_FORMAT_LINEAR\n"
+			"chn_pixel_fmt   = PIXEL_FORMAT_NV12\n"
+			"src_framerate   = -1\n"
+			"dst_framerate   = -1\n"
+			"depth           = 0\n"
+			"mirror          = 0\n"
+			"filp            = 0\n"
+			"aspectratio     = ASPECT_RATIO_NONE\n"
+			"s32x            = 0\n"
+			"s32y            = 0\n"
+			"rec_width       = 0\n"
+			"rec_heigh       = 0\n"
+			"en_color        = 1\n"
+			"color           = 0\n"
+			"normalize       = 0\n"
+			"crop_en         = 0\n"
+			"crop_coor       = VPSS_CROP_RATIO_COOR\n"
+			"crop_rect_x     = 0\n"
+			"crop_rect_y     = 0\n"
+			"crop_rect_w     = 0\n"
+			"crop_rect_h     = 0\n"
+			"attach_en       = 1\n"
+			"attach_pool     = 9\n", file);
+	}
+	if (need_display_config)
+		fputs("\n[display_config]\nvo_cnt = 0\n", file);
+	if (need_display_device) {
+		fputs("\n[display_config_0]\n"
+			"panel_type      = PANEL_BT656_MS7024_720x480_60\n"
+			"i2c_dev         = 2\n"
+			"i2c_addr        = 0x76\n"
+			"vo_dev          = 0\n"
+			"bg_color        = 0x00000000\n"
+			"intf_type       = VO_INTF_BT656\n"
+			"intf_sync       = VO_OUTPUT_USER\n"
+			"dis_x           = 0\n"
+			"dis_y           = 0\n"
+			"dis_width       = 720\n"
+			"dis_height      = 480\n"
+			"img_width       = 720\n"
+			"img_height      = 480\n"
+			"dis_framerate   = 60\n"
+			"pixel_fmt       = PIXEL_FORMAT_NV12\n"
+			"mode            = VO_MODE_1MUX\n"
+			"rotation        = ROTATION_0\n"
+			"dis_buf_len     = 3\n"
+			"bind_mode       = 1\n"
+			"src_mod_id      = CVI_ID_VPSS\n"
+			"src_dev_id      = 7\n"
+			"src_chn_id      = 0\n"
+			"dst_mod_id      = CVI_ID_VO\n"
+			"dst_dev_id      = 0\n"
+			"dst_chn_id      = 0\n", file);
+	}
 	if (fflush(file) != 0 || fsync(fileno(file)) != 0) {
 		fclose(file);
 		return -1;
 	}
 	return fclose(file);
+}
+
+static int migrate_display_topology(const char *path)
+{
+	struct ini_update updates[] = {
+		{ "vb_config", "vb_pool_cnt", "10", 0 },
+		{ "vpss_config", "vpss_grp", "8", 0 },
+		{ "vb_pool_9", "bEnable", "", 0 },
+		{ "vb_pool_9", "frame_width", "720", 0 },
+		{ "vb_pool_9", "frame_height", "480", 0 },
+		{ "vb_pool_9", "frame_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vb_pool_9", "data_bitwidth", "DATA_BITWIDTH_8", 0 },
+		{ "vb_pool_9", "compress_mode", "COMPRESS_MODE_NONE", 0 },
+		{ "vb_pool_9", "blk_cnt", "4", 0 },
+		{ "vb_pool_9", "mem_size", "0", 0 },
+		{ "vpssgrp7", "group_id", "7", 0 },
+		{ "vpssgrp7", "grp_enable", "", 0 },
+		{ "vpssgrp7", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vpssgrp7", "src_framerate", "-1", 0 },
+		{ "vpssgrp7", "dst_framerate", "-1", 0 },
+		{ "vpssgrp7", "vpss_dev", "0", 0 },
+		{ "vpssgrp7", "max_w", "1920", 0 },
+		{ "vpssgrp7", "max_h", "1080", 0 },
+		{ "vpssgrp7", "chn_cnt", "1", 0 },
+		{ "vpssgrp7", "crop_en", "0", 0 },
+		{ "vpssgrp7", "crop_coor", "VPSS_CROP_RATIO_COOR", 0 },
+		{ "vpssgrp7", "crop_rect_x", "0", 0 },
+		{ "vpssgrp7", "crop_rect_y", "0", 0 },
+		{ "vpssgrp7", "crop_rect_w", "0", 0 },
+		{ "vpssgrp7", "crop_rect_h", "0", 0 },
+		{ "vpssgrp7", "bind_mode", "1", 0 },
+		{ "vpssgrp7", "src_mod_id", "CVI_ID_VPSS", 0 },
+		{ "vpssgrp7", "src_dev_id", "0", 0 },
+		{ "vpssgrp7", "src_chn_id", "0", 0 },
+		{ "vpssgrp7", "dst_mod_id", "CVI_ID_VPSS", 0 },
+		{ "vpssgrp7", "dst_dev_id", "7", 0 },
+		{ "vpssgrp7", "dst_chn_id", "0", 0 },
+		{ "vpssgrp7.chn0", "chn_enable", "1", 0 },
+		{ "vpssgrp7.chn0", "width", "720", 0 },
+		{ "vpssgrp7.chn0", "height", "480", 0 },
+		{ "vpssgrp7.chn0", "video_fmt", "VIDEO_FORMAT_LINEAR", 0 },
+		{ "vpssgrp7.chn0", "chn_pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "vpssgrp7.chn0", "src_framerate", "-1", 0 },
+		{ "vpssgrp7.chn0", "dst_framerate", "-1", 0 },
+		{ "vpssgrp7.chn0", "depth", "0", 0 },
+		{ "vpssgrp7.chn0", "mirror", "0", 0 },
+		{ "vpssgrp7.chn0", "filp", "0", 0 },
+		{ "vpssgrp7.chn0", "aspectratio", "ASPECT_RATIO_NONE", 0 },
+		{ "vpssgrp7.chn0", "s32x", "0", 0 },
+		{ "vpssgrp7.chn0", "s32y", "0", 0 },
+		{ "vpssgrp7.chn0", "rec_width", "0", 0 },
+		{ "vpssgrp7.chn0", "rec_heigh", "0", 0 },
+		{ "vpssgrp7.chn0", "en_color", "1", 0 },
+		{ "vpssgrp7.chn0", "color", "0", 0 },
+		{ "vpssgrp7.chn0", "normalize", "0", 0 },
+		{ "vpssgrp7.chn0", "crop_en", "0", 0 },
+		{ "vpssgrp7.chn0", "crop_coor", "VPSS_CROP_RATIO_COOR", 0 },
+		{ "vpssgrp7.chn0", "crop_rect_x", "0", 0 },
+		{ "vpssgrp7.chn0", "crop_rect_y", "0", 0 },
+		{ "vpssgrp7.chn0", "crop_rect_w", "0", 0 },
+		{ "vpssgrp7.chn0", "crop_rect_h", "0", 0 },
+		{ "vpssgrp7.chn0", "attach_en", "1", 0 },
+		{ "vpssgrp7.chn0", "attach_pool", "9", 0 },
+		{ "display_config", "vo_cnt", "", 0 },
+		{ "display_config_0", "panel_type", OVIS_DISPLAY_PANEL_TYPE, 0 },
+		{ "display_config_0", "i2c_dev", "2", 0 },
+		{ "display_config_0", "i2c_addr", "0x76", 0 },
+		{ "display_config_0", "vo_dev", "0", 0 },
+		{ "display_config_0", "bg_color", "0x00000000", 0 },
+		{ "display_config_0", "intf_type", "VO_INTF_BT656", 0 },
+		{ "display_config_0", "intf_sync", "VO_OUTPUT_USER", 0 },
+		{ "display_config_0", "dis_x", "0", 0 },
+		{ "display_config_0", "dis_y", "0", 0 },
+		{ "display_config_0", "dis_width", "720", 0 },
+		{ "display_config_0", "dis_height", "480", 0 },
+		{ "display_config_0", "img_width", "720", 0 },
+		{ "display_config_0", "img_height", "480", 0 },
+		{ "display_config_0", "dis_framerate", "60", 0 },
+		{ "display_config_0", "pixel_fmt", "PIXEL_FORMAT_NV12", 0 },
+		{ "display_config_0", "mode", "VO_MODE_1MUX", 0 },
+		{ "display_config_0", "rotation", "ROTATION_0", 0 },
+		{ "display_config_0", "dis_buf_len", "3", 0 },
+		{ "display_config_0", "bind_mode", "1", 0 },
+		{ "display_config_0", "src_mod_id", "CVI_ID_VPSS", 0 },
+		{ "display_config_0", "src_dev_id", "7", 0 },
+		{ "display_config_0", "src_chn_id", "0", 0 },
+		{ "display_config_0", "dst_mod_id", "CVI_ID_VO", 0 },
+		{ "display_config_0", "dst_dev_id", "0", 0 },
+		{ "display_config_0", "dst_chn_id", "0", 0 },
+	};
+	char migrated[512];
+	char value[160];
+	int enabled = 0;
+	size_t index;
+
+	if (read_int(path, "display_config", "vo_cnt", &enabled) != 0 ||
+	    (enabled != 0 && enabled != 1))
+		enabled = 0;
+	if (set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"display_config", "vo_cnt", enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp7", "grp_enable", enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_9", "bEnable", enabled) != 0)
+		return -1;
+	for (index = 0; index < sizeof(updates) / sizeof(updates[0]); index++) {
+		if (ensure_ini_key(path, updates[index].section, updates[index].key,
+				updates[index].value) != 0)
+			return -1;
+	}
+	for (index = 0; index < sizeof(updates) / sizeof(updates[0]); index++) {
+		if (read_ini_value(path, updates[index].section, updates[index].key,
+				value, sizeof(value)) != 0 ||
+		    strcmp(value, updates[index].value) != 0)
+			break;
+	}
+	if (index == sizeof(updates) / sizeof(updates[0]))
+		return 0;
+	snprintf(migrated, sizeof(migrated), "%s.display.tmp", path);
+	if (write_updates(path, migrated, updates,
+			sizeof(updates) / sizeof(updates[0])) != 0)
+		return -1;
+	if (rename(migrated, path) != 0) {
+		unlink(migrated);
+		return -1;
+	}
+	return 0;
 }
 
 static int migrate_runtime_config(const char *path)
@@ -2002,7 +2282,7 @@ static int migrate_runtime_config(const char *path)
 		{ "vpssgrp0.chn0", "depth", "0", 0 },
 		{ "vpssgrp0.chn2", "src_framerate", "-1", 0 },
 		{ "vpssgrp0.chn2", "dst_framerate", "-1", 0 },
-		{ "vb_config", "vb_pool_cnt", "9", 0 },
+		{ "vb_config", "vb_pool_cnt", "10", 0 },
 		{ "vb_pool_5", "blk_cnt", "4", 0 },
 		{ "vpssgrp2", "grp_enable", "", 0 },
 		{ "vpssgrp3", "grp_enable", "", 0 },
@@ -2039,7 +2319,7 @@ static int migrate_runtime_config(const char *path)
 		{ "vb_pool_8", "compress_mode", "COMPRESS_MODE_NONE", 0 },
 		{ "vb_pool_8", "blk_cnt", "4", 0 },
 		{ "vb_pool_8", "mem_size", "0", 0 },
-		{ "vpss_config", "vpss_grp", "7", 0 },
+		{ "vpss_config", "vpss_grp", "8", 0 },
 		{ "vpssgrp1", "chn_cnt", "1", 0 },
 		{ "vpssgrp6", "group_id", "6", 0 },
 		{ "vpssgrp6", "grp_enable", "0", 0 },
@@ -2187,9 +2467,15 @@ static int migrate_runtime_config(const char *path)
 		!has_section(path, "vb_pool_7") ||
 		!has_section(path, "vb_pool_8") ||
 		!has_section(path, "vpssgrp6") ||
-		!has_section(path, "vpssgrp6.chn0");
+		!has_section(path, "vpssgrp6.chn0") ||
+		!has_section(path, "vb_pool_9") ||
+		!has_section(path, "vpssgrp7") ||
+		!has_section(path, "vpssgrp7.chn0") ||
+		!has_section(path, "display_config") ||
+		!has_section(path, "display_config_0");
 	if (append_missing_output_config(path) != 0 ||
 	    append_missing_runtime_sections(path) != 0 ||
+	    migrate_display_topology(path) != 0 ||
 	    migrate_legacy_overlay(path) != 0 ||
 	    ensure_overlay_style_keys(path) != 0)
 		return -1;
@@ -2516,6 +2802,9 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "osdc1_obj_info1", "x1", "", 0 },
 		{ "osdc1_obj_info1", "y1", "", 0 },
 		{ "osdc1_obj_info1", "str", "", 0 },
+		{ "display_config", "vo_cnt", "", 0 },
+		{ "vpssgrp7", "grp_enable", "", 0 },
+		{ "vb_pool_9", "bEnable", "", 0 },
 		{ "ai_pd_config", "model_id", "", 0 },
 		{ "ai_pd_config", "model_path", "", 0 },
 	};
@@ -2601,6 +2890,12 @@ static int stage_values(const struct config_values *values, char revision[17],
 			"output_config", "rtsp_enable", values->rtsp_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"output_config", "uvc_enable", values->uvc_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"display_config", "vo_cnt", values->display_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vpssgrp7", "grp_enable", values->display_enabled) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"vb_pool_9", "bEnable", values->display_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
 			"output_config", "sub_enable", values->sub_enabled) != 0 ||
 	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
@@ -2826,6 +3121,7 @@ int config_stage_json(const char *body, char *json, size_t size,
 		snprintf(values.object_model_path, sizeof(values.object_model_path), "%s",
 			active_values.object_model_path);
 	}
+	inherit_display_values(&values, &active_values);
 	inherit_overlay_values(&values, &active_values);
 	overlay_only = non_overlay_values_equal(&values, &active_values);
 	issues = validate_values(&values);

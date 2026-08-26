@@ -151,9 +151,9 @@ POST /api/v1/tracking/target
 DELETE /api/v1/tracking/target
 ```
 
-配置白名单包括互斥的 RTSP/UVC 输出模式、主码流帧率和码率、子码流开关/帧率/码率、OSD、AI BNR、目标检测、人脸检测、人体姿态、单目标跟踪和移动检测。UVC 和 RTSP 必须且只能启用一项，默认启用 UVC；旧版双开或双关配置会在迁移时归一化为 UVC。目标检测和单目标跟踪拥有独立开关，但允许同时启用：DET 持续提供检测结果，选中目标后暂停 DET 并交给 FearTrack，目标丢失后恢复 DET。只启用 TRACK 时可通过 FastSAM、颜色提取或直接框选初始化，不会隐式加载检测模型。各 AI 功能通过 `processing_size` 设置送入对应 AI 管线的图像帧尺寸；该字段不改变 BModel 编译时固定的 Tensor 尺寸。主码流分辨率仍使用板端公布的固定 profile。
+配置白名单包括互斥的 RTSP/UVC 输出模式、独立的 MS7024 模拟视频输出、主码流帧率和码率、子码流开关/帧率/码率、OSD、AI BNR、目标检测、人脸检测、人体姿态、单目标跟踪和移动检测。UVC 和 RTSP 必须且只能启用一项，默认启用 UVC；MS7024 可以与二者任意一项同时启用。旧版双开或双关配置会在迁移时归一化为 UVC。目标检测和单目标跟踪拥有独立开关，但允许同时启用：DET 持续提供检测结果，选中目标后暂停 DET 并交给 FearTrack，目标丢失后恢复 DET。只启用 TRACK 时可通过 FastSAM、颜色提取或直接框选初始化，不会隐式加载检测模型。各 AI 功能通过 `processing_size` 设置送入对应 AI 管线的图像帧尺寸；该字段不改变 BModel 编译时固定的 Tensor 尺寸。主码流分辨率仍使用板端公布的固定 profile。
 
-能力接口使用 schema version 6，输出开关位于 `values.outputs.rtsp.enabled` 和 `values.outputs.uvc.enabled`；AI BNR 位于 `values.ai_isp.bnr.enabled`，能力由 `ai_isp.bnr.supported`、`apply_mode`、`required_main_fps` 和 `exclusive_with` 描述。目标检测位于 `values.detection.object`，单目标跟踪位于 `values.tracking.single_object`。目标检测的内置模型包括人员检测和人员/车辆检测，自定义模型继续通过模型管理接口部署。TRACK 返回固定的 1920x1080 `processing_size`、默认目标来源和无 DET 时使用的后备目标来源。旧版 `values.detection.object_tracking` 请求仍可写入，但读取统一返回新结构。
+能力接口使用 schema version 7，输出开关位于 `values.outputs.rtsp.enabled`、`values.outputs.uvc.enabled` 和 `values.outputs.display.enabled`。MS7024 模式由 `values.outputs.display.mode` 指定，当前仅开放已经验证的 `720x480_60`；硬件 I2C、VO、VPSS 和 VB 参数由 Manager 固定维护，不接受网页输入。AI BNR 位于 `values.ai_isp.bnr.enabled`，能力由 `ai_isp.bnr.supported`、`apply_mode`、`required_main_fps` 和 `exclusive_with` 描述。目标检测位于 `values.detection.object`，单目标跟踪位于 `values.tracking.single_object`。目标检测的内置模型包括人员检测和人员/车辆检测，自定义模型继续通过模型管理接口部署。TRACK 返回固定的 1920x1080 `processing_size`、默认目标来源和无 DET 时使用的后备目标来源。旧版 `values.detection.object_tracking` 请求仍可写入，但读取统一返回新结构。
 
 OSD 配置位于 `values.overlay`。`texts` 当前最多包含一项自定义文字，可设置内容、主/子码流、位置、偏移和颜色；`detection`、`tracking` 与 `reticle` 分别控制检测框、跟踪框和中心准星样式。准星模板及粗细范围由能力接口的 `overlay` 节点返回。仅修改 OSD 时，校验接口返回 `overlay_reload`，应用接口通过进程内热加载生效，不重启视频编码、UVC 或 RTSP；包含其他配置变化时仍按原流程重启并支持失败回滚。
 
