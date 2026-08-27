@@ -1,0 +1,22 @@
+/dts-v1/;
+#include "cv184x_base_arm.dtsi"
+#include "cv184x_asic_bga.dtsi"
+#include "cv184x_asic_spinand.dtsi"
+#include "cv184x_default_memmap.dtsi"
+
+/ {
+	model = "AIMORELOGY OVIS";
+	compatible = "aimorelogy,ovis", "cvitek,cv184x";
+};
+
+&mipi_rx {
+	snsr-reset = <&porte 1 GPIO_ACTIVE_LOW>;
+};
+
+&i2c2 {
+	status = "okay";
+};
+
+&sd {
+	status = "disabled";
+};

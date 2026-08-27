@@ -1,0 +1,9 @@
+#!/bin/sh
+
+if [ -r /etc/issue ]; then
+	printf '\n'
+	cat /etc/issue
+	printf '\n'
+fi
+
+exec /bin/login -f root
