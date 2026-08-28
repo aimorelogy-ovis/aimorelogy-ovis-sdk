@@ -1,0 +1,373 @@
+#!/bin/sh
+${CVI_SHOPTS}
+
+UDHCPD=/usr/sbin/udhcpd
+UDHCPD_TEMPLATE=/etc/ncm-udhcpd.conf
+UDHCPD_CONFIG=/var/run/ncm-udhcpd.conf
+UDHCPD_PID=/var/run/udhcpd-ncm.pid
+UDHCPD_LEASES=/var/lib/misc/udhcpd-ncm.leases
+USB_GADGET=/tmp/usb/usb_gadget/cvitek
+IDENTITY_HELPER=/usr/sbin/ovis-device-identity
+STATE_DIR=/mnt/cfg/ovis-manager
+NCM_SUBNET_FILE="$STATE_DIR/ncm-subnet"
+NCM_PENDING_SUBNET_FILE="$STATE_DIR/ncm-subnet.pending"
+NCM_ADDRESS_FILE=/var/run/ovis-ncm-address
+WEBUSB_DAEMON=/usr/sbin/ovis-managerd
+WEBUSB_DIR=/dev/usb-ffs/ovis
+WEBUSB_PID=/var/run/ovis-webusb.pid
+WEBUSB_READY=/var/run/ovis-webusb-ready
+WEBUSB_LOG=/var/log/ovis-webusb.log
+MANAGER=/usr/sbin/ovis-managerd
+PARAM_CONFIG=/mnt/cfg/ipcamera/param_config.ini
+OPERATIONAL_PID=0x1010
+PROVISIONING_PID=0x100E
+NCM_ONLY_PID=0x100F
+COMPOSITE_MANUFACTURER="AIMORELOGY"
+OPERATIONAL_PRODUCT="OVIS NCM + UVC ISO"
+NCM_ONLY_PRODUCT="OVIS NCM"
+PROVISIONING_PRODUCT="OVIS Network Setup"
+OUTPUT_REBOOT_DELAY=3
+
+wait_for_path() {
+	path=$1
+	retries=50
+
+	while [ ! -e "$path" ] && [ "$retries" -gt 0 ]; do
+		sleep 0.1
+		retries=$((retries - 1))
+	done
+
+	if [ ! -e "$path" ]; then
+		echo "Timed out waiting for $path" >&2
+		return 1
+	fi
+}
+
+usb_setup_error() {
+	printf 'OVIS USB setup failed: %s\n' "$1" > /dev/console
+}
+
+load_device_identity() {
+	[ -x "$IDENTITY_HELPER" ] || return 1
+	device_id=$("$IDENTITY_HELPER") || return 1
+	device_suffix=${device_id##*-}
+	mac_tail=$(printf '%s' "$device_suffix" | cut -c7-16 | sed 's/../&:/g; s/:$//')
+	ncm_device_mac="02:$mac_tail"
+	ncm_host_mac="06:$mac_tail"
+}
+
+load_network_subnet() {
+	dhcp_interface=${ncm_interface:-usb0}
+	ncm_subnet=$(sed -n '1p' "$NCM_SUBNET_FILE" 2>/dev/null)
+	case "$ncm_subnet" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$ncm_subnet" -le 255 ] || return 1
+	ncm_address="192.168.$ncm_subnet.1"
+	mkdir -p /var/run || return 1
+	sed -e "s/192\\.168\\.42\\./192.168.$ncm_subnet./g" \
+		-e "s/^[[:space:]]*interface[[:space:]].*$/interface $dhcp_interface/" \
+		"$UDHCPD_TEMPLATE" > "$UDHCPD_CONFIG" || return 1
+}
+
+load_output_config() {
+	uvc_enabled=$(sed -n '/^\[output_config\]/,/^\[/ {
+		s/^[[:space:]]*uvc_enable[[:space:]]*=[[:space:]]*\([01]\).*$/\1/p
+	}' "$PARAM_CONFIG" | sed -n '1p')
+	case "$uvc_enabled" in
+		0|1) ;;
+		*) uvc_enabled=1 ;;
+	esac
+}
+
+prepare_output_config() {
+	if [ -x "$MANAGER" ]; then
+		"$MANAGER" --prepare-config || return 1
+	fi
+	load_output_config
+}
+
+configure_gadget_strings() {
+	product=$1
+	pid=$2
+
+	printf '%s\n' "$pid" > "$USB_GADGET/idProduct" || return 1
+	printf '%s\n' "$COMPOSITE_MANUFACTURER" \
+		> "$USB_GADGET/strings/0x409/manufacturer" || return 1
+	printf '%s\n' "$product" > "$USB_GADGET/strings/0x409/product" || return 1
+	printf '%s\n' "$device_id" > "$USB_GADGET/strings/0x409/serialnumber" || return 1
+}
+
+find_ncm_function() {
+	ncm_function=$(find "$USB_GADGET/functions" -maxdepth 1 -type d \
+		-name 'ncm.*' | sed -n '1p')
+	[ -n "$ncm_function" ] || return 1
+}
+
+detect_ncm_interface() {
+	find_ncm_function || return 1
+	ncm_interface=$(sed -n '1p' "$ncm_function/ifname" 2>/dev/null)
+	case "$ncm_interface" in
+		''|*[!A-Za-z0-9_.-]*) return 1 ;;
+	esac
+}
+
+wait_for_ncm_interface() {
+	retries=50
+
+	while [ "$retries" -gt 0 ]; do
+		if detect_ncm_interface && [ -e "/sys/class/net/$ncm_interface" ]; then
+			return 0
+		fi
+		sleep 0.1
+		retries=$((retries - 1))
+	done
+
+	return 1
+}
+
+configure_ncm_identity() {
+	find_ncm_function || return 1
+	printf '%s\n' "$ncm_device_mac" > "$ncm_function/dev_addr" || return 1
+	printf '%s\n' "$ncm_host_mac" > "$ncm_function/host_addr" || return 1
+}
+
+start_webusb() {
+	[ -x "$WEBUSB_DAEMON" ] || return 1
+	mkdir -p "$WEBUSB_DIR" /var/run /var/log || return 1
+	if [ ! -e "$WEBUSB_DIR/ep0" ]; then
+		mount -t functionfs ovis "$WEBUSB_DIR" || return 1
+	fi
+	rm -f "$WEBUSB_PID" "$WEBUSB_READY"
+	"$WEBUSB_DAEMON" --usb-provision >> "$WEBUSB_LOG" 2>&1 &
+	webusb_pid=$!
+	printf '%s\n' "$webusb_pid" > "$WEBUSB_PID"
+	wait_for_path "$WEBUSB_READY" || return 1
+}
+
+stop_webusb() {
+	if [ -s "$WEBUSB_PID" ]; then
+		webusb_pid=$(cat "$WEBUSB_PID")
+		kill "$webusb_pid" 2>/dev/null
+		count=0
+		while kill -0 "$webusb_pid" 2>/dev/null && [ "$count" -lt 20 ]; do
+			sleep 0.05
+			count=$((count + 1))
+		done
+		rm -f "$WEBUSB_PID"
+	fi
+	rm -f "$WEBUSB_READY"
+	umount "$WEBUSB_DIR" 2>/dev/null
+	rmdir "$WEBUSB_DIR" 2>/dev/null
+}
+
+start_dhcp() {
+	mkdir -p /var/lib/misc /var/run
+	: > "$UDHCPD_LEASES"
+	if [ -s "$UDHCPD_PID" ] && kill -0 "$(cat "$UDHCPD_PID")" 2>/dev/null; then
+		return 0
+	fi
+	rm -f "$UDHCPD_PID"
+	"$UDHCPD" "$UDHCPD_CONFIG"
+}
+
+stop_dhcp() {
+	if [ -s "$UDHCPD_PID" ]; then
+		pid=$(cat "$UDHCPD_PID")
+		kill "$pid" 2>/dev/null
+		rm -f "$UDHCPD_PID"
+	fi
+}
+
+disable_network() {
+	stop_dhcp
+	if ! detect_ncm_interface; then
+		ncm_interface=usb0
+	fi
+	ifconfig "$ncm_interface" down 2>/dev/null
+	rm -f "$NCM_ADDRESS_FILE" "$NCM_ADDRESS_FILE.tmp" "$UDHCPD_CONFIG"
+}
+
+activate_network() {
+	start_services=$1
+
+	detect_ncm_interface || return 1
+	load_network_subnet || {
+		echo "OVIS NCM subnet is not configured" >&2
+		return 1
+	}
+	ifconfig "$ncm_interface" "$ncm_address" netmask 255.255.255.0 up || return 1
+	printf '%s\n' "$ncm_address" > "$NCM_ADDRESS_FILE.tmp" || return 1
+	mv "$NCM_ADDRESS_FILE.tmp" "$NCM_ADDRESS_FILE" || return 1
+	start_dhcp || return 1
+	echo "OVIS NCM address: $ncm_address"
+	[ "$start_services" = "no-services" ] && return 0
+	/etc/init.d/S98ovis-manager start || return 1
+	if [ "$start_services" = "manager-only" ]; then
+		echo "OVIS USB recovery mode: ipcamera start skipped due to invalid configuration" >&2
+		return 0
+	fi
+	if ! /etc/init.d/S99z_ipcamera start; then
+		echo "WARNING: ipcamera failed to start; OVIS USB network remains available" >&2
+	fi
+	return 0
+}
+
+setup_provisioning_gadget() {
+	/etc/run_usb.sh probe webusb || return 1
+	configure_gadget_strings "$PROVISIONING_PRODUCT" "$PROVISIONING_PID" || return 1
+	start_webusb || return 1
+	/etc/run_usb.sh start || return 1
+	echo "waiting for WebUSB NCM subnet configuration"
+}
+
+setup_operational_gadget() {
+	start_services=$1
+	product=$OPERATIONAL_PRODUCT
+	pid=$OPERATIONAL_PID
+
+	if ! /etc/run_usb.sh probe ncm; then
+		usb_setup_error "unable to create NCM function"
+		return 1
+	fi
+	if [ "$uvc_enabled" -eq 1 ]; then
+		if ! /etc/run_usb.sh probe uvc; then
+			usb_setup_error "unable to create UVC function"
+			return 1
+		fi
+		if ! sh /etc/ConfigUVC.sh setup; then
+			usb_setup_error "unable to configure UVC descriptors"
+			return 1
+		fi
+	else
+		product=$NCM_ONLY_PRODUCT
+		pid=$NCM_ONLY_PID
+	fi
+	if ! configure_gadget_strings "$product" "$pid"; then
+		usb_setup_error "unable to configure gadget identity"
+		return 1
+	fi
+	if ! configure_ncm_identity; then
+		usb_setup_error "unable to configure NCM identity"
+		return 1
+	fi
+	if ! /etc/run_usb.sh start; then
+		usb_setup_error "unable to bind gadget to UDC"
+		return 1
+	fi
+	if ! wait_for_ncm_interface; then
+		usb_setup_error "NCM interface was not named after UDC bind"
+		return 1
+	fi
+	if [ "$uvc_enabled" -eq 1 ]; then
+		if ! wait_for_path /dev/video0; then
+			usb_setup_error "UVC video device is unavailable"
+			return 1
+		fi
+	fi
+	if ! activate_network "$start_services"; then
+		usb_setup_error "unable to activate $ncm_interface network"
+		return 1
+	fi
+	return 0
+}
+
+teardown_gadget() {
+	/etc/init.d/S99z_ipcamera stop 2>/dev/null
+	disable_network
+	/etc/init.d/S98ovis-manager stop 2>/dev/null
+	if [ -d "$USB_GADGET" ]; then
+		echo "" > "$USB_GADGET/UDC" 2>/dev/null
+		rm -f "$USB_GADGET/configs/c.1/ffs.ovis"
+	fi
+	stop_webusb
+	/etc/run_usb.sh stop
+}
+
+reboot_to_operational() {
+	load_network_subnet || return 1
+	echo "OVIS NCM configuration saved; rebooting into operational mode"
+	sync
+	sleep 2
+	/sbin/reboot
+}
+
+reset_network_configuration() {
+	echo "Removing OVIS NCM configuration; rebooting into provisioning mode"
+	rm -f "$NCM_SUBNET_FILE" "$NCM_PENDING_SUBNET_FILE" || return 1
+	sync
+	sleep 2
+	/sbin/reboot
+}
+
+schedule_output_reboot() {
+	printf 'OVIS USB output configuration saved; rebooting in %s seconds\n' \
+		"$OUTPUT_REBOOT_DELAY" > /dev/console
+	sync
+	(
+		sleep "$OUTPUT_REBOOT_DELAY"
+		printf 'OVIS USB output configuration reboot now\n' > /dev/console
+		/sbin/reboot
+	) </dev/null >/dev/null 2>&1 &
+	return 0
+}
+
+start() {
+	printf "Starting OVIS USB: "
+	load_device_identity || return 1
+	rm -f "$NCM_PENDING_SUBNET_FILE"
+	/etc/uhubon.sh device || return 1
+	if load_network_subnet; then
+		if prepare_output_config; then
+			setup_operational_gadget
+		else
+			echo "OVIS USB recovery mode: starting NCM only because runtime configuration is invalid" >&2
+			uvc_enabled=0
+			setup_operational_gadget manager-only
+		fi
+	else
+		setup_provisioning_gadget
+	fi
+}
+
+stop() {
+	printf "Stopping OVIS USB: "
+	teardown_gadget
+}
+
+case "$1" in
+	start)
+		echo "OVIS USB startup deferred until MPP modules are ready"
+		;;
+	late-start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart|reload)
+		stop
+		sleep 1
+		start
+		;;
+	output-reboot)
+		schedule_output_reboot
+		;;
+	webusb-quiesce)
+		disable_network
+		;;
+	webusb-commit)
+		reboot_to_operational
+		;;
+	network-reset)
+		reset_network_configuration
+		;;
+	*)
+		echo "Usage: $0 {start|late-start|stop|restart|output-reboot|webusb-quiesce|webusb-commit|network-reset}"
+		exit 1
+		;;
+esac
+
+status=$?
+[ "$status" -eq 0 ] && echo "OK" || echo "FAIL"
+exit "$status"

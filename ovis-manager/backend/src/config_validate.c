@@ -98,7 +98,7 @@ static const struct config_field required_fields[] = {
 	{ "object_tracking_ai_channel_pool", "vpssgrp0.chn2", "attach_pool", VALUE_INTEGER, 1, 1 },
 	{ "object_tracking_det_src_fps", "vpssgrp0.chn2", "src_framerate", VALUE_INTEGER, -1, -1 },
 	{ "object_tracking_det_dst_fps", "vpssgrp0.chn2", "dst_framerate", VALUE_INTEGER, -1, -1 },
-	{ "object_tracking_vb_pool_count", "vb_config", "vb_pool_cnt", VALUE_INTEGER, 9, 9 },
+	{ "object_tracking_vb_pool_count", "vb_config", "vb_pool_cnt", VALUE_INTEGER, 10, 10 },
 	{ "object_tracking_det_pool_width", "vb_pool_1", "frame_width", VALUE_INTEGER, OVIS_AI_MIN_WIDTH, OVIS_AI_TRACK_DET_WIDTH },
 	{ "object_tracking_det_pool_height", "vb_pool_1", "frame_height", VALUE_INTEGER, OVIS_AI_MIN_HEIGHT, OVIS_AI_TRACK_DET_HEIGHT },
 	{ "object_tracking_det_pool_blocks", "vb_pool_1", "blk_cnt", VALUE_INTEGER, 4, 4 },
@@ -115,7 +115,7 @@ static const struct config_field required_fields[] = {
 	{ "uvc_pool_width", "vb_pool_8", "frame_width", VALUE_INTEGER, 1920, 1920 },
 	{ "uvc_pool_height", "vb_pool_8", "frame_height", VALUE_INTEGER, 1080, 1080 },
 	{ "uvc_pool_blocks", "vb_pool_8", "blk_cnt", VALUE_INTEGER, 4, 4 },
-	{ "uvc_vpss_group_count", "vpss_config", "vpss_grp", VALUE_INTEGER, 7, 7 },
+	{ "uvc_vpss_group_count", "vpss_config", "vpss_grp", VALUE_INTEGER, 8, 8 },
 	{ "rtsp_channel_count", "vpssgrp1", "chn_cnt", VALUE_INTEGER, 1, 1 },
 	{ "uvc_pool_enabled", "vb_pool_8", "bEnable", VALUE_INTEGER, 0, 0 },
 	{ "rtsp_group_enabled", "vpssgrp1", "grp_enable", VALUE_INTEGER, 0, 1 },
@@ -150,6 +150,46 @@ static const struct config_field required_fields[] = {
 	{ "sub_vpss_enabled", "vpssgrp0.chn1", "chn_enable", VALUE_INTEGER, 0, 1 },
 	{ "jpeg_enabled", "vencchn2", "bEnable", VALUE_INTEGER, 0, 1 },
 	{ "sub_osd_enabled", "osdc_config1", "bShow", VALUE_INTEGER, 0, 1 },
+	{ "display_enabled", "display_config", "vo_cnt", VALUE_INTEGER, 0, 1 },
+	{ "display_pool_enabled", "vb_pool_9", "bEnable", VALUE_INTEGER, 0, 1 },
+	{ "display_pool_width", "vb_pool_9", "frame_width", VALUE_INTEGER, OVIS_DISPLAY_WIDTH, OVIS_DISPLAY_WIDTH },
+	{ "display_pool_height", "vb_pool_9", "frame_height", VALUE_INTEGER, OVIS_DISPLAY_HEIGHT, OVIS_DISPLAY_HEIGHT },
+	{ "display_pool_blocks", "vb_pool_9", "blk_cnt", VALUE_INTEGER, 4, 4 },
+	{ "display_group_id", "vpssgrp7", "group_id", VALUE_INTEGER, OVIS_DISPLAY_VPSS_GROUP, OVIS_DISPLAY_VPSS_GROUP },
+	{ "display_group_enabled", "vpssgrp7", "grp_enable", VALUE_INTEGER, 0, 1 },
+	{ "display_group_device", "vpssgrp7", "vpss_dev", VALUE_INTEGER, 0, 0 },
+	{ "display_group_src_fps", "vpssgrp7", "src_framerate", VALUE_INTEGER, -1, -1 },
+	{ "display_group_dst_fps", "vpssgrp7", "dst_framerate", VALUE_INTEGER, -1, -1 },
+	{ "display_group_max_width", "vpssgrp7", "max_w", VALUE_INTEGER, 1920, 1920 },
+	{ "display_group_max_height", "vpssgrp7", "max_h", VALUE_INTEGER, 1080, 1080 },
+	{ "display_group_channels", "vpssgrp7", "chn_cnt", VALUE_INTEGER, 1, 1 },
+	{ "display_group_bind_mode", "vpssgrp7", "bind_mode", VALUE_INTEGER, 1, 1 },
+	{ "display_group_source_device", "vpssgrp7", "src_dev_id", VALUE_INTEGER, 0, 0 },
+	{ "display_group_source_channel", "vpssgrp7", "src_chn_id", VALUE_INTEGER, 0, 0 },
+	{ "display_group_destination", "vpssgrp7", "dst_dev_id", VALUE_INTEGER, OVIS_DISPLAY_VPSS_GROUP, OVIS_DISPLAY_VPSS_GROUP },
+	{ "display_channel_enabled", "vpssgrp7.chn0", "chn_enable", VALUE_INTEGER, 1, 1 },
+	{ "display_channel_width", "vpssgrp7.chn0", "width", VALUE_INTEGER, OVIS_DISPLAY_WIDTH, OVIS_DISPLAY_WIDTH },
+	{ "display_channel_height", "vpssgrp7.chn0", "height", VALUE_INTEGER, OVIS_DISPLAY_HEIGHT, OVIS_DISPLAY_HEIGHT },
+	{ "display_channel_src_fps", "vpssgrp7.chn0", "src_framerate", VALUE_INTEGER, -1, -1 },
+	{ "display_channel_dst_fps", "vpssgrp7.chn0", "dst_framerate", VALUE_INTEGER, -1, -1 },
+	{ "display_channel_depth", "vpssgrp7.chn0", "depth", VALUE_INTEGER, 0, 0 },
+	{ "display_channel_attach", "vpssgrp7.chn0", "attach_en", VALUE_INTEGER, 1, 1 },
+	{ "display_channel_pool", "vpssgrp7.chn0", "attach_pool", VALUE_INTEGER, OVIS_DISPLAY_VB_POOL, OVIS_DISPLAY_VB_POOL },
+	{ "display_i2c_device", "display_config_0", "i2c_dev", VALUE_INTEGER, 2, 2 },
+	{ "display_vo_device", "display_config_0", "vo_dev", VALUE_INTEGER, 0, 0 },
+	{ "display_x", "display_config_0", "dis_x", VALUE_INTEGER, 0, 0 },
+	{ "display_y", "display_config_0", "dis_y", VALUE_INTEGER, 0, 0 },
+	{ "display_width", "display_config_0", "dis_width", VALUE_INTEGER, OVIS_DISPLAY_WIDTH, OVIS_DISPLAY_WIDTH },
+	{ "display_height", "display_config_0", "dis_height", VALUE_INTEGER, OVIS_DISPLAY_HEIGHT, OVIS_DISPLAY_HEIGHT },
+	{ "display_image_width", "display_config_0", "img_width", VALUE_INTEGER, OVIS_DISPLAY_WIDTH, OVIS_DISPLAY_WIDTH },
+	{ "display_image_height", "display_config_0", "img_height", VALUE_INTEGER, OVIS_DISPLAY_HEIGHT, OVIS_DISPLAY_HEIGHT },
+	{ "display_fps", "display_config_0", "dis_framerate", VALUE_INTEGER, OVIS_DISPLAY_FPS, OVIS_DISPLAY_FPS },
+	{ "display_buffer_length", "display_config_0", "dis_buf_len", VALUE_INTEGER, 3, 3 },
+	{ "display_bind_mode", "display_config_0", "bind_mode", VALUE_INTEGER, 1, 1 },
+	{ "display_source_device", "display_config_0", "src_dev_id", VALUE_INTEGER, OVIS_DISPLAY_VPSS_GROUP, OVIS_DISPLAY_VPSS_GROUP },
+	{ "display_source_channel", "display_config_0", "src_chn_id", VALUE_INTEGER, 0, 0 },
+	{ "display_destination_device", "display_config_0", "dst_dev_id", VALUE_INTEGER, 0, 0 },
+	{ "display_destination_channel", "display_config_0", "dst_chn_id", VALUE_INTEGER, 0, 0 },
 };
 
 static char *trim(char *text)
@@ -356,6 +396,9 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	long uvc_channel_enabled = 0;
 	long uvc_venc_enabled = 0;
 	long rtsp_session_count = 0;
+	long display_enabled = 0;
+	long display_pool_enabled = 0;
+	long display_group_enabled = 0;
 	FILE *file;
 	size_t i;
 	int active_tpu_features = 0;
@@ -484,8 +527,14 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 					uvc_channel_enabled = strtol(value, NULL, 10);
 				else if (strcmp(required_fields[i].id, "uvc_venc_enabled") == 0)
 					uvc_venc_enabled = strtol(value, NULL, 10);
-				else if (strcmp(required_fields[i].id, "rtsp_session_count") == 0)
-					rtsp_session_count = strtol(value, NULL, 10);
+					else if (strcmp(required_fields[i].id, "rtsp_session_count") == 0)
+						rtsp_session_count = strtol(value, NULL, 10);
+					else if (strcmp(required_fields[i].id, "display_enabled") == 0)
+						display_enabled = strtol(value, NULL, 10);
+					else if (strcmp(required_fields[i].id, "display_pool_enabled") == 0)
+						display_pool_enabled = strtol(value, NULL, 10);
+					else if (strcmp(required_fields[i].id, "display_group_enabled") == 0)
+						display_group_enabled = strtol(value, NULL, 10);
 			}
 		}
 	}
@@ -575,6 +624,11 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 		snprintf(error, error_size, "UVC 开关与处理资源状态不匹配");
 		return -1;
 	}
+	if (display_pool_enabled != display_enabled ||
+	    display_group_enabled != display_enabled) {
+		snprintf(error, error_size, "显示输出与 VPSS/VB 资源开关不匹配");
+		return -1;
+	}
 	if (!dimensions_match(path, "ai_pd_config", "grp_width", "grp_height",
 			"vpssgrp2.chn0", "vb_pool_2") ||
 	    !dimensions_match(path, "ai_fd_config", "grp_width", "grp_height",
@@ -591,6 +645,27 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 	    !config_word_matches(path, "vpssgrp3", "pixel_fmt", "PIXEL_FORMAT_NV12") ||
 	    !config_word_matches(path, "vpssgrp4", "pixel_fmt", "PIXEL_FORMAT_NV12")) {
 		snprintf(error, error_size, "AI VPSS 上游链路必须统一使用 NV12 帧");
+		return -1;
+	}
+	if (!config_word_matches(path, "vb_pool_9", "frame_fmt", "PIXEL_FORMAT_NV12") ||
+	    !config_word_matches(path, "vb_pool_9", "data_bitwidth", "DATA_BITWIDTH_8") ||
+	    !config_word_matches(path, "vb_pool_9", "compress_mode", "COMPRESS_MODE_NONE") ||
+	    !config_word_matches(path, "vpssgrp7", "pixel_fmt", "PIXEL_FORMAT_NV12") ||
+	    !config_word_matches(path, "vpssgrp7", "src_mod_id", "CVI_ID_VPSS") ||
+	    !config_word_matches(path, "vpssgrp7", "dst_mod_id", "CVI_ID_VPSS") ||
+	    !config_word_matches(path, "vpssgrp7.chn0", "video_fmt", "VIDEO_FORMAT_LINEAR") ||
+	    !config_word_matches(path, "vpssgrp7.chn0", "chn_pixel_fmt", "PIXEL_FORMAT_NV12") ||
+	    !config_word_matches(path, "display_config_0", "panel_type", OVIS_DISPLAY_PANEL_TYPE) ||
+	    !config_word_matches(path, "display_config_0", "i2c_addr", "0x76") ||
+	    !config_word_matches(path, "display_config_0", "bg_color", "0x00000000") ||
+	    !config_word_matches(path, "display_config_0", "intf_type", "VO_INTF_BT656") ||
+	    !config_word_matches(path, "display_config_0", "intf_sync", "VO_OUTPUT_USER") ||
+	    !config_word_matches(path, "display_config_0", "pixel_fmt", "PIXEL_FORMAT_NV12") ||
+	    !config_word_matches(path, "display_config_0", "mode", "VO_MODE_1MUX") ||
+	    !config_word_matches(path, "display_config_0", "rotation", "ROTATION_0") ||
+	    !config_word_matches(path, "display_config_0", "src_mod_id", "CVI_ID_VPSS") ||
+	    !config_word_matches(path, "display_config_0", "dst_mod_id", "CVI_ID_VO")) {
+		snprintf(error, error_size, "MS7024 显示输出拓扑不受支持");
 		return -1;
 	}
 	{

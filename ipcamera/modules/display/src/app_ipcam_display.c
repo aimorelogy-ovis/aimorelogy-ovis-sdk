@@ -60,47 +60,51 @@ CVI_S32 app_ipcam_Display_Init(void)
         };
 
         vonum--;
-        app_ipcam_Panel_PanelDesc_Get(
+        APP_CHK_RET(app_ipcam_Panel_PanelDesc_Get(
             &g_pstDisplayCfg->vo_cfg[vonum].enPanelType,
             &stPanelDesc,
-            &g_pstDisplayCfg->vo_cfg[vonum].stVoCfg);
+            &g_pstDisplayCfg->vo_cfg[vonum].stVoCfg),
+            "app_ipcam_Panel_PanelDesc_Get");
 
         switch (g_pstDisplayCfg->vo_cfg[vonum].stVoCfg.stVoPubAttr.enIntfType) {
         case VO_INTF_MIPI:
             // MIPI 接口使用前显式置为 -1
             s32MipiTxFd[vonum] = -1;
             // MIPI-DSI 面板由 MIPI-TX 初始化
-            app_ipcam_MipiTx_Enable(
+            APP_CHK_RET(app_ipcam_MipiTx_Enable(
                 &g_pstDisplayCfg->vo_cfg[vonum].stVoCfg.s32VoDev,
                 stPanelDesc.pchPanelName,
                 stPanelDesc.pstDevCfg,
                 stPanelDesc.pstHsTimingCfg,
                 stPanelDesc.pstDsiInitCmds,
                 &stPanelDesc.s32DsiInitCmdsSize,
-                &s32MipiTxFd[vonum]
-            );
+                &s32MipiTxFd[vonum]),
+                "app_ipcam_MipiTx_Enable");
             break;
         case VO_INTF_BT656:
         case VO_INTF_BT1120:
             // BT 接口面板初始化（含 I2C 下发序列）
-            app_ipcam_Panel_BT_Init(
+            APP_CHK_RET(app_ipcam_Panel_BT_Init(
                 &g_pstDisplayCfg->vo_cfg[vonum].stVoCfg,
                 g_pstDisplayCfg->vo_cfg[vonum].enPanelType,
-                &g_pstDisplayCfg->vo_cfg[vonum].stPanelI2cCfg);
+                &g_pstDisplayCfg->vo_cfg[vonum].stPanelI2cCfg),
+                "app_ipcam_Panel_BT_Init");
             break;
         case VO_INTF_LVDS:
             // LVDS 面板初始化预留
-            app_ipcam_Panel_Lvds_Init(
+            APP_CHK_RET(app_ipcam_Panel_Lvds_Init(
                 &g_pstDisplayCfg->vo_cfg[vonum].stVoCfg,
-                g_pstDisplayCfg->vo_cfg[vonum].enPanelType);
+                g_pstDisplayCfg->vo_cfg[vonum].enPanelType),
+                "app_ipcam_Panel_Lvds_Init");
             break;
         default:
             // 未知接口类型保持默认
             APP_PROF_LOG_PRINT(LEVEL_ERROR, "Unknown interface type: %d!\n", g_pstDisplayCfg->vo_cfg[vonum].stVoCfg.stVoPubAttr.enIntfType);
-            break;
+            return CVI_FAILURE;
         }
 
-        app_ipcam_Vo_Start(&g_pstDisplayCfg->vo_cfg[vonum].stVoCfg);
+        APP_CHK_RET(app_ipcam_Vo_Start(&g_pstDisplayCfg->vo_cfg[vonum].stVoCfg),
+            "app_ipcam_Vo_Start");
     }
     APP_PROF_LOG_PRINT(LEVEL_INFO, "========================================= Display Init END =========================================\n");
 
