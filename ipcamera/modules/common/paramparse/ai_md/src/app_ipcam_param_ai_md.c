@@ -23,9 +23,9 @@ int Load_Param_Ai_MD(const char * file)
     Md->miniArea      = ini_getl("ai_md_config", "miniArea", 0, file);
     Md->u32BgUpPeriod = ini_getl("ai_md_config", "bgUpPeriod", 0, file);
 
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "bEnable=%d Grp=%d Chn=%d GrpW=%d GrpH=%d\n",
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "bEnable=%d Grp=%d Chn=%d GrpW=%d GrpH=%d\n",
         Md->bEnable, Md->VpssGrp, Md->VpssChn, Md->u32GrpWidth, Md->u32GrpHeight);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "threshold=%d miniArea=%d u32BgUpPeriod=%d\n",
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "threshold=%d miniArea=%d u32BgUpPeriod=%d\n",
         Md->threshold, Md->miniArea, Md->u32BgUpPeriod);
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading MD config ------------------> done \n\n");

@@ -58,9 +58,9 @@ int Load_Param_Vpss(const char *file)
     ini_gets(tmp_section, "enMode", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vpss_mode, VPSS_MODE_BUTT, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][enMode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][enMode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][enMode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][enMode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Vpss->stVPSSMode.enMode = enum_num;
     }
 
@@ -72,9 +72,9 @@ int Load_Param_Vpss(const char *file)
         ini_gets(tmp_section, "aenInput", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vpss_input, VPSS_INPUT_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][enMode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][enMode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][enMode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][enMode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Vpss->stVPSSMode.aenInput[i] = enum_num;
         }
     }
@@ -91,9 +91,9 @@ int Load_Param_Vpss(const char *file)
             ini_gets(tmp_section, "src_mod_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
             ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, mode_id, CVI_ID_BUTT, &enum_num);
             if (ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][src_mod_id] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][src_mod_id] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
             } else {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][src_mod_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][src_mod_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                 Vpss->astVpssGrpCfg[grp_idx].astChn[0].enModId = enum_num;
             }
 
@@ -103,24 +103,24 @@ int Load_Param_Vpss(const char *file)
             ini_gets(tmp_section, "dst_mod_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
             ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, mode_id, CVI_ID_BUTT, &enum_num);
             if (ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][dst_mod_id] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][dst_mod_id] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
             } else {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][dst_mod_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][dst_mod_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                 Vpss->astVpssGrpCfg[grp_idx].astChn[1].enModId = enum_num;
             }
 
             Vpss->astVpssGrpCfg[grp_idx].astChn[1].s32DevId = ini_getl(tmp_section, "dst_dev_id", 0, file);
             Vpss->astVpssGrpCfg[grp_idx].astChn[1].s32ChnId = ini_getl(tmp_section, "dst_chn_id", 0, file);
         }
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "vpss grp_idx=%d\n", grp_idx);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "vpss grp_idx=%d\n", grp_idx);
         VPSS_GRP_ATTR_S *pstVpssGrpAttr = &Vpss->astVpssGrpCfg[grp_idx].stVpssGrpAttr;
 
         ini_gets(tmp_section, "pixel_fmt", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, pixel_format, PIXEL_FORMAT_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][pixel_fmt] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][pixel_fmt] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][pixel_fmt] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][pixel_fmt] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             pstVpssGrpAttr->enPixelFormat = enum_num;
         }
 
@@ -129,7 +129,7 @@ int Load_Param_Vpss(const char *file)
         pstVpssGrpAttr->u32MaxW                     = ini_getl(tmp_section, "max_w", 0, file);
         pstVpssGrpAttr->u32MaxH                     = ini_getl(tmp_section, "max_h", 0, file);
         pstVpssGrpAttr->u8VpssDev                   = ini_getl(tmp_section, "vpss_dev", 0, file);
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "Group_ID_%d Config: pix_fmt=%2d sfr=%2d dfr=%2d Dev=%d W=%4d H=%4d\n",
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Group_ID_%d Config: pix_fmt=%2d sfr=%2d dfr=%2d Dev=%d W=%4d H=%4d\n",
             grp_idx, pstVpssGrpAttr->enPixelFormat, pstVpssGrpAttr->stFrameRate.s32SrcFrameRate, pstVpssGrpAttr->stFrameRate.s32DstFrameRate,
             pstVpssGrpAttr->u8VpssDev, pstVpssGrpAttr->u32MaxW, pstVpssGrpAttr->u32MaxH);
 
@@ -140,9 +140,9 @@ int Load_Param_Vpss(const char *file)
             ini_gets(tmp_section, "crop_coor", " ", str_name, PARAM_STRING_NAME_LEN, file);
             ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vpss_crop_coordinate, VPSS_CROP_COORDINATE_MAX, &enum_num);
             if (ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][crop_coor] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][crop_coor] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
             } else {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][crop_coor] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][crop_coor] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                 pstVpssGrpCropInfo->enCropCoordinate = enum_num;
             }
 
@@ -153,7 +153,7 @@ int Load_Param_Vpss(const char *file)
         }
 
         CVI_U32 grp_chn_cnt = ini_getl(tmp_section, "chn_cnt", 0, file);
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "Group_ID_%d channel count = %d\n", grp_idx, grp_chn_cnt);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Group_ID_%d channel count = %d\n", grp_idx, grp_chn_cnt);
         /* load vpss group channel config */
         for (chn_idx = 0; chn_idx < grp_chn_cnt; chn_idx++) {
             memset(tmp_section, 0, sizeof(tmp_section));
@@ -169,18 +169,18 @@ int Load_Param_Vpss(const char *file)
             ini_gets(tmp_section, "video_fmt", " ", str_name, PARAM_STRING_NAME_LEN, file);
             ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, video_format, VIDEO_FORMAT_MAX, &enum_num);
             if (ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][video_fmt] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][video_fmt] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
             } else {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][video_fmt] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][video_fmt] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                 pastVpssChnAttr->enVideoFormat = enum_num;
             }
 
             ini_gets(tmp_section, "chn_pixel_fmt", " ", str_name, PARAM_STRING_NAME_LEN, file);
             ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, pixel_format, PIXEL_FORMAT_MAX, &enum_num);
             if (ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][chn_pixel_fmt] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][chn_pixel_fmt] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
             } else {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][chn_pixel_fmt] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][chn_pixel_fmt] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                 pastVpssChnAttr->enPixelFormat = enum_num;
             }
 
@@ -193,9 +193,9 @@ int Load_Param_Vpss(const char *file)
             ini_gets(tmp_section, "aspectratio", " ", str_name, PARAM_STRING_NAME_LEN, file);
             ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, aspect_ratio, ASPECT_RATIO_MAX, &enum_num);
             if (ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][aspectratio] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][aspectratio] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
             } else {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][aspectratio] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][aspectratio] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                 pastVpssChnAttr->stAspectRatio.enMode = enum_num;
             }
 
@@ -217,9 +217,9 @@ int Load_Param_Vpss(const char *file)
                 ini_gets(tmp_section, "crop_coor", " ", str_name, PARAM_STRING_NAME_LEN, file);
                 ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vpss_crop_coordinate, VPSS_CROP_COORDINATE_MAX, &enum_num);
                 if (ret != CVI_SUCCESS) {
-                    APP_PROF_LOG_PRINT(LEVEL_INFO, "Fail to convert string name [%s] to enum number!\n", str_name);
+                    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Fail to convert string name [%s] to enum number!\n", str_name);
                 } else {
-                    APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][crop_coor] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][crop_coor] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                     pstVpssChnCropInfo->enCropCoordinate = enum_num;
                 }
 
@@ -241,7 +241,7 @@ int Load_Param_Vpss(const char *file)
                 }
                 Vpss->astVpssGrpCfg[grp_idx].aAttachPool[chn_idx] = actual_pool;
             }
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "Chn_ID_%d config: sft=%2d dfr=%2d W=%4d H=%4d Depth=%d Mirror=%d Flip=%d V_fmt=%2d P_fmt=%2d\n",
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Chn_ID_%d config: sft=%2d dfr=%2d W=%4d H=%4d Depth=%d Mirror=%d Flip=%d V_fmt=%2d P_fmt=%2d\n",
                 chn_idx, pastVpssChnAttr->stFrameRate.s32SrcFrameRate, pastVpssChnAttr->stFrameRate.s32DstFrameRate,
                 pastVpssChnAttr->u32Width, pastVpssChnAttr->u32Height, pastVpssChnAttr->u32Depth, pastVpssChnAttr->bMirror, pastVpssChnAttr->bFlip,
                 pastVpssChnAttr->enVideoFormat, pastVpssChnAttr->enPixelFormat);
@@ -267,7 +267,7 @@ int Load_Param_Vpss(const char *file)
             Vpss->astStitchPair[i].srcChn = ini_getl(sec, "src_chn", 0, file);
             Vpss->astStitchPair[i].dstGrp = ini_getl(sec, "dst_grp", 0, file);
             Vpss->astStitchPair[i].dstChn = ini_getl(sec, "dst_chn", 0, file);
-            APP_PROF_LOG_PRINT(LEVEL_INFO,
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG,
                                 "[%s] pair%d: src(%d,%d) -> dst(%d,%d)\n",
                                 tmp_section, i,
                                 Vpss->astStitchPair[i].srcGrp, Vpss->astStitchPair[i].srcChn,

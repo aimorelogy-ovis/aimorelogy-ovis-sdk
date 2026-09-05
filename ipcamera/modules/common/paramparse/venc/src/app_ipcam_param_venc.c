@@ -63,7 +63,7 @@ int Load_Param_Venc(const char *file)
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading venc config ------------------> start \n");
 
     chn_num = ini_getl("venc_config", "chn_num", 0, file);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "vpss_chn_num: %ld\n", chn_num);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "vpss_chn_num: %ld\n", chn_num);
     Venc->s32VencChnCnt = chn_num;
 
     for (i = 0; i < chn_num; i++) {
@@ -73,15 +73,15 @@ int Load_Param_Venc(const char *file)
 
         Venc->astVencChnCfg[i].bEnable = ini_getl(tmp_section, "bEnable", 0, file);
         if (!Venc->astVencChnCfg[i].bEnable) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "Venc_chn[%d] not enable!\n", i);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Venc_chn[%d] not enable!\n", i);
             continue;
         }
         ini_gets(tmp_section, "en_type", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, payload_type, PT_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][en_type] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][en_type] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][en_type] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][en_type] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Venc->astVencChnCfg[i].enType = enum_num;
         }
 
@@ -94,9 +94,9 @@ int Load_Param_Venc(const char *file)
         ini_gets(tmp_section, "bind_mode", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, venc_bind_mode, VENC_BIND_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][bind_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][bind_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][bind_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][bind_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Venc->astVencChnCfg[i].enBindMode = enum_num;
         }
 
@@ -104,9 +104,9 @@ int Load_Param_Venc(const char *file)
             ini_gets(tmp_section, "src_mod_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
             ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, mode_id, CVI_ID_BUTT, &enum_num);
             if (ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][src_mod_id] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][src_mod_id] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
             } else {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][src_mod_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][src_mod_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                 Venc->astVencChnCfg[i].astChn[0].enModId = enum_num;
             }
 
@@ -115,9 +115,9 @@ int Load_Param_Venc(const char *file)
             ini_gets(tmp_section, "dst_mod_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
             ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, mode_id, CVI_ID_BUTT, &enum_num);
             if (ret != CVI_SUCCESS) {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][dst_mod_id] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][dst_mod_id] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
             } else {
-                APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][dst_mod_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+                APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][dst_mod_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
                 Venc->astVencChnCfg[i].astChn[1].enModId = enum_num;
             }
 
@@ -128,16 +128,16 @@ int Load_Param_Venc(const char *file)
         app_ipcam_Param_CopyString(Venc->astVencChnCfg[i].SavePath,
             sizeof(Venc->astVencChnCfg[i].SavePath), tmp_buff);
 
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "Venc_chn[%d] enType=%d StreamTo=%d VpssGrp=%d VpssChn=%d u32Width=%d u32Height=%d\n save path =%s\n",
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Venc_chn[%d] enType=%d StreamTo=%d VpssGrp=%d VpssChn=%d u32Width=%d u32Height=%d\n save path =%s\n",
             i, Venc->astVencChnCfg[i].enType, Venc->astVencChnCfg[i].StreamTo, Venc->astVencChnCfg[i].VpssGrp, Venc->astVencChnCfg[i].VpssChn,
             Venc->astVencChnCfg[i].u32Width, Venc->astVencChnCfg[i].u32Height, Venc->astVencChnCfg[i].SavePath);
 
         ini_gets(tmp_section, "rc_mode", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, venc_rc_mode, VENC_RC_MODE_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][rc_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][rc_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][rc_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][rc_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Venc->astVencChnCfg[i].enRcMode = enum_num;
         }
 
@@ -202,23 +202,23 @@ int Load_Param_Venc(const char *file)
             Venc->astVencChnCfg[i].stRcParam.s32AvbrPureStillThr  = ini_getl(tmp_section, "AvbrPureStillThr", 0, file);
             Venc->astVencChnCfg[i].stRcParam.s32MaxReEncodeTimes  = ini_getl(tmp_section, "MaxReEncodeTimes", 0, file);
 
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "Venc_chn[%d] enRcMode=%d u32BitRate=%d u32MaxBitRate=%d enBindMode=%d bSingleCore=%d\n",
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Venc_chn[%d] enRcMode=%d u32BitRate=%d u32MaxBitRate=%d enBindMode=%d bSingleCore=%d\n",
                 i, Venc->astVencChnCfg[i].enRcMode, Venc->astVencChnCfg[i].u32BitRate, Venc->astVencChnCfg[i].u32MaxBitRate,
                 Venc->astVencChnCfg[i].enBindMode, Venc->astVencChnCfg[i].bSingleCore);
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "u32Gop=%d statTime=%d u32ThrdLv=%d\n",
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "u32Gop=%d statTime=%d u32ThrdLv=%d\n",
                 Venc->astVencChnCfg[i].u32Gop, Venc->astVencChnCfg[i].statTime, Venc->astVencChnCfg[i].stRcParam.u32ThrdLv);
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "u32MaxQp=%d u32MinQp=%d u32MaxIQp=%d u32MinIQp=%d s32ChangePos=%d s32InitialDelay=%d\n",
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "u32MaxQp=%d u32MinQp=%d u32MaxIQp=%d u32MinIQp=%d s32ChangePos=%d s32InitialDelay=%d\n",
                 Venc->astVencChnCfg[i].stRcParam.u32MaxQp, Venc->astVencChnCfg[i].stRcParam.u32MinQp, Venc->astVencChnCfg[i].stRcParam.u32MaxIQp,
                 Venc->astVencChnCfg[i].stRcParam.u32MinIQp, Venc->astVencChnCfg[i].stRcParam.s32ChangePos, Venc->astVencChnCfg[i].stRcParam.s32InitialDelay);
         } else {
             Venc->astVencChnCfg[i].stJpegCodecParam.quality   = ini_getl(tmp_section, "quality", 0, file);
             Venc->astVencChnCfg[i].stJpegCodecParam.MCUPerECS = ini_getl(tmp_section, "MCUPerECS", 0, file);
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "Venc_chn[%d] quality=%d\n", i, Venc->astVencChnCfg[i].stJpegCodecParam.quality);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Venc_chn[%d] quality=%d\n", i, Venc->astVencChnCfg[i].stJpegCodecParam.quality);
         }
     }
 
     int roi_num = ini_getl("roi_config", "max_num", 0, file);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "roi_max_num: %d\n", roi_num);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "roi_max_num: %d\n", roi_num);
 
     for (i = 0; i < roi_num; i++) {
         memset(tmp_section, 0, sizeof(tmp_section));
@@ -227,7 +227,7 @@ int Load_Param_Venc(const char *file)
         Venc->astRoiCfg[i].u32Index = i;
         Venc->astRoiCfg[i].bEnable = ini_getl(tmp_section, "bEnable", 0, file);
         if (!Venc->astRoiCfg[i].bEnable) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "Roi[%d] not enable!\n", i);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Roi[%d] not enable!\n", i);
             continue;
         }
 
@@ -238,7 +238,7 @@ int Load_Param_Venc(const char *file)
         Venc->astRoiCfg[i].u32Y      = ini_getl(tmp_section, "y", 0, file);
         Venc->astRoiCfg[i].u32Width  = ini_getl(tmp_section, "width", 0, file);
         Venc->astRoiCfg[i].u32Height = ini_getl(tmp_section, "height", 0, file);
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "Venc_chn[%d] bAbsQp=%d u32Qp=%d xy=(%d,%d) wd=(%d,%d)\n",
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Venc_chn[%d] bAbsQp=%d u32Qp=%d xy=(%d,%d) wd=(%d,%d)\n",
             Venc->astRoiCfg[i].VencChn, Venc->astRoiCfg[i].bAbsQp, Venc->astRoiCfg[i].u32Qp,
             Venc->astRoiCfg[i].u32X, Venc->astRoiCfg[i].u32Y, Venc->astRoiCfg[i].u32Width,
             Venc->astRoiCfg[i].u32Height);

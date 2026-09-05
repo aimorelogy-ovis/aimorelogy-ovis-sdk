@@ -38,9 +38,9 @@ int Load_Param_Ai_LPR(const char * file)
     ini_gets(tmp_section, "model_id_det", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_det] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][model_id_det] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_det] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][model_id_det] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Ai->model_id_det = enum_num;
     }
 
@@ -53,9 +53,9 @@ int Load_Param_Ai_LPR(const char * file)
     ini_gets(tmp_section, "model_id_kp", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_kp] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][model_id_kp] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_kp] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][model_id_kp] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Ai->model_id_kp = enum_num;
     }
 
@@ -67,17 +67,17 @@ int Load_Param_Ai_LPR(const char * file)
     ini_gets(tmp_section, "model_id_rec", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_rec] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][model_id_rec] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][model_id_rec] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][model_id_rec] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Ai->model_id_rec = enum_num;
     }
 
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "lpr_enable=%d vpss_grp=%d vpss_chn=%d GrpW=%d GrpH=%d threshold=%f\n",
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "lpr_enable=%d vpss_grp=%d vpss_chn=%d GrpW=%d GrpH=%d threshold=%f\n",
         Ai->bEnable, Ai->VpssGrp, Ai->VpssChn, Ai->u32GrpWidth, Ai->u32GrpHeight, Ai->threshold);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id_det=%d model_path_det=%s\n", Ai->model_id_det, Ai->model_path_det);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id_kp=%d model_path_kp=%s\n", Ai->model_id_kp, Ai->model_path_kp);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "model_id_rec=%d model_path_rec=%s\n", Ai->model_id_rec, Ai->model_path_rec);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "model_id_det=%d model_path_det=%s\n", Ai->model_id_det, Ai->model_path_det);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "model_id_kp=%d model_path_kp=%s\n", Ai->model_id_kp, Ai->model_path_kp);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "model_id_rec=%d model_path_rec=%s\n", Ai->model_id_rec, Ai->model_path_rec);
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading AI LPR config ------------------> done \n\n");
 

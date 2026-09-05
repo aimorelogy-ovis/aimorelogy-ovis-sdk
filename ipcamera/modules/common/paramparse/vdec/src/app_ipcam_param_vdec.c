@@ -30,7 +30,7 @@ int Load_Param_Vdec(const char *file)
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading vdec config ------------------> start \n");
 
     vdec_chn_num = ini_getl("vdec_config", "chn_num", 0, file);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "vdec_chn_num: %ld\n", vdec_chn_num);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "vdec_chn_num: %ld\n", vdec_chn_num);
 
     for (i = 0; i < vdec_chn_num; i++)
     {
@@ -40,7 +40,7 @@ int Load_Param_Vdec(const char *file)
         Vdec->astVdecChnCfg.bEnable = ini_getl(tmp_section, "bEnable", 0, file);
         if (!Vdec->astVdecChnCfg.bEnable)
         {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "Vdec_chn[%d] not enable!\n", i);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Vdec_chn[%d] not enable!\n", i);
             continue;
         }
 
@@ -60,7 +60,7 @@ int Load_Param_Vdec(const char *file)
         }
         else
         {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][de_type] Convert string name "
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][de_type] Convert string name "
                     "[%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Vdec->astVdecChnCfg.astChnAttr.enType = enum_num;
         }
@@ -74,7 +74,7 @@ int Load_Param_Vdec(const char *file)
         }
         else
         {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][de_mode] Convert string name "
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][de_mode] Convert string name "
                     "[%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Vdec->astVdecChnCfg.astChnAttr.enMode = enum_num;
         }
@@ -92,7 +92,7 @@ int Load_Param_Vdec(const char *file)
         }
         else
         {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][vdec_pixfmt] Convert string name "
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][vdec_pixfmt] Convert string name "
                     "[%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Vdec->astVdecChnCfg.astChnParam.enPixelFormat = enum_num;
         }

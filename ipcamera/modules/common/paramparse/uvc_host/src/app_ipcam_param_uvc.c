@@ -39,11 +39,11 @@ int Load_Param_Uvc(const char *file)
     pstHostCfg->bFeedVpss = (ini_getl(tmp_section, "host_feed_vpss", 0, file) != 0) ? CVI_TRUE : CVI_FALSE;
     pstHostCfg->u32VpssGrp  = (CVI_U32)ini_getl(tmp_section, "host_vpss_grp", 0, file);
 
-    APP_PROF_LOG_PRINT(LEVEL_INFO,
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG,
                        "uvc_enable:%d (host parser)\n",
                        (int)bUvcEnable);
 
-    APP_PROF_LOG_PRINT(LEVEL_INFO,
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG,
                        "uvc host route enable:%d host_dev:%s host=%ux%u fmt=%s skip=%u feed_vpss=%d grp=%u\n",
                        (int)pstHostCfg->bEnable,
                        pstHostCfg->szDevPath,

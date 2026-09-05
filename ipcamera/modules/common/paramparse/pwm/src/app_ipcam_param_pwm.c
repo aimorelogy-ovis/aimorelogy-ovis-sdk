@@ -32,7 +32,7 @@ int Load_Param_Pwm(const char * file)
     // Pwm->grp = GRP;
     // Pwm->chn = CHN;
 
-    // APP_PROF_LOG_PRINT(LEVEL_INFO, "GRP=%d  CHN=%d  PERIOD=%d  DUTY_CYCLE=%d  ENABLE=%d\n",Pwm->grp,Pwm->chn,Pwm->period,Pwm->duty_cycle,Pwm->enabled);
+    // APP_PROF_LOG_PRINT(LEVEL_DEBUG, "GRP=%d  CHN=%d  PERIOD=%d  DUTY_CYCLE=%d  ENABLE=%d\n",Pwm->grp,Pwm->chn,Pwm->period,Pwm->duty_cycle,Pwm->enabled);
 
     // APP_PROF_LOG_PRINT(LEVEL_INFO, "loading PWM config ------------------> done \n\n");
 

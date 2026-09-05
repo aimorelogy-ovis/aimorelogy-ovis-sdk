@@ -17,7 +17,7 @@ int Load_Param_Module(const char * file)
     Module->alios_vpss_mode = ini_getl("module_config", "alios_vpss_mode", 0, file);
     Module->alios_venc_mode = ini_getl("module_config", "alios_venc_mode", 0, file);
 
-    APP_PROF_LOG_PRINT(LEVEL_INFO, \
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, \
                     "alios_sys_mode:%d, alios_vi_mode:%d, alios_vpss_mode:%d, alios_venc_mode:%d\n", \
                     Module->alios_sys_mode, Module->alios_vi_mode, \
                     Module->alios_vpss_mode, Module->alios_venc_mode);

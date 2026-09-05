@@ -87,12 +87,12 @@ int Load_Param_Vi(const char *file)
     snprintf(tmp_section, sizeof(tmp_section), "sensor_config");
     work_sns_cnt = ini_getl(tmp_section, "sensor_cnt", 0, file);
     pViIniCfg->stSensorCfg.sns_ini_cfg.enSnsMode = ini_getl(tmp_section, "sensor_mode", 0, file);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "work_sns_cnt = %ld, sensor_mode = %d\n", work_sns_cnt, pViIniCfg->stSensorCfg.sns_ini_cfg.enSnsMode);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "work_sns_cnt = %ld, sensor_mode = %d\n", work_sns_cnt, pViIniCfg->stSensorCfg.sns_ini_cfg.enSnsMode);
     if(work_sns_cnt <= VI_MAX_DEV_NUM) {
         pViIniCfg->u32WorkSnsCnt = work_sns_cnt;
         pViIniCfg->stSensorCfg.sns_ini_cfg.devNum = work_sns_cnt;
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "work_sns_cnt error (%ld)\n", work_sns_cnt);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "work_sns_cnt error (%ld)\n", work_sns_cnt);
         return CVI_FAILURE;
     }
 
@@ -106,7 +106,7 @@ int Load_Param_Vi(const char *file)
         pViIniCfg->stSensorCfg.sns_ini_cfg.MipiDev[i]       = ini_getl(tmp_section, "mipi_dev", 0, file);
         pViIniCfg->stSensorCfg.sns_cfg.f32FrameRate[i]      = ini_getf(tmp_section, "framerate", 0.0, file);    /////////////////////////
 
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "sns_type=%d bus_id=%d sns_i2c_addr=%x mipi_dev=%d framerate=%f\n",
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "sns_type=%d bus_id=%d sns_i2c_addr=%x mipi_dev=%d framerate=%f\n",
             pViIniCfg->stSensorCfg.sns_ini_cfg.enSnsType[i],
             pViIniCfg->stSensorCfg.sns_ini_cfg.s32BusId[i],
             pViIniCfg->stSensorCfg.sns_ini_cfg.s32SnsI2cAddr[i],
@@ -147,7 +147,7 @@ int Load_Param_Vi(const char *file)
             pViIniCfg->stSensorCfg.sns_ini_cfg.s32SwitchPol[i][j] = ini_getl(tmp_section, tmp, -1, file);
         }
 
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "hw_sync=%d mclk_en=%d mclk=%d hs_settle_en=%d hs_settle=%d \
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "hw_sync=%d mclk_en=%d mclk=%d hs_settle_en=%d hs_settle=%d \
             orien=%d rst_port=%d rst_pin=%d rst_pol=%d\n", pViIniCfg->stSensorCfg.sns_ini_cfg.u8HwSync[i],
             pViIniCfg->stSensorCfg.sns_ini_cfg.stMclkAttr[i].bMclkEn,
             pViIniCfg->stSensorCfg.sns_ini_cfg.stMclkAttr[i].u8Mclk,
@@ -167,9 +167,9 @@ int Load_Param_Vi(const char *file)
         ini_gets(tmp_section, "wdrmode", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, wdr_mode, WDR_MODE_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][wdrmode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][wdrmode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][wdrmode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][wdrmode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             pViIniCfg->astDevInfo[i].enWDRMode = enum_num;
         }
 
@@ -183,9 +183,9 @@ int Load_Param_Vi(const char *file)
         ini_gets(tmp_section, "pipe_mode", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vi_vpss_mode, VI_VPSS_MODE_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][pipe_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][pipe_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][pipe_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][pipe_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             pViIniCfg->astPipeInfo[i].enMastPipeMode = enum_num;
         }
 
@@ -198,35 +198,35 @@ int Load_Param_Vi(const char *file)
         ini_gets(tmp_section, "pixFormat", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, pixel_format, PIXEL_FORMAT_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][pixFormat] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][pixFormat] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][pixFormat] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][pixFormat] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             pViIniCfg->astChnInfo[i].enPixFormat = enum_num;
         }
         ini_gets(tmp_section, "dynamic_range", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, dynamic_range, DYNAMIC_RANGE_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][dynamic_range] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][dynamic_range] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][dynamic_range] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][dynamic_range] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             pViIniCfg->astChnInfo[i].enDynamicRange = enum_num;
         }
 
         ini_gets(tmp_section, "video_format", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, video_format, VIDEO_FORMAT_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][video_format] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][video_format] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][video_format] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][video_format] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             pViIniCfg->astChnInfo[i].enVideoFormat = enum_num;
         }
 
         ini_gets(tmp_section, "compress_mode", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, compress_mode, COMPRESS_MODE_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][compress_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][compress_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][compress_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][compress_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             pViIniCfg->astChnInfo[i].enCompressMode = enum_num;
         }
 

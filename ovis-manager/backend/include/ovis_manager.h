@@ -186,5 +186,6 @@ int device_private_network_id(char *identity, size_t size);
 int auth_check(const char *authorization);
 void audit_log(const char *operation, const char *result);
 void json_escape(const char *src, char *dst, size_t size);
+int startup_run_logged(const char *path, char **command);
 
 #endif

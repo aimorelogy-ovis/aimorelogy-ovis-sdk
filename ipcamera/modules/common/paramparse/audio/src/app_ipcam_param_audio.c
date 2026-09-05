@@ -58,27 +58,27 @@ int Load_Param_Audio(const char * file)
     ini_gets(tmp_section, "sound_mode", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, audio_sound_mode, AUDIO_SOUND_MODE_BUTT, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][sound_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][sound_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][sound_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][sound_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Auido->astAudioCfg.enSoundmode = enum_num;
     }
 
     ini_gets(tmp_section, "bit_width", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, audio_bit_width, AUDIO_BIT_WIDTH_BUTT, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][bit_width] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][bit_width] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][bit_width] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][bit_width] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Auido->astAudioCfg.enBitwidth = enum_num;
     }
 
     ini_gets(tmp_section, "work_mode", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, aio_mode, AIO_MODE_BUTT, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][work_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][work_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][work_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][work_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Auido->astAudioCfg.enWorkmode = enum_num;
     }
 
@@ -90,9 +90,9 @@ int Load_Param_Audio(const char * file)
     ini_gets(tmp_section, "i2s_type", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, aio_i2stype, AIO_I2STYPE_BUTT, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][i2s_type] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][i2s_type] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][i2s_type] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][i2s_type] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Auido->astAudioCfg.enI2sType = enum_num;
     }
 
@@ -106,9 +106,9 @@ int Load_Param_Audio(const char * file)
     ini_gets(tmp_section, "en_type", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, payload_type, PT_BUTT, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][en_type] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][en_type] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][en_type] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][en_type] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Auido->astAudioCfg.enAencType = enum_num;
     }
 

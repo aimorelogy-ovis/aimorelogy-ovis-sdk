@@ -117,10 +117,10 @@ int Load_Param_Display(const char * file)
         ini_gets(tmp_section, "panel_type", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, panel_type, PANEL_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][panel_type] Fail to convert string name [%s] to enum number!\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][panel_type] Fail to convert string name [%s] to enum number!\n"
                 , tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][panel_type] Convert string name [%s] to enum number [%d].\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][panel_type] Convert string name [%s] to enum number [%d].\n"
                 , tmp_section, str_name, enum_num);
             pstDisplayCfg->vo_cfg[i].enPanelType = enum_num;
         }
@@ -134,10 +134,10 @@ int Load_Param_Display(const char * file)
         ini_gets(tmp_section, "intf_type", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vo_intf_type, VO_INTF_TYPE_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][intf_type] Fail to convert string name [%s] to number!\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][intf_type] Fail to convert string name [%s] to number!\n"
                 , tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][intf_type] Convert string name [%s] to number [%d].\n", tmp_section
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][intf_type] Convert string name [%s] to number [%d].\n", tmp_section
                 , str_name, enum_num);
             pstDisplayCfg->vo_cfg[i].stVoCfg.stVoPubAttr.enIntfType = enum_num;
         }
@@ -145,10 +145,10 @@ int Load_Param_Display(const char * file)
         ini_gets(tmp_section, "intf_sync", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vo_intf_sync, VO_OUTPUT_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][intf_sync] Fail to convert string name [%s] to enum number!\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][intf_sync] Fail to convert string name [%s] to enum number!\n"
                 , tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][intf_sync] Convert string name [%s] to enum number [%d].\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][intf_sync] Convert string name [%s] to enum number [%d].\n"
                 , tmp_section, str_name, enum_num);
             pstDisplayCfg->vo_cfg[i].stVoCfg.stVoPubAttr.enIntfSync = enum_num;
         }
@@ -164,10 +164,10 @@ int Load_Param_Display(const char * file)
         ini_gets(tmp_section, "pixel_fmt", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, pixel_format, PIXEL_FORMAT_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][pixel_fmt] Fail to convert string name [%s] to enum number!\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][pixel_fmt] Fail to convert string name [%s] to enum number!\n"
                 , tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][pixel_fmt] Convert string name [%s] to enum number [%d].\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][pixel_fmt] Convert string name [%s] to enum number [%d].\n"
                 , tmp_section, str_name, enum_num);
             pstDisplayCfg->vo_cfg[i].stVoCfg.stLayerAttr.enPixFormat = enum_num;
         }
@@ -175,10 +175,10 @@ int Load_Param_Display(const char * file)
         ini_gets(tmp_section, "mode", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vo_mode, VO_MODE_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][mode] Fail to convert string name [%s] to enum number!\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][mode] Fail to convert string name [%s] to enum number!\n"
                 , tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][mode] Convert string name [%s] to enum number [%d].\n", tmp_section
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][mode] Convert string name [%s] to enum number [%d].\n", tmp_section
                 , str_name, enum_num);
             pstDisplayCfg->vo_cfg[i].stVoCfg.enVoMode = enum_num;
         }
@@ -186,10 +186,10 @@ int Load_Param_Display(const char * file)
         ini_gets(tmp_section, "rotation", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, rotation, ROTATION_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][rotation] Fail to convert string name [%s] to enum number!\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][rotation] Fail to convert string name [%s] to enum number!\n"
                 , tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][rotation] Convert string name [%s] to enum number [%d].\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][rotation] Convert string name [%s] to enum number [%d].\n"
                 , tmp_section, str_name, enum_num);
             pstDisplayCfg->vo_cfg[i].stVoCfg.enRotation = enum_num;
         }
@@ -201,10 +201,10 @@ int Load_Param_Display(const char * file)
         ini_gets(tmp_section, "src_mod_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, mode_id, CVI_ID_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][src_mod_id] Fail to convert string name [%s] to enum number!\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][src_mod_id] Fail to convert string name [%s] to enum number!\n"
                 , tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][src_mod_id] Convert string name [%s] to enum number [%d].\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][src_mod_id] Convert string name [%s] to enum number [%d].\n"
                 , tmp_section, str_name, enum_num);
             pstDisplayCfg->vo_cfg[i].stVoCfg.stSrcChn.enModId = enum_num;
         }
@@ -215,10 +215,10 @@ int Load_Param_Display(const char * file)
         ini_gets(tmp_section, "dst_mod_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, mode_id, CVI_ID_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][dst_mod_id] Fail to convert string name [%s] to enum number!\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][dst_mod_id] Fail to convert string name [%s] to enum number!\n"
                 , tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][dst_mod_id] Convert string name [%s] to enum number [%d].\n"
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][dst_mod_id] Convert string name [%s] to enum number [%d].\n"
                 , tmp_section, str_name, enum_num);
             pstDisplayCfg->vo_cfg[i].stVoCfg.stDstChn.enModId = enum_num;
         }
@@ -226,7 +226,7 @@ int Load_Param_Display(const char * file)
         pstDisplayCfg->vo_cfg[i].stVoCfg.stDstChn.s32DevId = ini_getl(tmp_section, "dst_dev_id", 0, file);
         pstDisplayCfg->vo_cfg[i].stVoCfg.stDstChn.s32ChnId = ini_getl(tmp_section, "dst_chn_id", 0, file);
 
-        APP_PROF_LOG_PRINT(LEVEL_INFO,
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG,
             "enPanelType:%d, s32VoDev:%d, u32BgColor:%d, enIntfType:%d, enIntfSync:%d,\n"
             "x:%d, y:%d, w:%d, h:%d, imgw:%d, imgh:%d,\n"
             "u32DispFrmRt:%d, enPixFormat:%d, enVoMode:%d, enRotation:%d, u32DisBufLen:%d,\n"

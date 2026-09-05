@@ -18,7 +18,7 @@ int Load_Param_Gpio(const char * file)
     Gpio->LED_WHITE = ini_getl("gpio_config", "led_white", 0, file);
     Gpio->LED_IR    = ini_getl("gpio_config", "led_ir", 0, file);
 
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "IR_CUT_A GPIO=%d IR_CUT_B GPIO=%d LED_WHITE GPIO=%d LED_RED GPIO=%d\n",Gpio->IR_CUT_A, Gpio->IR_CUT_B,Gpio->LED_WHITE,Gpio->LED_IR);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "IR_CUT_A GPIO=%d IR_CUT_B GPIO=%d LED_WHITE GPIO=%d LED_RED GPIO=%d\n",Gpio->IR_CUT_A, Gpio->IR_CUT_B,Gpio->LED_WHITE,Gpio->LED_IR);
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading GPIO config ------------------> done \n\n");
 

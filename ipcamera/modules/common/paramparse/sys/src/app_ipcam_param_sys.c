@@ -27,7 +27,7 @@ int Load_Param_Sys(const char *file)
 
     Sys->u8SbmCnt = ini_getl("slice_config", "slice_cnt", 0, file);
     if ((Sys->u8SbmCnt > 0) && (Sys->u8SbmCnt <= APP_IPCAM_SBM_MAX_NUM)) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "SBM Enable !\n");
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "SBM Enable !\n");
         for (i = 0; i < Sys->u8SbmCnt; i++) {
             memset(tmp_section, 0, sizeof(tmp_section));
             sprintf(tmp_section, "slice_buff_%d", i);
@@ -66,33 +66,33 @@ int Load_Param_Sys(const char *file)
         ini_gets(tmp_section, "frame_fmt", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, pixel_format, PIXEL_FORMAT_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][frame_fmt] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][frame_fmt] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][frame_fmt] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][frame_fmt] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Sys->vb_pool[vbpoolnum].fmt = enum_num;
         }
 
         ini_gets(tmp_section, "data_bitwidth", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, data_bitwidth, DATA_BITWIDTH_MAX, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][data_bitwidth] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][data_bitwidth] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][data_bitwidth] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][data_bitwidth] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Sys->vb_pool[vbpoolnum].enBitWidth = enum_num;
         }
 
         ini_gets(tmp_section, "compress_mode", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, compress_mode, COMPRESS_MODE_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][compress_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][compress_mode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][compress_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][compress_mode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Sys->vb_pool[vbpoolnum].enCmpMode = enum_num;
         }
 
         Sys->vb_pool[vbpoolnum].vb_blk_num = ini_getl(tmp_section, "blk_cnt", 0, file);
 
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "vb_pool[%d] w=%4d h=%4d count=%d fmt=%d\n", vbpoolnum, Sys->vb_pool[vbpoolnum].width,
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "vb_pool[%d] w=%4d h=%4d count=%d fmt=%d\n", vbpoolnum, Sys->vb_pool[vbpoolnum].width,
             Sys->vb_pool[vbpoolnum].height, Sys->vb_pool[vbpoolnum].vb_blk_num, Sys->vb_pool[vbpoolnum].fmt);
 
         vbpoolnum++;
@@ -107,9 +107,9 @@ int Load_Param_Sys(const char *file)
         ini_gets(tmp_section, "enMode", " ", str_name, PARAM_STRING_NAME_LEN, file);
         ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, vi_vpss_mode, VI_VPSS_MODE_BUTT, &enum_num);
         if (ret != CVI_SUCCESS) {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][enMode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][enMode] Fail to convert string name [%s] to enum number!\n", tmp_section, str_name);
         } else {
-            APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][enMode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+            APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][enMode] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
             Sys->stVIVPSSMode.aenMode[i] = enum_num;
         }
     }

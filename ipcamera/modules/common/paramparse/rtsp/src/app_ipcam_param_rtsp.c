@@ -22,7 +22,7 @@ int Load_Param_Rtsp(const char * file)
     }
 
     Rtsp->port = ini_getl("rtsp_config", "port", 0, file);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "rtsp session cnt=%d port:%d\n", Rtsp->session_cnt, Rtsp->port);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "rtsp session cnt=%d port:%d\n", Rtsp->session_cnt, Rtsp->port);
     for (int i = 0; i < Rtsp->session_cnt; i++) {
         memset(tmp_section, 0, sizeof(tmp_section));
         snprintf(tmp_section, sizeof(tmp_section), "session%d", i);
@@ -30,7 +30,7 @@ int Load_Param_Rtsp(const char * file)
         Rtsp->VencChn[i] = ini_getl(tmp_section, "venc_chn", 0, file);
         Rtsp->bitrate_kbps[i] = ini_getl(tmp_section, "bitrate", 0, file);
 
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "Vecn Chn=%d Vbitrate=%d\n",
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "Vecn Chn=%d Vbitrate=%d\n",
             Rtsp->VencChn[i], Rtsp->bitrate_kbps[i]);
     }
 

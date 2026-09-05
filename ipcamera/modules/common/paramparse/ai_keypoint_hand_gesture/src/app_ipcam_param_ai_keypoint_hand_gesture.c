@@ -29,15 +29,15 @@ int Load_Param_Ai_KeypointHandGesture(const char * file)
     Ai->threshold           = ini_getf(tmp_section, "threshold", 0, file);
     ini_gets(tmp_section, "model_path_cfg", " ", tmp_buff, 128, file);
     app_ipcam_Param_CopyString(Ai->model_path_cfg, sizeof(Ai->model_path_cfg), tmp_buff);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "model_path_cfg=%s\n", Ai->model_path_cfg);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "model_path_cfg=%s\n", Ai->model_path_cfg);
 
     // 解析检测模型配置
     ini_gets(tmp_section, "detect_model_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][detect_model_id] Fail to convert string name [%s] to enum number, using default TDL_MODEL_YOLOV8N_DET_HAND!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][detect_model_id] Fail to convert string name [%s] to enum number, using default TDL_MODEL_YOLOV8N_DET_HAND!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][detect_model_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][detect_model_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Ai->detect_model_id = enum_num;
     }
 
@@ -45,9 +45,9 @@ int Load_Param_Ai_KeypointHandGesture(const char * file)
     ini_gets(tmp_section, "keypoint_model_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][keypoint_model_id] Fail to convert string name [%s] to enum number, using default TDL_MODEL_KEYPOINT_HAND!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][keypoint_model_id] Fail to convert string name [%s] to enum number, using default TDL_MODEL_KEYPOINT_HAND!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][keypoint_model_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][keypoint_model_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Ai->keypoint_model_id = enum_num;
     }
 
@@ -55,9 +55,9 @@ int Load_Param_Ai_KeypointHandGesture(const char * file)
     ini_gets(tmp_section, "classify_model_id", " ", str_name, PARAM_STRING_NAME_LEN, file);
     ret = app_ipcam_Param_Convert_StrName_to_EnumNum(str_name, ai_supported_model, TDL_MODEL_MAX, &enum_num);
     if (ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][classify_model_id] Fail to convert string name [%s] to enum number, using default TDL_MODEL_CLS_KEYPOINT_HAND_GESTURE!\n", tmp_section, str_name);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][classify_model_id] Fail to convert string name [%s] to enum number, using default TDL_MODEL_CLS_KEYPOINT_HAND_GESTURE!\n", tmp_section, str_name);
     } else {
-        APP_PROF_LOG_PRINT(LEVEL_INFO, "[%s][classify_model_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "[%s][classify_model_id] Convert string name [%s] to enum number [%d].\n", tmp_section, str_name, enum_num);
         Ai->classify_model_id = enum_num;
     }
 
@@ -79,13 +79,13 @@ int Load_Param_Ai_KeypointHandGesture(const char * file)
     ini_gets(tmp_section, "classify_model_path", " ", tmp_buff, 128, file);
     app_ipcam_Param_CopyString(Ai->classify_model_path, sizeof(Ai->classify_model_path), tmp_buff);
 
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "keypoint_hand_gesture_enable=%d vpss_grp=%d vpss_chn=%d threshold=%f\n", \
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "keypoint_hand_gesture_enable=%d vpss_grp=%d vpss_chn=%d threshold=%f\n", \
         Ai->bEnable, Ai->VpssGrp, Ai->VpssChn,  Ai->threshold);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "detect_model_id=%d detect_model_path=%s\n",
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "detect_model_id=%d detect_model_path=%s\n",
         Ai->detect_model_id, Ai->detect_model_path);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "keypoint_model_id=%d keypoint_model_path=%s\n",
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "keypoint_model_id=%d keypoint_model_path=%s\n",
         Ai->keypoint_model_id, Ai->keypoint_model_path);
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "classify_model_id=%d classify_model_path=%s enable_classification=%d\n",
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "classify_model_id=%d classify_model_path=%s enable_classification=%d\n",
         Ai->classify_model_id, Ai->classify_model_path, Ai->bEnableClassification);
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "loading AI Keypoint Hand Gesture Detection config ------------------> done \n\n");

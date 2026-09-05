@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <time.h>
 #include "app_ipcam_paramparse.h"
 #include "app_ipcam_teaisp_bnr.h"
 #include "cvi_mbuf.h"
@@ -307,8 +308,19 @@ static int app_ipcam_Init(void)
     return CVI_SUCCESS;
 }
 
+static void app_ipcam_BootMark(const char *stage)
+{
+    struct timespec now;
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    APP_PROF_LOG_PRINT(LEVEL_INFO, "[boot %llu ms] %s\n",
+        (unsigned long long)now.tv_sec * 1000 + now.tv_nsec / 1000000, stage);
+}
+
 int main(int argc, char *argv[])
 {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    app_ipcam_BootMark("ipcamera start");
     app_ipcam_ReadyFile_Remove();
     system("echo /mnt/nfs/core-%e-%p-%t > /proc/sys/kernel/core_pattern");
     APP_CHK_RET(app_ipcam_Opts_Parse(argc, argv), "parse optinos");
@@ -325,15 +337,18 @@ int main(int argc, char *argv[])
 
     /* load each moudles parameter from param_config.ini */
     APP_CHK_RET(app_ipcam_Param_Load(), "load global parameter");
+    app_ipcam_BootMark("configuration loaded");
 
     APP_CHK_RET(app_ipcam_Mbuf_Init(), "Init Mbuf");
 
     /* init modules include <Peripheral; Sys; VI; VB; OSD; Venc; AI; Audio; etc.> */
     APP_CHK_RET(app_ipcam_Init(), "app_ipcam_Init");
+    app_ipcam_BootMark("media initialized");
 
     /* Start VENC before RTSP setup so bound VPSS output cannot accumulate
      * while the RTSP sessions are being created. */
     APP_CHK_RET(app_ipcam_Venc_Start(APP_VENC_ALL), "start video processing");
+    app_ipcam_BootMark("encoding started");
 
     #ifdef RTSP_SUPPORT
     /* create rtsp server */
@@ -420,6 +435,7 @@ int main(int argc, char *argv[])
     #endif
 
     APP_CHK_RET(app_ipcam_ReadyFile_Publish(), "publish ipcamera readiness");
+    app_ipcam_BootMark("ipcamera ready");
 
     /* enable receive a command form another progress for test ipcam */
     //APP_CHK_RET(app_ipcam_CmdTask_Create(), "running cmd test");

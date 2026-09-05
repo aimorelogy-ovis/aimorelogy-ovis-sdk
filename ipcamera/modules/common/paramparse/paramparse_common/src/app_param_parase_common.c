@@ -68,187 +68,187 @@ void app_ipcam_Param_CopyString(char *dst, size_t dst_size, const char *src)
 //weak hook function
 __attribute__((weak)) int Load_Param_Module(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Sys(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Vpss(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Vi(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Venc(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Vdec(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Vdec_Soft(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Display(const char* const file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_FrmBuf(const char* const file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Audio(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Osdc(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Stitch(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_GDC(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_BlackLight(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Rtsp(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Gpio(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Pwm(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_MD(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_PD(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_IRFD(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_HD(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_Consumer_Counting(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_FD(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_CRY(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_HumanKeypoint(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_KeypointHandGesture(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_OBJECT_TRACK(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_Img_Txt_Clip(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Ai_LPR(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Record(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
 __attribute__((weak)) int Load_Param_Uvc(const char *file)
 {
-    APP_PROF_LOG_PRINT(LEVEL_INFO, "%s defalut param \r\n", __func__);
+    APP_PROF_LOG_PRINT(LEVEL_DEBUG, "%s defalut param \r\n", __func__);
     return 0;
 }
 
