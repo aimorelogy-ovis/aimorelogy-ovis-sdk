@@ -643,6 +643,7 @@ static void get_bind_address(char *value, size_t size)
 int http_server_run(unsigned short port)
 {
 	struct sockaddr_in address = {0};
+	const char *ready_path = getenv("OVIS_MANAGER_READY_FILE");
 	char bind_address[INET_ADDRSTRLEN];
 	int server;
 	int option = 1;
@@ -662,6 +663,19 @@ int http_server_run(unsigned short port)
 		perror("ovis-manager listen"); close(server); return 1;
 	}
 	printf("ovis-managerd listening on %s:%u\n", bind_address, port);
+	if (ready_path != NULL) {
+		FILE *ready = fopen(ready_path, "w");
+		if (ready == NULL) {
+			close(server);
+			return 1;
+		}
+		fprintf(ready, "%ld\n", (long)getpid());
+		if (fclose(ready) != 0) {
+			unlink(ready_path);
+			close(server);
+			return 1;
+		}
+	}
 	for (;;) {
 		int client = accept(server, NULL, NULL);
 		if (client < 0) { if (errno == EINTR) continue; break; }
@@ -669,5 +683,7 @@ int http_server_run(unsigned short port)
 		close(client);
 	}
 	close(server);
+	if (ready_path != NULL)
+		unlink(ready_path);
 	return 1;
 }

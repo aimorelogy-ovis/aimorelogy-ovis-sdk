@@ -3,6 +3,7 @@
 DAEMON=/usr/sbin/ovis-managerd
 IDENTITY_HELPER=/usr/sbin/ovis-device-identity
 PIDFILE=/var/run/ovis-manager.pid
+READYFILE=/var/run/ovis-manager.ready
 STATE_DIR=/mnt/cfg/ovis-manager
 ACCOUNT_FILE="$STATE_DIR/ovis.account"
 OLD_CREDENTIALS="$STATE_DIR/credentials"
@@ -25,7 +26,7 @@ start() {
 		echo "ovis-manager is already running (PID $pid)"
 		return 0
 	fi
-	rm -f "$PIDFILE"
+	rm -f "$PIDFILE" "$READYFILE"
 	mkdir -p "$STATE_DIR" || return 1
 	[ -x "$IDENTITY_HELPER" ] || return 1
 	device_id=$("$IDENTITY_HELPER") || return 1
@@ -59,20 +60,26 @@ start() {
 		rm -f "$OLD_CREDENTIALS"
 	fi
 	printf "Starting ovis-manager: "
-	"$DAEMON" >> "$LOGFILE" 2>&1 &
+	OVIS_MANAGER_READY_FILE="$READYFILE" "$DAEMON" --run-logged "$LOGFILE" -- "$DAEMON" </dev/null &
 	pid=$!
 	echo "$pid" > "$PIDFILE"
-	sleep 1
-	if kill -0 "$pid" 2>/dev/null; then
-		echo "OK"
-		return 0
-	fi
-	rm -f "$PIDFILE"
+	count=0
+	while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 100 ]; do
+		if [ "$(cat "$READYFILE" 2>/dev/null)" = "$pid" ]; then
+			echo "OK"
+			return 0
+		fi
+		sleep 0.1
+		count=$((count + 1))
+	done
+	kill "$pid" 2>/dev/null
+	rm -f "$PIDFILE" "$READYFILE"
 	echo "FAIL"
 	return 1
 }
 
 stop() {
+	rm -f "$READYFILE"
 	printf "Stopping ovis-manager: "
 	if ! is_running; then
 		rm -f "$PIDFILE"

@@ -33,6 +33,9 @@ modules_dualos_seq="
 # Start to insert kernel modules
 #
 modules_seq=
+if [ -e /etc/ovis-boot.conf ]; then
+    rm -f /var/run/ovis-mpp-ready || exit 1
+fi
 if [ -n "$modules_single_seq" ]; then
     modules_seq="$modules_single_seq"
 elif [ -n "$modules_dualos_seq" ]; then
@@ -40,11 +43,20 @@ elif [ -n "$modules_dualos_seq" ]; then
 fi
 if [ -n "$modules_seq" ]; then
     for mod in $modules_seq; do
-        insmod "$mod"
+        if ! insmod "$mod"; then
+            if [ -e /etc/ovis-boot.conf ]; then
+                echo "MPP module failed: $mod" >&2
+                exit 1
+            fi
+        fi
     done
 fi
 
-echo 3 > /proc/sys/vm/drop_caches
+if [ -e /etc/ovis-boot.conf ]; then
+    mkdir -p /var/run && touch /var/run/ovis-mpp-ready || exit 1
+else
+    echo 3 > /proc/sys/vm/drop_caches
+fi
 dmesg -n 4
 
 #usb hub control

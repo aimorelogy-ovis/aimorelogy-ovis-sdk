@@ -318,11 +318,23 @@ start() {
       echo "Info: Daemons (adbd/umtprd) missing. "
       echo "Please run them manually, then execute:  $0 UDC"
   else
-      sleep 1
+      if [ -e /etc/ovis-boot.conf ]; then
+          retries=50
+          while :; do
+              UDC=$(ls /sys/class/udc/ 2>/dev/null | head -n 1)
+              [ -n "$UDC" ] && break
+              [ "$retries" -gt 0 ] || return 1
+              sleep 0.1
+              retries=$((retries - 1))
+          done
+      else
+          sleep 1
+      fi
       CURRENT_UDC=`cat $CVI_GADGET/UDC`
       if [ -z "$CURRENT_UDC" ]; then
-          UDC=`ls /sys/class/udc/ | awk '{print $1}'`
-          echo ${UDC} >$CVI_GADGET/UDC
+          UDC=$(ls /sys/class/udc/ | head -n 1)
+          [ -n "$UDC" ] || return 1
+          echo "$UDC" >$CVI_GADGET/UDC || return 1
       fi
   fi
 }

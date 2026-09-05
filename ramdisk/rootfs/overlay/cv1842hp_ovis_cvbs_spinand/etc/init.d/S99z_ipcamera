@@ -80,15 +80,18 @@ start() {
 		return 1
 	}
 	cd "$APP_DIR" || return 1
+	[ -e /var/run/ovis-mpp-ready ] || {
+		echo "ipcamera requires initialized MPP modules" >&2
+		return 1
+	}
 	printf 'Starting ipcamera: %s -i %s\n' "$DAEMON" "$PARAM_CONFIG"
-	# Keep the daemon off ovis-managerd's finite command-output pipe. Logs still
-	# go to the serial console on both boot and manager-triggered restarts.
-	"$DAEMON" -i "$PARAM_CONFIG" </dev/null >/dev/console 2>&1 &
+	# The launcher execs the application, preserving its PID for service control.
+	"$MANAGER" --run-logged /var/log/ipcamera.log -- "$DAEMON" -i "$PARAM_CONFIG" </dev/null &
 	pid=$!
 	echo "$pid" > "$PIDFILE"
 	count=0
-	while [ "$count" -lt "$START_TIMEOUT" ]; do
-		if ! is_running; then
+	while [ "$count" -lt "$((START_TIMEOUT * 10))" ]; do
+		if ! kill -0 "$pid" 2>/dev/null; then
 			rm -f "$PIDFILE" "$READYFILE"
 			echo "ipcamera exited during startup"
 			return 1
@@ -97,7 +100,7 @@ start() {
 			echo "ipcamera started and ready (PID $pid)"
 			return 0
 		fi
-		sleep 1
+		sleep 0.1
 		count=$((count + 1))
 	done
 	echo "ipcamera readiness timeout"

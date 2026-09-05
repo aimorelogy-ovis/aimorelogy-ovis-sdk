@@ -1,35 +1,40 @@
 #!/bin/sh
 
 STARTUP_LOG=/var/log/ovis-usb-startup.log
-TRACE_FILE=/tmp/ovis-usb-startup.trace
+MANAGER=/usr/sbin/ovis-managerd
 USB_GADGET=/tmp/usb/usb_gadget/cvitek
 
 start_usb() {
 	mkdir -p /var/log || return 1
-	: > "$STARTUP_LOG"
-	sleep 2
+	count=0
+	while [ ! -e /var/run/ovis-mpp-ready ] ||
+	      [ ! -c /dev/soph-vi ] || [ ! -c /dev/soph-vpss ] ||
+	      [ ! -c /dev/soph-rgn ]; do
+		if [ "$count" -ge 50 ]; then
+			echo "OVIS MPP readiness timeout" >&2
+			return 1
+		fi
+		sleep 0.1
+		count=$((count + 1))
+	done
 	attempt=1
 	action=late-start
 	while [ "$attempt" -le 3 ]; do
-		echo "OVIS USB startup attempt $attempt" | tee -a "$STARTUP_LOG"
-		sh -x /etc/init.d/S77ncm "$action" > "$TRACE_FILE" 2>&1
+		echo "OVIS USB startup attempt $attempt"
+		"$MANAGER" --run-logged "$STARTUP_LOG" -- sh /etc/init.d/S77ncm "$action"
 		status=$?
-		cat "$TRACE_FILE"
-		cat "$TRACE_FILE" >> "$STARTUP_LOG"
 		if [ "$status" -eq 0 ]; then
-			sleep 1
 			if [ -s "$USB_GADGET/UDC" ]; then
-				rm -f "$TRACE_FILE"
+				echo "OVIS USB ready at $(cut -d ' ' -f 1 /proc/uptime)s"
 				return 0
 			fi
-			echo "OVIS USB lost the UDC binding after startup" | tee -a "$STARTUP_LOG"
+			echo "OVIS USB lost the UDC binding after startup" >&2
 		fi
 		attempt=$((attempt + 1))
 		action=restart
-		sleep 2
+		[ "$attempt" -le 3 ] && sleep 0.2
 	done
-	rm -f "$TRACE_FILE"
-	echo "OVIS USB startup failed after 3 attempts" | tee -a "$STARTUP_LOG"
+	echo "OVIS USB startup failed after 3 attempts; see $STARTUP_LOG" >&2
 	return 1
 }
 
