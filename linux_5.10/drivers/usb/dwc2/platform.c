@@ -1218,8 +1218,9 @@ static int dwc2_driver_probe(struct platform_device *dev)
 #if IS_ENABLED(CONFIG_ARCH_CVITEK)
 	cviusb = &hsotg->cviusb;
 	cviusb->usb_pin_regs = ioremap(0x03000048, 0x4);
-	/* init as host mode */
-	hsotg->cviusb.id_override = 0;
+	/* Match the PHY role to DT before low-level initialization. */
+	hsotg->cviusb.id_override =
+		usb_get_dr_mode(&dev->dev) == USB_DR_MODE_PERIPHERAL;
 	res = platform_get_resource(dev, IORESOURCE_MEM, 1);
 	cviusb->phy_regs = devm_ioremap_resource(&dev->dev, res);
 	if (IS_ERR(cviusb->phy_regs))

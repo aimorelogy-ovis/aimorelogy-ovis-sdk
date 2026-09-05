@@ -50,10 +50,16 @@ hub_off() {
 }
 
 inst_mod() {
-  for module in \
-    configfs libcomposite u_serial usb_f_acm cvi_usb_f_cvg \
-    usb_f_uvc usb_f_fs u_audio usb_f_uac1 usb_f_serial \
-    usb_f_mass_storage u_ether usb_f_ecm usb_f_eem usb_f_rndis
+  modules="configfs libcomposite u_serial usb_f_acm cvi_usb_f_cvg
+    usb_f_uvc usb_f_fs u_audio usb_f_uac1 usb_f_serial
+    usb_f_mass_storage u_ether usb_f_ecm usb_f_eem usb_f_rndis"
+  if [ -r /etc/ovis-boot.conf ]; then
+    . /etc/ovis-boot.conf
+    if [ "$OVIS_USB_DEVICE_ONLY" = 1 ]; then
+      modules="configfs libcomposite u_ether usb_f_ncm usb_f_uvc usb_f_fs"
+    fi
+  fi
+  for module in $modules
   do
     module_path=/mnt/system/ko/$module.ko
     if [ -f "$module_path" ]; then
@@ -70,7 +76,9 @@ case "$1" in
   device)
 	hub_off
 	inst_mod
-	echo device > /proc/cviusb/otg_role
+	if [ "$(cat /proc/cviusb/otg_role 2>/dev/null)" != "device" ]; then
+		echo device > /proc/cviusb/otg_role
+	fi
 	;;
   *)
 	echo "Usage: $0 host"

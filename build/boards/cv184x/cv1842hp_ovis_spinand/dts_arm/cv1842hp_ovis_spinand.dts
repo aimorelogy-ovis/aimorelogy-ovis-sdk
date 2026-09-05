@@ -7,6 +7,45 @@
 / {
 	model = "AIMORELOGY OVIS";
 	compatible = "aimorelogy,ovis", "cvitek,cv184x";
+
+	i2s_subsys {
+		status = "disabled";
+	};
+	sound_adc {
+		status = "disabled";
+	};
+	sound_dac {
+		status = "disabled";
+	};
+	sound_ext {
+		status = "disabled";
+	};
+};
+
+&usb {
+	dr_mode = "peripheral";
+};
+
+&i2s0 {
+	status = "disabled";
+};
+&i2s1 {
+	status = "disabled";
+};
+&i2s2 {
+	status = "disabled";
+};
+&i2s3 {
+	status = "disabled";
+};
+&adc {
+	status = "disabled";
+};
+&dac {
+	status = "disabled";
+};
+&pdm {
+	status = "disabled";
 };
 
 &mipi_rx {
