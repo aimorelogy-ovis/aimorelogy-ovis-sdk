@@ -25,6 +25,8 @@
 #define BYTE_BITS               8
 #define ISASCII(a)              (((a) >= 0x00 && (a) <= 0x7F) ? 1 : 0)
 #define APP_OSDC_REFRESH_US      100000
+#define APP_OSDC_FIRST_CANVAS_TIMEOUT_MS 500
+#define APP_OSDC_FIRST_CANVAS_RETRY_US 10000
 #define APP_OSDC_PD_RECT_HANDLE (RGN_MAX_NUM - 1)
 #define APP_OSDC_PD_RECT_LAYER  1
 #define APP_OSDC_PD_IDLE_REFRESH_US 1000000
@@ -73,6 +75,7 @@ static pthread_mutex_t OsdcMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_OsdcWakeMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_OsdcWakeCond = PTHREAD_COND_INITIALIZER;
 static CVI_U64 g_u64OsdcWakeGeneration;
+static CVI_BOOL g_abOsdcCanvasReady[OSDC_NUM_MAX];
 
 #ifdef PD_SUPPORT
 static CVI_BOOL g_bOsdcPdRectThreadRun;
@@ -684,14 +687,15 @@ static CVI_S32 app_ipcam_Osd_ObjectTrack_CenterBox_Add(
 
     if (pstObjAttr == NULL || pu32OsdcObjsNum == NULL ||
         pstStyle == NULL || !pstStyle->bReticleEnable ||
-        (mode == TRACKING && !pstStyle->bReticleShowWhileTracking)) {
+        (app_ipcam_Ai_Object_Track_ProcStatus_Get() &&
+         mode == TRACKING && !pstStyle->bReticleShowWhileTracking)) {
         return CVI_SUCCESS;
     }
     if (*pu32OsdcObjsNum >= OSDC_OBJS_MAX) {
         return CVI_FAILURE;
     }
     app_ipcam_Ai_Object_Track_DefaultBox_Get(box);
-    if (mode == TRACKING) {
+    if (app_ipcam_Ai_Object_Track_ProcStatus_Get() && mode == TRACKING) {
         u32Color = app_ipcam_Osdc_RgbToArgb1555(
             pstStyle->u32TrackingColor);
     } else if (app_ipcam_Osd_ObjectTrack_HitCenterBox(pstAiObj, box)) {
@@ -1700,23 +1704,25 @@ static int app_ipcam_ObjsRectInfo_Update(RGN_HANDLE OsdcHandle, int iOsdcIndex)
     }
 #endif
 #ifdef OBJECT_TRACK_SUPPORT
+if (iOsdcIndex == 0) {
+    CVI_BOOL bTrackingReady = app_ipcam_Ai_Object_Track_ProcStatus_Get();
+
+    if (bTrackingReady && app_ipcam_Ai_Object_Track_Mode_Get() != TRACKING) {
+        app_ipcam_Ai_Object_Track_ObjDrawInfo_Get(&g_objMetaObjectTrack);
+    }
+    s32Ret = app_ipcam_Osd_ObjectTrack_CenterBox_Add(
+        pstObjAttr, &OsdcObjsNum,
+        bTrackingReady ? &g_objMetaObjectTrack : NULL,
+        &g_pstOsdcCfg->stStyle);
+    if (s32Ret != CVI_SUCCESS) {
+        return s32Ret;
+    }
+}
 if (iOsdcIndex == 0 &&
     g_pstOsdcCfg->bShowTrackRect[iOsdcIndex] &&
     app_ipcam_Ai_Object_Track_ProcStatus_Get()) {
     APP_PARAM_OBJECT_TRACK_MODE enTrackMode =
         app_ipcam_Ai_Object_Track_Mode_Get();
-
-    if (enTrackMode != TRACKING) {
-        app_ipcam_Ai_Object_Track_ObjDrawInfo_Get(&g_objMetaObjectTrack);
-    }
-
-    s32Ret = app_ipcam_Osd_ObjectTrack_CenterBox_Add(
-        pstObjAttr, &OsdcObjsNum, &g_objMetaObjectTrack,
-        &g_pstOsdcCfg->stStyle);
-    if (s32Ret != CVI_SUCCESS) {
-        APP_PROF_LOG_PRINT(LEVEL_ERROR, "app_ipcam_Osd_ObjectTrack_CenterBox_Add failed with %#x!\n", s32Ret);
-        return CVI_FAILURE;
-    }
 
     if (enTrackMode != TRACKING &&
         g_pstOsdcCfg->stStyle.bDetectionEnable &&
@@ -1944,8 +1950,60 @@ if (iOsdcIndex == 0 &&
     s32Ret = CVI_RGN_UpdateCanvas(OsdcHandle);
     if (s32Ret != CVI_SUCCESS) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR,"CVI RGN UpdateCanvas failed with %#x!\n", s32Ret);
+        return s32Ret;
     }
+    g_abOsdcCanvasReady[iOsdcIndex] = CVI_TRUE;
     return CVI_SUCCESS;
+}
+
+static CVI_U64 app_ipcam_Osdc_MonotonicMs(void)
+{
+    struct timespec now;
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (CVI_U64)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+static int app_ipcam_Osdc_FirstCanvas(void)
+{
+    CVI_U64 start = app_ipcam_Osdc_MonotonicMs();
+    CVI_U32 busyCount = 0;
+
+    memset(g_abOsdcCanvasReady, 0, sizeof(g_abOsdcCanvasReady));
+    for (;;) {
+        CVI_BOOL ready = CVI_TRUE;
+
+        for (int i = 0; i < OSDC_NUM_MAX; i++) {
+            if (!g_pstOsdcCfg->bShow[i] || g_abOsdcCanvasReady[i]) {
+                continue;
+            }
+            CVI_S32 ret = app_ipcam_ObjsRectInfo_Update(g_pstOsdcCfg->handle[i], i);
+            if (ret == CVI_ERR_RGN_BUSY) {
+                busyCount++;
+                ready = CVI_FALSE;
+            } else if (ret != CVI_SUCCESS) {
+                APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                    "OSD first canvas failed: handle=%u ret=%#x busy=%u\n",
+                    g_pstOsdcCfg->handle[i], ret, busyCount);
+                return ret;
+            }
+        }
+        CVI_U64 elapsed = app_ipcam_Osdc_MonotonicMs() - start;
+        if (ready) {
+            APP_PROF_LOG_PRINT(LEVEL_INFO,
+                "[boot %llu ms] OSD first canvas ready: elapsed=%llu ms busy=%u\n",
+                (unsigned long long)app_ipcam_Osdc_MonotonicMs(),
+                (unsigned long long)elapsed, busyCount);
+            return CVI_SUCCESS;
+        }
+        if (elapsed >= APP_OSDC_FIRST_CANVAS_TIMEOUT_MS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "OSD first canvas timeout: elapsed=%llu ms busy=%u\n",
+                (unsigned long long)elapsed, busyCount);
+            return CVI_ERR_RGN_BUSY;
+        }
+        usleep(APP_OSDC_FIRST_CANVAS_RETRY_US);
+    }
 }
 
 static int app_ipcam_ObjRectRatio_Set(void)
@@ -2000,8 +2058,10 @@ static int app_ipcam_ObjRectRatio_Set(void)
     #ifdef OBJECT_TRACK_SUPPORT
     APP_PARAM_AI_OBJECT_TRACK_CFG_S *pstObjTrackCfg = app_ipcam_Ai_Object_Track_Param_Get();
     _NULL_POINTER_CHECK_(pstObjTrackCfg, -1);
-    g_stObjectTrackRectRatio.VpssChn_W = pstObjTrackCfg->u32GrpWidth;
-    g_stObjectTrackRectRatio.VpssChn_H = pstObjTrackCfg->u32GrpHeight;
+    g_stObjectTrackRectRatio.VpssChn_W = pstObjTrackCfg->u32GrpWidth ?
+        pstObjTrackCfg->u32GrpWidth : 640;
+    g_stObjectTrackRectRatio.VpssChn_H = pstObjTrackCfg->u32GrpHeight ?
+        pstObjTrackCfg->u32GrpHeight : 384;
     g_stObjectTrackRectRatio.ScaleX = (float)stOdecSize.u32Width / (float)g_stObjectTrackRectRatio.VpssChn_W;
     g_stObjectTrackRectRatio.ScaleY = (float)stOdecSize.u32Height / (float)g_stObjectTrackRectRatio.VpssChn_H;
     #endif
@@ -2253,6 +2313,14 @@ int app_ipcam_Osdc_Init(void)
 
     /* calculate AI Rect ratio betwen streaming and AI size */
     APP_IPCAM_CHECK_RET(app_ipcam_ObjRectRatio_Set(), "OSDC OBJ RATIO RECT SET");
+
+    /* Submit static overlays before VENC starts consuming VPSS frames. */
+    s32Ret = app_ipcam_Osdc_FirstCanvas();
+    if (s32Ret != CVI_SUCCESS) {
+        app_ipcam_OSDCRgn_Destory();
+        g_stOsdcCanvasCfg.createCanvas = CVI_FALSE;
+        return s32Ret;
+    }
 
     pthread_mutex_lock(&g_OsdcWakeMutex);
     g_bOsdcThreadRun = CVI_TRUE;
