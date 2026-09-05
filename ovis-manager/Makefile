@@ -49,9 +49,15 @@ install: all
 	install -D -m 0755 scripts/ovis-device-identity install/usr/sbin/ovis-device-identity
 	install -D -m 0755 scripts/S98ovis-manager install/etc/init.d/S98ovis-manager
 
-test: build/config_transaction_test build/model_store_test
+test: build/config_transaction_test build/model_store_test build/ini_snapshot_test
 	./build/config_transaction_test
 	./build/model_store_test
+	./build/ini_snapshot_test
+
+build/ini_snapshot_test: tests/ini_snapshot_test.c $(CJSON_ROOT)/minini/src/ini_snapshot.c \
+		$(CJSON_ROOT)/minini/src/minIni.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) $^ -o $@
 
 build/config_transaction_test: tests/config_transaction_test.c backend/src/config_store.c \
 		backend/src/config_validate.c $(CJSON_ROOT)/cjson/src/cJSON.c $(CJSON_ROOT)/minini/src/ini_snapshot.c
