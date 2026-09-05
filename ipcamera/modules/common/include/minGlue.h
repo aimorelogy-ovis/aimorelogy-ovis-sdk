@@ -10,9 +10,10 @@
 
 /* map required file I/O types and functions to the standard C library */
 #include <stdio.h>
+#include "ini_snapshot.h"
 
 #define INI_FILETYPE                    FILE*
-#define ini_openread(filename,file)     ((*(file) = fopen((filename),"rb")) != NULL)
+#define ini_openread(filename,file)     ((*(file) = ini_snapshot_open(filename)) != NULL)
 #define ini_openwrite(filename,file)    ((*(file) = fopen((filename),"wb")) != NULL)
 #define ini_openrewrite(filename,file)  ((*(file) = fopen((filename),"r+b")) != NULL)
 #define ini_close(file)                 (fclose(*(file)) == 0)

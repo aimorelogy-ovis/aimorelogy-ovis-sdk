@@ -22,6 +22,7 @@ TARGET := build/ovis-managerd
 SOURCES := $(wildcard backend/src/*.c)
 OBJECTS := $(patsubst backend/src/%.c,build/%.o,$(SOURCES))
 OBJECTS += build/cJSON.o
+OBJECTS += build/ini_snapshot.o
 
 .PHONY: all install test clean
 
@@ -38,6 +39,10 @@ build/cJSON.o: $(CJSON_ROOT)/cjson/src/cJSON.c $(CJSON_ROOT)/include/cJSON.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
+build/ini_snapshot.o: $(CJSON_ROOT)/minini/src/ini_snapshot.c $(CJSON_ROOT)/include/ini_snapshot.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -c $< -o $@
+
 install: all
 	rm -rf install
 	install -D -m 0755 $(TARGET) install/usr/sbin/ovis-managerd
@@ -49,10 +54,11 @@ test: build/config_transaction_test build/model_store_test
 	./build/model_store_test
 
 build/config_transaction_test: tests/config_transaction_test.c backend/src/config_store.c \
-		backend/src/config_validate.c $(CJSON_ROOT)/cjson/src/cJSON.c
+		backend/src/config_validate.c $(CJSON_ROOT)/cjson/src/cJSON.c $(CJSON_ROOT)/minini/src/ini_snapshot.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) \
 		-DOVIS_CONFIG_DIR=\"/tmp/ovis-manager-config-test\" \
+		-DOVIS_CONFIG_CACHE_DIR=\"/tmp/ovis-manager-config-test/cache\" \
 		-DOVIS_CONFIG_FILE=\"/tmp/ovis-manager-config-test/active.ini\" \
 		-DOVIS_CONFIG_PENDING=\"/tmp/ovis-manager-config-test/pending.ini\" \
 		-DOVIS_CONFIG_BACKUP=\"/tmp/ovis-manager-config-test/backup.ini\" \

@@ -520,7 +520,7 @@ int app_ipcam_Opts_Parse(int argc, char *argv[])
 }
 
 
-int app_ipcam_Param_Load(void)
+static int app_ipcam_Param_LoadSnapshot(void)
 {
     APP_CHK_RET(access(ParamCfgFile, F_OK), "param_config.ini access");
     APP_CHK_RET(Load_Param_Module(ParamCfgFile), "Load Module Param");
@@ -543,10 +543,22 @@ int app_ipcam_Param_Load(void)
     APP_CHK_RET(Load_Param_Ai_HumanKeypoint(ParamCfgFile), "Load AI Human Keypoint Param");
     APP_CHK_RET(Load_Param_Ai_OBJECT_TRACK(ParamCfgFile), "Load AI OBJECT TRACK Param");
     APP_CHK_RET(Load_Param_Ai_KeypointHandGesture(ParamCfgFile), "Load AI Keypoint Hand Gesture Param");
-    APP_CHK_RET(Load_Param_Ai_OBJECT_TRACK(ParamCfgFile), "Load AI Object Track Param");
     APP_CHK_RET(Load_Param_Ai_Img_Txt_Clip(ParamCfgFile), "Load AI Image Txt Clip Param");
     APP_CHK_RET(Load_Param_Ai_LPR(ParamCfgFile), "Load AI LPR Param");
     APP_CHK_RET(Load_Param_Record(ParamCfgFile), "Load Record Param");
     APP_CHK_RET(Load_Param_Uvc(ParamCfgFile), "Load UVC Param");
     return CVI_SUCCESS;
+}
+
+int app_ipcam_Param_Load(void)
+{
+    int ret;
+
+    if (ini_snapshot_begin(ParamCfgFile) != 0) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "cannot snapshot parameter config\n");
+        return CVI_FAILURE;
+    }
+    ret = app_ipcam_Param_LoadSnapshot();
+    ini_snapshot_end();
+    return ret;
 }

@@ -57,6 +57,10 @@ static void fail(const char *message)
 
 static void clean_test_directory(void)
 {
+	unlink("/tmp/ovis-manager-config-test/cache/validated.ini");
+	unlink("/tmp/ovis-manager-config-test/cache/version");
+	unlink("/tmp/ovis-manager-config-test/cache/prepare.lock");
+	rmdir("/tmp/ovis-manager-config-test/cache");
 	unlink("/tmp/ovis-manager-config-test/active.ini");
 	unlink("/tmp/ovis-manager-config-test/active.ini.corrupt");
 	unlink("/tmp/ovis-manager-config-test/active.ini.tmp");
@@ -361,6 +365,27 @@ int main(void)
 		fail("unable to create test directory");
 	if (config_ensure_runtime(error, sizeof(error)) != 0)
 		fail(error);
+	{
+		struct stat before, after;
+		FILE *file;
+
+		if (stat(OVIS_CONFIG_FILE, &before) != 0 ||
+		    config_ensure_runtime(error, sizeof(error)) != 0 ||
+		    stat(OVIS_CONFIG_FILE, &after) != 0 ||
+		    before.st_ino != after.st_ino ||
+		    before.st_mtim.tv_sec != after.st_mtim.tv_sec ||
+		    before.st_mtim.tv_nsec != after.st_mtim.tv_nsec)
+			fail("cached preparation rewrote the active configuration");
+		file = fopen(OVIS_CONFIG_FILE, "w");
+		if (file == NULL)
+			fail("unable to simulate config corruption");
+		fputs("[broken]\nvalue=1\n", file);
+		fclose(file);
+		if (config_ensure_runtime(error, sizeof(error)) != 0 ||
+		    config_validate_file(OVIS_CONFIG_FILE, error, sizeof(error)) != 0 ||
+		    access(OVIS_CONFIG_FILE ".corrupt", F_OK) != 0)
+			fail("cached preparation failed to detect and recover corruption");
+	}
 	if (!active_config_value_equals("vi_cfg_isp0", "teaisp_bnr_enable", "0"))
 		fail("AI BNR migration did not preserve the default disabled state");
 	if (config_capabilities_json(capabilities, sizeof(capabilities)) != 0 ||

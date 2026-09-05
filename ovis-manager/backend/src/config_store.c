@@ -1,9 +1,12 @@
 #include "ovis_manager.h"
 #include "cJSON.h"
+#include "ini_snapshot.h"
 
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <sys/file.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -92,6 +95,7 @@ struct ini_update {
 };
 
 static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
+static __thread int config_snapshot_active;
 
 static char *trim(char *text)
 {
@@ -162,7 +166,11 @@ static int read_ini_value(const char *path, const char *wanted_section,
 {
 	char line[1024];
 	char section[64] = "";
-	FILE *file = fopen(path, "r");
+	FILE *file;
+
+	if (config_snapshot_active && ini_snapshot_begin(path) != 0)
+		return -1;
+	file = config_snapshot_active ? ini_snapshot_open(path) : fopen(path, "r");
 
 	if (file == NULL)
 		return -1;
@@ -2257,7 +2265,7 @@ static int migrate_display_topology(const char *path)
 	return 0;
 }
 
-static int migrate_runtime_config(const char *path)
+static int migrate_runtime_config_work(const char *path)
 {
 	struct ini_update updates[] = {
 		{ "ai_pd_config", "pd_enable", "", 0 },
@@ -3462,7 +3470,64 @@ int config_apply_defaults(char *message, size_t message_size, int *rolled_back)
 	return result;
 }
 
-int config_ensure_runtime(char *error, size_t error_size)
+static int files_equal(const char *left, const char *right)
+{
+	unsigned char a[4096], b[4096];
+	FILE *first = fopen(left, "rb");
+	FILE *second = fopen(right, "rb");
+	int equal = 0;
+
+	if (first == NULL || second == NULL)
+		goto done;
+	for (;;) {
+		size_t size_a = fread(a, 1, sizeof(a), first);
+		size_t size_b = fread(b, 1, sizeof(b), second);
+
+		if (ferror(first) || ferror(second) || size_a != size_b ||
+		    memcmp(a, b, size_a) != 0)
+			break;
+		if (size_a == 0) {
+			equal = 1;
+			break;
+		}
+	}
+done:
+	if (first != NULL) fclose(first);
+	if (second != NULL) fclose(second);
+	return equal;
+}
+
+static int migrate_runtime_config(const char *path)
+{
+	char directory[] = "/tmp/ovis-migrate-XXXXXX";
+	char work[256];
+	char entry_path[512];
+	DIR *dir;
+	struct dirent *entry;
+	int result = -1;
+
+	if (mkdtemp(directory) == NULL)
+		return -1;
+	snprintf(work, sizeof(work), "%s/config.ini", directory);
+	/* Legacy migrations may rewrite individual keys. Keep those writes in RAM. */
+	if (copy_file(path, work) == 0 && migrate_runtime_config_work(work) == 0)
+		result = files_equal(path, work) ? 0 : atomic_copy(work, path);
+	ini_snapshot_end();
+	dir = opendir(directory);
+	if (dir != NULL) {
+		while ((entry = readdir(dir)) != NULL) {
+			if (entry->d_name[0] == '.')
+				continue;
+			snprintf(entry_path, sizeof(entry_path), "%s/%s", directory, entry->d_name);
+			unlink(entry_path);
+		}
+		closedir(dir);
+	}
+	rmdir(directory);
+	return result;
+}
+
+static int config_ensure_runtime_uncached(char *error, size_t error_size)
 {
 	char runtime_error[256] = "未找到运行配置";
 	char backup_error[256] = "未找到备份配置";
@@ -3505,4 +3570,65 @@ int config_ensure_runtime(char *error, size_t error_size)
 	snprintf(error, error_size, "默认配置不可用: %s；运行配置: %s；备份配置: %s",
 		default_error, runtime_error, backup_error);
 	return -1;
+}
+
+#ifndef OVIS_CONFIG_CACHE_DIR
+#define OVIS_CONFIG_CACHE_DIR "/run/ovis-config"
+#endif
+/* Bump the schema when migration rules change; builds also invalidate the cache. */
+#define OVIS_CONFIG_CACHE_VERSION "1 " __DATE__ " " __TIME__
+
+int config_ensure_runtime(char *error, size_t error_size)
+{
+	const char *stamp = OVIS_CONFIG_CACHE_DIR "/validated.ini";
+	const char *version_path = OVIS_CONFIG_CACHE_DIR "/version";
+	char version[128] = "";
+	FILE *file;
+	int lock_fd = -1;
+	int result;
+
+	pthread_mutex_lock(&config_lock);
+	if (ensure_dir(OVIS_CONFIG_CACHE_DIR) == 0) {
+		chmod(OVIS_CONFIG_CACHE_DIR, 0700);
+		lock_fd = open(OVIS_CONFIG_CACHE_DIR "/prepare.lock", O_CREAT | O_RDWR, 0600);
+	}
+	if (lock_fd >= 0 && flock(lock_fd, LOCK_EX) != 0) {
+		close(lock_fd);
+		lock_fd = -1;
+	}
+	if (lock_fd >= 0) {
+		file = fopen(version_path, "r");
+		if (file != NULL) {
+			if (fgets(version, sizeof(version), file) == NULL)
+				version[0] = '\0';
+			fclose(file);
+		}
+		if (strcmp(version, OVIS_CONFIG_CACHE_VERSION) == 0 &&
+		    files_equal(OVIS_CONFIG_FILE, stamp)) {
+			result = 0;
+			goto done;
+		}
+		unlink(stamp);
+	}
+	config_snapshot_active = 1;
+	result = config_ensure_runtime_uncached(error, error_size);
+	if (result == 0 && lock_fd >= 0 && atomic_copy(OVIS_CONFIG_FILE, stamp) == 0) {
+		file = fopen(version_path, "w");
+		if (file != NULL) {
+			fputs(OVIS_CONFIG_CACHE_VERSION, file);
+			if (fclose(file) != 0)
+				unlink(stamp);
+		} else {
+			unlink(stamp);
+		}
+	}
+done:
+	config_snapshot_active = 0;
+	ini_snapshot_end();
+	if (lock_fd >= 0) {
+		flock(lock_fd, LOCK_UN);
+		close(lock_fd);
+	}
+	pthread_mutex_unlock(&config_lock);
+	return result;
 }
