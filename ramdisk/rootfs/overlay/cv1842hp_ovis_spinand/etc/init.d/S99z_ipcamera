@@ -85,8 +85,8 @@ start() {
 		return 1
 	}
 	printf 'Starting ipcamera: %s -i %s\n' "$DAEMON" "$PARAM_CONFIG"
-	# The launcher execs the application, preserving its PID for service control.
-	"$MANAGER" --run-logged /var/log/ipcamera.log -- "$DAEMON" -i "$PARAM_CONFIG" </dev/null &
+	# Keep application output off the manager's finite command-output pipe.
+	"$DAEMON" -i "$PARAM_CONFIG" </dev/null >/dev/console 2>&1 &
 	pid=$!
 	echo "$pid" > "$PIDFILE"
 	count=0

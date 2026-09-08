@@ -14,9 +14,6 @@ int main(int argc, char **argv)
 	char error[256];
 
 	setvbuf(stdout, NULL, _IOLBF, 0);
-	if (argc >= 5 && strcmp(argv[1], "--run-logged") == 0 &&
-	    strcmp(argv[3], "--") == 0)
-		return startup_run_logged(argv[2], &argv[4]);
 
 	if (argc == 2 && strcmp(argv[1], "--prepare-config") == 0) {
 		if (config_ensure_runtime(error, sizeof(error)) == 0)
@@ -35,7 +32,7 @@ int main(int argc, char **argv)
 		}
 		port = (unsigned short)value;
 	} else if (argc != 1) {
-		fprintf(stderr, "Usage: %s [-p port | --prepare-config | --usb-provision | --run-logged file -- command ...]\n",
+		fprintf(stderr, "Usage: %s [-p port | --prepare-config | --usb-provision]\n",
 			argv[0]);
 		return 2;
 	}

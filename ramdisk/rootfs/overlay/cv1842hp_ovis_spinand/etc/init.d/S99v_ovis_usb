@@ -1,11 +1,8 @@
 #!/bin/sh
 
-STARTUP_LOG=/var/log/ovis-usb-startup.log
-MANAGER=/usr/sbin/ovis-managerd
 USB_GADGET=/tmp/usb/usb_gadget/cvitek
 
 start_usb() {
-	mkdir -p /var/log || return 1
 	count=0
 	while [ ! -e /var/run/ovis-mpp-ready ] ||
 	      [ ! -c /dev/soph-vi ] || [ ! -c /dev/soph-vpss ] ||
@@ -21,7 +18,7 @@ start_usb() {
 	action=late-start
 	while [ "$attempt" -le 3 ]; do
 		echo "OVIS USB startup attempt $attempt"
-		"$MANAGER" --run-logged "$STARTUP_LOG" -- sh /etc/init.d/S77ncm "$action"
+		sh /etc/init.d/S77ncm "$action"
 		status=$?
 		if [ "$status" -eq 0 ]; then
 			if [ -s "$USB_GADGET/UDC" ]; then
@@ -34,7 +31,7 @@ start_usb() {
 		action=restart
 		[ "$attempt" -le 3 ] && sleep 0.2
 	done
-	echo "OVIS USB startup failed after 3 attempts; see $STARTUP_LOG" >&2
+	echo "OVIS USB startup failed after 3 attempts" >&2
 	return 1
 }
 

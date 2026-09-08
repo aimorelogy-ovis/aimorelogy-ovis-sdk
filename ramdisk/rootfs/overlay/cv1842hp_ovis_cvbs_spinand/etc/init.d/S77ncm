@@ -139,7 +139,7 @@ start_webusb() {
 		mount -t functionfs ovis "$WEBUSB_DIR" || return 1
 	fi
 	rm -f "$WEBUSB_PID" "$WEBUSB_READY"
-	"$WEBUSB_DAEMON" --run-logged "$WEBUSB_LOG" -- "$WEBUSB_DAEMON" --usb-provision </dev/null &
+	"$WEBUSB_DAEMON" --usb-provision </dev/null >> "$WEBUSB_LOG" 2>&1 &
 	webusb_pid=$!
 	printf '%s\n' "$webusb_pid" > "$WEBUSB_PID"
 	wait_for_path "$WEBUSB_READY" || return 1

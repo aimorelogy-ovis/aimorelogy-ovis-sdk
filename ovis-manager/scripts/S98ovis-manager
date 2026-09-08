@@ -60,7 +60,7 @@ start() {
 		rm -f "$OLD_CREDENTIALS"
 	fi
 	printf "Starting ovis-manager: "
-	OVIS_MANAGER_READY_FILE="$READYFILE" "$DAEMON" --run-logged "$LOGFILE" -- "$DAEMON" </dev/null &
+	OVIS_MANAGER_READY_FILE="$READYFILE" "$DAEMON" </dev/null >> "$LOGFILE" 2>&1 &
 	pid=$!
 	echo "$pid" > "$PIDFILE"
 	count=0

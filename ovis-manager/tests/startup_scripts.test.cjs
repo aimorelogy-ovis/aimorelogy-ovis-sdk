@@ -28,7 +28,6 @@ for (const board of boards) {
         fs.mkdirSync(path.join(dir, 'run'));
         fs.mkdirSync(path.join(dir, 'gadget'));
         if (scenario !== 'missing-mpp') fs.writeFileSync(path.join(dir, 'run/ovis-mpp-ready'), '');
-        executable(path.join(dir, 'manager'), '#!/bin/sh\nshift 3\nexec "$@"\n');
         executable(path.join(dir, 'usb'), `#!/bin/sh
 count=$(cat '${dir}/count' 2>/dev/null || echo 0)
 count=$((count + 1))
@@ -38,9 +37,7 @@ ${scenario === 'retry' ? '[ "$count" -ne 1 ] || exit 1' : ''}
 echo udc0 > '${dir}/gadget/UDC'
 `);
         const source = fs.readFileSync(overlay(board, 'S99v_ovis_usb'), 'utf8')
-          .replace('/usr/sbin/ovis-managerd', `${dir}/manager`)
           .replaceAll('/etc/init.d/S77ncm', `${dir}/usb`)
-          .replaceAll('/var/log', `${dir}/log`)
           .replaceAll('/var/run', `${dir}/run`)
           .replaceAll('/tmp/usb/usb_gadget/cvitek', `${dir}/gadget`)
           .replace(/\/dev\/soph-(vi|vpss|rgn)/g, '/dev/null');
