@@ -98,6 +98,7 @@ struct uvc_video {
 	__u8 *req_buffer[UVC_NUM_REQUESTS];
 	struct list_head req_free;
 	spinlock_t req_lock;
+	bool enabled;		/* stream state, protected by req_lock */
 
 	void (*encode) (struct usb_request *req, struct uvc_video *video,
 			struct uvc_buffer *buf);

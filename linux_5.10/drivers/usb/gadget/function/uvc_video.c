@@ -331,7 +331,7 @@ static void uvcg_video_pump(struct work_struct *work)
 		 * request lock.
 		 */
 		spin_lock_irqsave(&video->req_lock, flags);
-		if (list_empty(&video->req_free)) {
+		if (!video->enabled || list_empty(&video->req_free)) {
 			spin_unlock_irqrestore(&video->req_lock, flags);
 			return;
 		}
@@ -375,7 +375,15 @@ static void uvcg_video_pump(struct work_struct *work)
 
 void uvcg_video_pump_schedule(struct uvc_video *video)
 {
-	queue_work(system_highpri_wq, &video->pump);
+	unsigned long flags;
+
+	/* Serialize scheduling with stream-off so completion callbacks cannot
+	 * requeue the pump after cancel_work_sync() has returned.
+	 */
+	spin_lock_irqsave(&video->req_lock, flags);
+	if (video->enabled)
+		queue_work(system_highpri_wq, &video->pump);
+	spin_unlock_irqrestore(&video->req_lock, flags);
 }
 
 /*
@@ -384,6 +392,7 @@ void uvcg_video_pump_schedule(struct uvc_video *video)
 int uvcg_video_enable(struct uvc_video *video, int enable)
 {
 	unsigned int i;
+	unsigned long flags;
 	int ret;
 
 	if (video->ep == NULL) {
@@ -393,6 +402,10 @@ int uvcg_video_enable(struct uvc_video *video, int enable)
 	}
 
 	if (!enable) {
+		spin_lock_irqsave(&video->req_lock, flags);
+		video->enabled = false;
+		spin_unlock_irqrestore(&video->req_lock, flags);
+
 		cancel_work_sync(&video->pump);
 		uvcg_queue_cancel(&video->queue, 0);
 
@@ -417,6 +430,9 @@ int uvcg_video_enable(struct uvc_video *video, int enable)
 	} else
 		video->encode = uvc_video_encode_isoc;
 
+	spin_lock_irqsave(&video->req_lock, flags);
+	video->enabled = true;
+	spin_unlock_irqrestore(&video->req_lock, flags);
 	uvcg_video_pump_schedule(video);
 
 	return ret;
@@ -429,6 +445,7 @@ int uvcg_video_init(struct uvc_video *video, struct uvc_device *uvc)
 {
 	INIT_LIST_HEAD(&video->req_free);
 	spin_lock_init(&video->req_lock);
+	video->enabled = false;
 	INIT_WORK(&video->pump, uvcg_video_pump);
 
 	video->uvc = uvc;

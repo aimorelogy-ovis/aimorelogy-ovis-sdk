@@ -29,6 +29,7 @@
 static APP_PARAM_RTSP_T stRtspCtx;
 static APP_PARAM_RTSP_T *pstRtspCtx = &stRtspCtx;
 static pthread_mutex_t RtspMutex = PTHREAD_MUTEX_INITIALIZER;
+static CVI_BOOL g_bRtspStopping = CVI_FALSE;
 
 CVI_VOID __wrap_RBUF_ShowLog(CVI_VOID *rbuf)
 {
@@ -148,12 +149,13 @@ static void rtsp_service_media_task(void *arg)
     stReadFrameInfo.frameBuf = malloc(CVI_MBUF_STREAM_MAX_SIZE);
     if (NULL == stReadFrameInfo.frameBuf) {
         APP_PROF_LOG_PRINT(LEVEL_ERROR, "frameBuf malloc fail\n");
+        app_ipcam_Mbuf_DestoryReader(readerId);
         return ;
     }
 
     // Ensure that the first frame is I-frame
     ctx->i_frame_flag = 1;
-    while(ctx->RtspThread.bRun_flag) {
+    while (__atomic_load_n(&ctx->RtspThread.bRun_flag, __ATOMIC_ACQUIRE)) {
         stReadFrameInfo.frameBufLen = CVI_MBUF_STREAM_MAX_SIZE;
         s32Ret = app_ipcam_Mbuf_ReadFrame(readerId, bSeekKeyFrame
                                         , &stReadFrameInfo, 100);
@@ -240,6 +242,10 @@ static void rtsp_service_start_media_by_name(char *name)
     }
 
     pthread_mutex_lock(&RtspMutex);
+    if (g_bRtspStopping) {
+        pthread_mutex_unlock(&RtspMutex);
+        return;
+    }
     for (CVI_S32 i = 0; i < RTSP_INSTANCE_NUM; i++) {
         RTSP_SERVICE_CONTEXT_S *c = pstRtspCtx->rtsp_ctx[i];
         if (c) {
@@ -255,7 +261,7 @@ static void rtsp_service_start_media_by_name(char *name)
                                 c->attr.vencChn, s32Ret);
                         }
                     }
-                    c->RtspThread.bRun_flag = 1;
+                    __atomic_store_n(&c->RtspThread.bRun_flag, 1, __ATOMIC_RELEASE);
                     OSAL_TASK_ATTR_S video;
                     static char v_name[64] = {0};
                     snprintf(v_name, sizeof(v_name), "m_%s", name);
@@ -267,7 +273,7 @@ static void rtsp_service_start_media_by_name(char *name)
                     video.stack_size = 128 * 1024;
                     s32TaskRet = OSAL_TASK_Create(&video, &c->media_task);
                     if (s32TaskRet != OSAL_SUCCESS) {
-                        c->RtspThread.bRun_flag = 0;
+                        __atomic_store_n(&c->RtspThread.bRun_flag, 0, __ATOMIC_RELEASE);
                         APP_PROF_LOG_PRINT(LEVEL_ERROR,
                             "Create thread(%s) for rtsp media failed: %d.\n",
                             name, s32TaskRet);
@@ -297,6 +303,10 @@ static void rtsp_service_stop_media_by_name(char *name)
         return;
     }
     pthread_mutex_lock(&RtspMutex);
+    if (g_bRtspStopping) {
+        pthread_mutex_unlock(&RtspMutex);
+        return;
+    }
     for (CVI_S32 i = 0; i < RTSP_INSTANCE_NUM; i++) {
         RTSP_SERVICE_CONTEXT_S *c = pstRtspCtx->rtsp_ctx[i];
         if (c) {
@@ -312,9 +322,10 @@ static void rtsp_service_stop_media_by_name(char *name)
                 }
                 c->ref--;
                 if (c->ref == 0) {
-                    c->RtspThread.bRun_flag = 0;
+                    __atomic_store_n(&c->RtspThread.bRun_flag, 0, __ATOMIC_RELEASE);
                     OSAL_TASK_Join(c->media_task);
                     OSAL_TASK_Destroy(&c->media_task);
+                    c->media_task = NULL;
                     APP_PROF_LOG_PRINT(LEVEL_INFO
                         , "Destroy thread(%s) is success for rtsp_service_media_task.\n"
                         , name);
@@ -486,6 +497,49 @@ CVI_S32 app_ipcam_Rtsp_Server_Create(CVI_VOID)
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "app_ipcam_Rtsp_Server_Create done.\n");
     return CVI_SUCCESS;
+}
+
+CVI_S32 app_ipcam_rtsp_Server_Quiesce(CVI_VOID)
+{
+    CVI_S32 s32Ret = CVI_SUCCESS;
+
+    /* Process exit only. The prebuilt RTSP library joins its listener while
+     * holding the same mutex that the listener acquires. Avoid that destroy
+     * path here; stop all MBUF readers before the media pipeline is released.
+     * Library contexts and sockets stay valid until process termination.
+     */
+    pthread_mutex_lock(&RtspMutex);
+    g_bRtspStopping = CVI_TRUE;
+    for (CVI_U32 i = 0; i < RTSP_INSTANCE_NUM; i++) {
+        RTSP_SERVICE_CONTEXT_S *ctx = pstRtspCtx->rtsp_ctx[i];
+
+        if (ctx != NULL) {
+            __atomic_store_n(&ctx->RtspThread.bRun_flag, 0, __ATOMIC_RELEASE);
+        }
+    }
+
+    for (CVI_U32 i = 0; i < RTSP_INSTANCE_NUM; i++) {
+        RTSP_SERVICE_CONTEXT_S *ctx = pstRtspCtx->rtsp_ctx[i];
+
+        if (ctx == NULL || ctx->media_task == NULL) {
+            continue;
+        }
+        APP_PROF_LOG_PRINT(LEVEL_INFO,
+            "Waiting for RTSP %s media thread to stop.\n", ctx->attr.rtsp_name);
+        if (OSAL_TASK_Join(ctx->media_task) != OSAL_SUCCESS) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR,
+                "Join RTSP %s media thread failed.\n", ctx->attr.rtsp_name);
+            s32Ret = CVI_FAILURE;
+            continue;
+        }
+        OSAL_TASK_Destroy(&ctx->media_task);
+        ctx->media_task = NULL;
+        ctx->ref = 0;
+    }
+    pthread_mutex_unlock(&RtspMutex);
+
+    APP_PROF_LOG_PRINT(LEVEL_INFO, "RTSP media quiesce completed: ret=%d.\n", s32Ret);
+    return s32Ret;
 }
 
 CVI_S32 app_ipcam_rtsp_Server_Destroy(CVI_VOID)

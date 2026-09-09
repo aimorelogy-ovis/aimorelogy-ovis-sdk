@@ -62,6 +62,8 @@ typedef struct APP_PARAM_RTSP_S {
 
 APP_PARAM_RTSP_T *app_ipcam_Rtsp_Param_Get(CVI_VOID);
 int app_ipcam_Rtsp_Server_Create(CVI_VOID);
+/* Process exit only: stop media readers; retain library resources until exit. */
+int app_ipcam_rtsp_Server_Quiesce(CVI_VOID);
 int app_ipcam_rtsp_Server_Destroy(CVI_VOID);
 
 #ifdef __cplusplus

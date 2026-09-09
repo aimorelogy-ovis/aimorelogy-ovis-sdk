@@ -162,7 +162,7 @@ static int app_ipcam_Exit(void)
     APP_CHK_RET(app_ipcam_MiscThread_DeInit(), "DeInit Misc Process");
 
     #ifdef RTSP_SUPPORT
-    APP_CHK_RET(app_ipcam_rtsp_Server_Destroy(), "RTSP Server Destroy");
+    APP_CHK_RET(app_ipcam_rtsp_Server_Quiesce(), "RTSP Media Quiesce");
     #endif
 
     #ifdef CVI_UVC_SUPPORT

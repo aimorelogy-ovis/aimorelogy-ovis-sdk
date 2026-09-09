@@ -95,14 +95,15 @@ static void uvc_debug_dump_frame(const frame_node_t *node)
 void cvi_uvc_stream_set_enabled(bool enabled)
 {
     pthread_mutex_lock(&g_stUVCStreamMutex);
-    g_bPushVencData = enabled;
-    if (!enabled) {
+    g_bPushVencData = enabled && s_stUVCCtx.bRun;
+    if (!g_bPushVencData) {
         clear_ok_queue();
     }
     pthread_mutex_unlock(&g_stUVCStreamMutex);
 }
 
-int cvi_uvc_stream_send_data(void *data)
+/* The caller holds g_stUVCStreamMutex until the cache node is returned. */
+static int cvi_uvc_stream_copy_data(void *data)
 {
     static unsigned long long invalid_jpeg_count;
     CVI_U32 i = 0;
@@ -116,13 +117,6 @@ int cvi_uvc_stream_send_data(void *data)
         (pstStream->u32PackCount == 0)) {
         return CVI_SUCCESS;
     }
-
-    pthread_mutex_lock(&g_stUVCStreamMutex);
-    if (false == g_bPushVencData) {
-        pthread_mutex_unlock(&g_stUVCStreamMutex);
-        return CVI_SUCCESS;
-    }
-    pthread_mutex_unlock(&g_stUVCStreamMutex);
 
     for (i = 0; i < pstStream->u32PackCount; ++i) {
         pstData = &pstStream->pstPack[i];
@@ -250,19 +244,26 @@ int cvi_uvc_stream_send_data(void *data)
     }
     // printf("fnode->used = %d\n", fnode->used);
 
-    pthread_mutex_lock(&g_stUVCStreamMutex);
-    if (g_bPushVencData) {
-        if (put_node_to_queue(uvc_cache->ok_queue, fnode) != 0) {
-            fnode->used = 0;
-            put_node_to_queue(uvc_cache->free_queue, fnode);
-        }
-    } else {
+    if (put_node_to_queue(uvc_cache->ok_queue, fnode) != 0) {
         fnode->used = 0;
         put_node_to_queue(uvc_cache->free_queue, fnode);
     }
-    pthread_mutex_unlock(&g_stUVCStreamMutex);
 
     return CVI_SUCCESS;
+}
+
+int cvi_uvc_stream_send_data(void *data)
+{
+    int ret = CVI_SUCCESS;
+
+    /* Stream-off waits for an in-flight copy before releasing the cache. */
+    pthread_mutex_lock(&g_stUVCStreamMutex);
+    if (g_bPushVencData) {
+        ret = cvi_uvc_stream_copy_data(data);
+    }
+    pthread_mutex_unlock(&g_stUVCStreamMutex);
+
+    return ret;
 }
 
 int32_t UVC_STREAM_ReqIDR(void) {
@@ -416,8 +417,8 @@ int32_t UVC_Stop(void) {
         return 0;
     }
 
-    cvi_uvc_stream_set_enabled(false);
     s_stUVCCtx.bRun = false;
+    cvi_uvc_stream_set_enabled(false);
     printf("UVC: waiting for event thread to stop.\n");
     join_ret = pthread_join(s_stUVCCtx.TskId, NULL);
     if (join_ret != 0) {
