@@ -1,6 +1,7 @@
 #ifndef TDL_FRAMEWORK_COMMON_MODEL_OUTPUT_TYPES_HPP
 #define TDL_FRAMEWORK_COMMON_MODEL_OUTPUT_TYPES_HPP
 
+#include <array>
 #include <map>
 #include <vector>
 #include "common/common_types.hpp"
@@ -50,6 +51,17 @@ class ModelBoxInfo : public ModelOutputInfo {
   uint32_t image_width;
   uint32_t image_height;
   std::vector<ObjectBoxInfo> bboxes;
+};
+
+class ModelTrackInfo : public ModelBoxInfo {
+ public:
+  float response_second_score = 0.0f;
+  float response_peak_margin = 0.0f;
+  float response_psr = 0.0f;
+  uint32_t response_candidate_count = 0;
+  std::array<float, 3> candidate_second_scores = {{0.0f, 0.0f, 0.0f}};
+  std::array<float, 3> candidate_peak_margins = {{0.0f, 0.0f, 0.0f}};
+  std::array<float, 3> candidate_psrs = {{0.0f, 0.0f, 0.0f}};
 };
 
 class ObjectBoxLandmarkInfo {

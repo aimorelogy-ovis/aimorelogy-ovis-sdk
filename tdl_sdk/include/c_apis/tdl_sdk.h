@@ -519,6 +519,94 @@ int32_t TDL_SetSingleObjectTrackingByPoint(
     const char *model_path);
 
 /**
+ * @brief 获取单目标跟踪初始化或最近一次可靠目标框
+ *
+ * 用于在 FastSAM 点选后取得真实分割框，避免把候选搜索区域当作目标框。
+ */
+int32_t TDL_GetSingleObjectTrackingTargetInfo(
+    TDLHandle handle, TDLBox *target_bbox, bool *refined_small_target);
+
+typedef enum {
+  TDL_SOT_REJECT_EMPTY = 1u << 0,
+  TDL_SOT_REJECT_RESPONSE = 1u << 1,
+  TDL_SOT_REJECT_AMBIGUOUS = 1u << 2,
+  TDL_SOT_REJECT_GEOMETRY = 1u << 3,
+  TDL_SOT_REJECT_CONSISTENCY = 1u << 4,
+  TDL_SOT_REJECT_RELOCK_QUALITY = 1u << 5,
+  TDL_SOT_REJECT_RELOCK_MOTION = 1u << 6,
+} TDLSingleObjectTrackingRejectMaskE;
+
+typedef struct {
+  uint32_t template_update_count;
+  uint32_t template_rollback_count;
+  uint32_t template_probation_frames;
+  uint64_t template_age_frames;
+  uint32_t template_refresh_votes;
+  uint32_t template_refresh_window;
+  uint32_t template_using_long_term;
+  uint32_t template_switch_count;
+  uint32_t template_recovery_stable_frames;
+  uint32_t kalman_search_horizon;
+  float kalman_search_dx;
+  float kalman_search_dy;
+  uint32_t relock_votes;
+  uint32_t relock_good_votes;
+  uint32_t relock_motion_rejects;
+  float relock_candidate_distance;
+  float relock_motion_gate;
+  float response_score;
+  float response_psr;
+  float response_peak_margin;
+  float response_area_ratio;
+  float response_aspect_ratio;
+  uint32_t response_reject_mask;
+  uint32_t bootstrap_active;
+  uint32_t bootstrap_retry_count;
+  uint32_t weak_follow_count;
+  uint32_t hard_lost_deferred_count;
+  uint32_t low_detail_target;
+  uint32_t response_selected_candidate;
+  float response_psr_baseline;
+  float response_peak_margin_baseline;
+  float search_target_pixels;
+  uint32_t template_recovery_attempted;
+  uint32_t handoff_identity_active;
+  uint32_t handoff_identity_confirmed;
+  uint32_t handoff_identity_frames;
+  uint32_t handoff_identity_good_frames;
+  uint32_t candidate_output_held;
+  uint32_t candidate_output_following;
+  float candidate_follow_dx;
+  float candidate_follow_dy;
+  float handoff_candidate_distance;
+  float handoff_candidate_area_ratio;
+  float handoff_candidate_aspect_ratio;
+  uint32_t scale_update_count;
+  uint32_t scale_reject_count;
+  uint32_t scale_pending_frames;
+  uint32_t scale_stable_frames;
+  float scale_raw_ratio;
+  float scale_raw_width_ratio;
+  float scale_raw_height_ratio;
+  uint32_t preserve_aspect_context;
+  uint32_t search_context_width;
+  uint32_t search_context_height;
+  float scale_raw_bias_width;
+  float scale_raw_bias_height;
+  uint32_t scale_raw_bias_samples;
+  float scale_trusted_width;
+  float scale_trusted_height;
+  uint32_t scale_approach_active;
+  uint32_t scale_approach_frames;
+} TDLSingleObjectTrackingDiagnostics;
+
+/**
+ * @brief 获取单目标跟踪模板更新和重锁诊断信息
+ */
+int32_t TDL_GetSingleObjectTrackingDiagnostics(
+    TDLHandle handle, TDLSingleObjectTrackingDiagnostics *diagnostics);
+
+/**
  * @brief 执行单目追踪
  *
  * @param handle TDLHandle 对象
@@ -548,11 +636,18 @@ int32_t TDL_SetSingleObjectTrackingThreshold(TDLHandle handle,
 /**
  * @brief 为单目标跟踪设置全局运动搜索先验
  *
- * 该提示只调整搜索窗口，不直接修改跟踪框、模板或滤波状态；获得可靠
- * 观测后自动清除。
+ * 该提示只调整下一次搜索窗口，不直接修改跟踪框、模板或滤波状态。
  */
 int32_t TDL_SetSingleObjectTrackingSearchMotionHint(
     TDLHandle handle, float dx, float dy, float confidence);
+
+/**
+ * @brief 根据全局运动临时扩大单目标跟踪搜索范围
+ *
+ * 该提示不移动搜索中心，仅扩大后续两帧的搜索区域。
+ */
+int32_t TDL_SetSingleObjectTrackingSearchExpansionHint(
+    TDLHandle handle, float motion_pixels, float confidence);
 
 /**
  * @brief 提前准备单目标跟踪使用的目标搜索模型

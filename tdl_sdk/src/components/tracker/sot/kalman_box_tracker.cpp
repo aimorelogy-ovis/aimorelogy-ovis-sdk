@@ -167,3 +167,31 @@ std::vector<float> KalmanBoxTracker::predict() {
 
   return {x, y, w, h};
 }
+
+std::vector<float> KalmanBoxTracker::predictAhead(uint32_t steps) const {
+  const float horizon = static_cast<float>(std::max<uint32_t>(steps, 1));
+  const float cx = state_post_(0, 0) + state_post_(4, 0) * horizon;
+  const float cy = state_post_(1, 0) + state_post_(5, 0) * horizon;
+  const float w = std::max(2.0f, last_reliable_width_);
+  const float h = std::max(2.0f, last_reliable_height_);
+
+  return {cx - w * 0.5f, cy - h * 0.5f, w, h};
+}
+
+void KalmanBoxTracker::resetScale(float width, float height) {
+  const float reliable_width = std::max(2.0f, width);
+  const float reliable_height = std::max(2.0f, height);
+
+  last_reliable_width_ = reliable_width;
+  last_reliable_height_ = reliable_height;
+  state_post_(2, 0) = reliable_width;
+  state_post_(3, 0) = reliable_height;
+  state_post_(6, 0) = 0.0f;
+  state_post_(7, 0) = 0.0f;
+  if (state_pre_.rows() == state_post_.rows()) {
+    state_pre_(2, 0) = reliable_width;
+    state_pre_(3, 0) = reliable_height;
+    state_pre_(6, 0) = 0.0f;
+    state_pre_(7, 0) = 0.0f;
+  }
+}

@@ -94,6 +94,8 @@ static PIXEL_FORMAT_E g_enOsdcPdRectFormat;
 typedef struct APP_OSDC_TRACK_RECT_STATE_T {
     CVI_BOOL bConfigEnabled;
     CVI_BOOL bStyleEnabled;
+    CVI_BOOL bCorners;
+    CVI_BOOL bHideWhenLost;
     VPSS_GRP VpssGrp;
     VPSS_CHN VpssChn;
     CVI_U32 u32OutputWidth;
@@ -271,6 +273,10 @@ static CVI_VOID app_ipcam_Osdc_ObjectTrackRect_ConfigUpdate(
         pstOsdcCfg->stStyle.u32TrackingLostColor : APP_OSD_COLOR_LOST_RGB;
     g_stOsdcTrackRectState.u32Thickness = pstOsdcCfg != NULL ?
         app_ipcam_Osdc_Thickness(pstOsdcCfg->stStyle.u32TrackingThickness) : 3;
+    g_stOsdcTrackRectState.bCorners = pstOsdcCfg != NULL &&
+        pstOsdcCfg->stStyle.bTrackingCorners;
+    g_stOsdcTrackRectState.bHideWhenLost = pstOsdcCfg != NULL &&
+        pstOsdcCfg->stStyle.bTrackingHideWhenLost;
     g_stOsdcTrackRectState.u64Generation++;
     pthread_cond_signal(&g_OsdcTrackRectCond);
     pthread_mutex_unlock(&g_OsdcTrackRectMutex);
@@ -281,6 +287,8 @@ CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
     CVI_FLOAT fX2, CVI_FLOAT fY2,
     CVI_U32 u32SourceWidth, CVI_U32 u32SourceHeight)
 {
+    CVI_BOOL bWakeCorners;
+
     pthread_mutex_lock(&g_OsdcTrackRectMutex);
     g_stOsdcTrackRectState.bShow = bShow;
     g_stOsdcTrackRectState.bLost = bLost;
@@ -292,7 +300,11 @@ CVI_VOID app_ipcam_Osdc_ObjectTrackRect_Publish(
     g_stOsdcTrackRectState.u32SourceHeight = u32SourceHeight;
     g_stOsdcTrackRectState.u64Generation++;
     pthread_cond_signal(&g_OsdcTrackRectCond);
+    bWakeCorners = g_stOsdcTrackRectState.bCorners;
     pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+    if (bWakeCorners) {
+        app_ipcam_Osdc_Wake();
+    }
 }
 #endif
 
@@ -616,6 +628,66 @@ static CVI_S32 app_ipcam_Osd_ObjectTrack_ReticleCorners_Add(
         u32Thick, u32Arm);
     return CVI_SUCCESS;
 }
+
+static CVI_S32 app_ipcam_Osd_ObjectTrack_TrackingCorners_Add(
+    RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 *pu32OsdcObjsNum,
+    CVI_U32 u32CanvasWidth, CVI_U32 u32CanvasHeight)
+{
+    APP_OSDC_TRACK_RECT_STATE_S stState = {0};
+    CVI_S32 s32X1;
+    CVI_S32 s32Y1;
+    CVI_S32 s32X2;
+    CVI_S32 s32Y2;
+    CVI_U32 u32Width;
+    CVI_U32 u32Height;
+    CVI_U32 u32Thick;
+    CVI_U32 u32Color;
+
+    pthread_mutex_lock(&g_OsdcTrackRectMutex);
+    stState = g_stOsdcTrackRectState;
+    pthread_mutex_unlock(&g_OsdcTrackRectMutex);
+
+    if (!stState.bCorners || !stState.bConfigEnabled || !stState.bStyleEnabled ||
+        (stState.bLost && stState.bHideWhenLost) ||
+        !stState.bShow || stState.u32SourceWidth == 0 ||
+        stState.u32SourceHeight == 0 || u32CanvasWidth == 0 ||
+        u32CanvasHeight == 0 || !isfinite(stState.fX1) ||
+        !isfinite(stState.fY1) || !isfinite(stState.fX2) ||
+        !isfinite(stState.fY2)) {
+        return CVI_SUCCESS;
+    }
+
+    s32X1 = lroundf(stState.fX1 * u32CanvasWidth /
+        stState.u32SourceWidth);
+    s32Y1 = lroundf(stState.fY1 * u32CanvasHeight /
+        stState.u32SourceHeight);
+    s32X2 = lroundf(stState.fX2 * u32CanvasWidth /
+        stState.u32SourceWidth);
+    s32Y2 = lroundf(stState.fY2 * u32CanvasHeight /
+        stState.u32SourceHeight);
+    s32X1 = fmax(0, fmin(s32X1, (CVI_S32)u32CanvasWidth - 1));
+    s32Y1 = fmax(0, fmin(s32Y1, (CVI_S32)u32CanvasHeight - 1));
+    s32X2 = fmax(s32X1 + 1,
+        fmin(s32X2, (CVI_S32)u32CanvasWidth));
+    s32Y2 = fmax(s32Y1 + 1,
+        fmin(s32Y2, (CVI_S32)u32CanvasHeight));
+    u32Width = s32X2 - s32X1;
+    u32Height = s32Y2 - s32Y1;
+    u32Thick = fmax(APP_OSDC_STYLE_THICKNESS_MIN,
+        fmin(stState.u32Thickness,
+             APP_OSDC_STYLE_THICKNESS_MAX));
+    if (u32Width < 4 || u32Height < 4) {
+        return CVI_SUCCESS;
+    }
+
+    u32Thick = fmin(u32Thick, fmin(u32Width, u32Height) / 4);
+    u32Color = app_ipcam_Osdc_RgbToArgb1555(
+        stState.bLost ? stState.u32LostColor : stState.u32Color);
+    return app_ipcam_Osd_ObjectTrack_ReticleCorners_Add(
+        pstObjAttr, pu32OsdcObjsNum, s32X1, s32Y1,
+        u32Width, u32Height, u32Thick, u32Color);
+}
+
 
 static CVI_S32 app_ipcam_Osd_ObjectTrack_ReticleCross_Add(
     RGN_CMPR_OBJ_ATTR_S *pstObjAttr, CVI_U32 *pu32OsdcObjsNum,
@@ -1718,6 +1790,14 @@ if (iOsdcIndex == 0 &&
         return CVI_FAILURE;
     }
 
+    s32Ret = app_ipcam_Osd_ObjectTrack_TrackingCorners_Add(
+        pstObjAttr, &OsdcObjsNum,
+        stCanvasInfo.stSize.u32Width, stCanvasInfo.stSize.u32Height);
+    if (s32Ret != CVI_SUCCESS) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "tracking corners update failed: %#x\n", s32Ret);
+        return CVI_FAILURE;
+    }
+
     if (enTrackMode != TRACKING &&
         g_pstOsdcCfg->stStyle.bDetectionEnable &&
         g_objMetaObjectTrack.size > 0 &&
@@ -2059,7 +2139,8 @@ static CVI_BOOL app_ipcam_Osdc_ObjectTrackRect_Build(
     }
     *pVpssGrp = pstState->VpssGrp;
     *pVpssChn = pstState->VpssChn;
-    if (!pstState->bStyleEnabled || !pstState->bShow ||
+    if (pstState->bCorners || !pstState->bStyleEnabled || !pstState->bShow ||
+        (pstState->bLost && pstState->bHideWhenLost) ||
         pstState->u32SourceWidth == 0 || pstState->u32SourceHeight == 0 ||
         pstState->u32OutputWidth == 0 || pstState->u32OutputHeight == 0) {
         return CVI_TRUE;

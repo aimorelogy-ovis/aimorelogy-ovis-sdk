@@ -17,6 +17,17 @@
 #define GMC_MIN_CONFIDENCE 0.08f
 #define GMC_MIN_MOTION_PIXELS 1.5f
 #define GMC_MAX_FRAME_GAP 24
+#define GMC_LOCAL_ROI_WIDTH 320
+#define GMC_LOCAL_ROI_HEIGHT 192
+#define GMC_LOCAL_SEARCH_RADIUS 12
+#define GMC_LOCAL_COARSE_SHIFT_STEP 2
+#define GMC_LOCAL_COARSE_STEP_X 4
+#define GMC_LOCAL_COARSE_STEP_Y 2
+#define GMC_LOCAL_REFINE_STEP_X 2
+#define GMC_LOCAL_REFINE_STEP_Y 1
+#define GMC_LOCAL_MIN_VALID_SAMPLES 48
+#define GMC_LOCAL_MIN_CONFIDENCE 0.12f
+#define GMC_LOCAL_MIN_MOTION_PIXELS 2.0f
 
 static CVI_U64 gmc_time_us(CVI_VOID)
 {
@@ -147,6 +158,58 @@ static CVI_U64 gmc_cost(const CVI_U8 *previous, const CVI_U8 *current,
     return count >= GMC_MIN_VALID_SAMPLES ? cost / count : UINT64_MAX;
 }
 
+static CVI_U64 gmc_local_cost(
+    const CVI_U8 *previous, const CVI_U8 *current,
+    CVI_FLOAT previous_mean, CVI_FLOAT current_mean,
+    CVI_S32 shift_x, CVI_S32 shift_y, CVI_S32 step_x, CVI_S32 step_y,
+    const CVI_S32 previous_exclusion[4],
+    const CVI_S32 current_exclusion[4], CVI_U32 *valid_samples)
+{
+    CVI_U64 cost = 0;
+    CVI_U32 count = 0;
+    CVI_S32 y;
+
+    for (y = GMC_LOCAL_SEARCH_RADIUS;
+         y < APP_OBJECT_TRACK_GMC_LOCAL_GRID_HEIGHT -
+             GMC_LOCAL_SEARCH_RADIUS;
+         y += step_y) {
+        CVI_S32 x;
+
+        for (x = GMC_LOCAL_SEARCH_RADIUS;
+             x < APP_OBJECT_TRACK_GMC_LOCAL_GRID_WIDTH -
+                 GMC_LOCAL_SEARCH_RADIUS;
+             x += step_x) {
+            CVI_S32 previous_x = x + shift_x;
+            CVI_S32 previous_y = y + shift_y;
+            CVI_S32 diff;
+
+            if (gmc_inside_box(x, y, current_exclusion) ||
+                gmc_inside_box(previous_x, previous_y,
+                               previous_exclusion)) {
+                continue;
+            }
+            diff = (CVI_S32)((CVI_FLOAT)current[
+                       y * APP_OBJECT_TRACK_GMC_LOCAL_GRID_WIDTH + x] -
+                       current_mean -
+                       ((CVI_FLOAT)previous[
+                       previous_y * APP_OBJECT_TRACK_GMC_LOCAL_GRID_WIDTH +
+                       previous_x] - previous_mean));
+            if (diff < 0) {
+                diff = -diff;
+            }
+            if (diff > 64) {
+                diff = 64;
+            }
+            cost += (CVI_U32)diff;
+            count++;
+        }
+    }
+    if (valid_samples != NULL) {
+        *valid_samples = count;
+    }
+    return count >= GMC_LOCAL_MIN_VALID_SAMPLES ? cost / count : UINT64_MAX;
+}
+
 static CVI_FLOAT gmc_subpixel(CVI_U64 negative, CVI_U64 center,
                               CVI_U64 positive)
 {
@@ -171,6 +234,184 @@ static CVI_FLOAT gmc_subpixel(CVI_U64 negative, CVI_U64 center,
     return (CVI_FLOAT)offset;
 }
 
+static CVI_VOID gmc_process_local(
+    APP_OBJECT_TRACK_GMC_STATE_S *state,
+    const APP_OBJECT_TRACK_GMC_SAMPLE_S *sample,
+    APP_OBJECT_TRACK_GMC_RESULT_S *result)
+{
+    CVI_U64 start_us = gmc_time_us();
+    CVI_U64 frame_gap = 0;
+    CVI_U64 best_cost = UINT64_MAX;
+    CVI_U64 second_cost = UINT64_MAX;
+    CVI_U64 zero_cost;
+    CVI_U64 sum = 0;
+    CVI_FLOAT previous_mean;
+    CVI_S32 best_x = 0;
+    CVI_S32 best_y = 0;
+    CVI_S32 coarse_x;
+    CVI_S32 coarse_y;
+    CVI_U32 best_samples = 0;
+    CVI_U32 index;
+    CVI_S32 shift_y;
+
+    if (!sample->local_valid) {
+        state->has_local_previous = CVI_FALSE;
+        return;
+    }
+    if (state->has_local_previous &&
+        sample->frame_id > state->local_previous_frame_id) {
+        frame_gap = sample->frame_id - state->local_previous_frame_id;
+    }
+    if (!state->has_local_previous || frame_gap == 0 ||
+        frame_gap > GMC_MAX_FRAME_GAP) {
+        goto save_local_sample;
+    }
+    result->local_frame_gap = (CVI_U32)frame_gap;
+    for (index = 0; index < sizeof(state->local_previous); index++) {
+        sum += state->local_previous[index];
+    }
+    previous_mean = (CVI_FLOAT)sum / sizeof(state->local_previous);
+
+    for (shift_y = -GMC_LOCAL_SEARCH_RADIUS;
+         shift_y <= GMC_LOCAL_SEARCH_RADIUS;
+         shift_y += GMC_LOCAL_COARSE_SHIFT_STEP) {
+        CVI_S32 shift_x;
+
+        for (shift_x = -GMC_LOCAL_SEARCH_RADIUS;
+             shift_x <= GMC_LOCAL_SEARCH_RADIUS;
+             shift_x += GMC_LOCAL_COARSE_SHIFT_STEP) {
+            CVI_U64 cost = gmc_local_cost(
+                state->local_previous, sample->local_grid,
+                previous_mean, sample->local_mean, shift_x, shift_y,
+                GMC_LOCAL_COARSE_STEP_X, GMC_LOCAL_COARSE_STEP_Y,
+                state->local_previous_exclusion, sample->local_exclusion,
+                NULL);
+
+            if (cost < best_cost) {
+                best_cost = cost;
+                best_x = shift_x;
+                best_y = shift_y;
+            }
+        }
+    }
+    coarse_x = best_x;
+    coarse_y = best_y;
+    best_cost = UINT64_MAX;
+    for (shift_y = -1; shift_y <= 1; shift_y++) {
+        CVI_S32 shift_x;
+
+        for (shift_x = -1; shift_x <= 1; shift_x++) {
+            CVI_S32 candidate_x = coarse_x + shift_x;
+            CVI_S32 candidate_y = coarse_y + shift_y;
+            CVI_U32 samples = 0;
+            CVI_U64 cost;
+
+            if (candidate_x < -GMC_LOCAL_SEARCH_RADIUS ||
+                candidate_x > GMC_LOCAL_SEARCH_RADIUS ||
+                candidate_y < -GMC_LOCAL_SEARCH_RADIUS ||
+                candidate_y > GMC_LOCAL_SEARCH_RADIUS) {
+                continue;
+            }
+            cost = gmc_local_cost(
+                state->local_previous, sample->local_grid,
+                previous_mean, sample->local_mean, candidate_x, candidate_y,
+                GMC_LOCAL_REFINE_STEP_X, GMC_LOCAL_REFINE_STEP_Y,
+                state->local_previous_exclusion, sample->local_exclusion,
+                &samples);
+            if (cost < best_cost) {
+                second_cost = best_cost;
+                best_cost = cost;
+                best_x = candidate_x;
+                best_y = candidate_y;
+                best_samples = samples;
+            } else if (cost < second_cost) {
+                second_cost = cost;
+            }
+        }
+    }
+    zero_cost = gmc_local_cost(
+        state->local_previous, sample->local_grid,
+        previous_mean, sample->local_mean, 0, 0,
+        GMC_LOCAL_REFINE_STEP_X, GMC_LOCAL_REFINE_STEP_Y,
+        state->local_previous_exclusion, sample->local_exclusion, NULL);
+    if (best_cost != UINT64_MAX && second_cost != UINT64_MAX &&
+        zero_cost != UINT64_MAX && zero_cost > 0) {
+        CVI_FLOAT improvement = zero_cost > best_cost ?
+            (CVI_FLOAT)(zero_cost - best_cost) / zero_cost : 0.0f;
+        CVI_FLOAT separation = second_cost > best_cost && second_cost > 0 ?
+            (CVI_FLOAT)(second_cost - best_cost) / second_cost : 0.0f;
+        CVI_FLOAT sub_x = 0.0f;
+        CVI_FLOAT sub_y = 0.0f;
+        CVI_FLOAT total_dx;
+        CVI_FLOAT total_dy;
+
+        if (best_x > -GMC_LOCAL_SEARCH_RADIUS &&
+            best_x < GMC_LOCAL_SEARCH_RADIUS &&
+            best_y > -GMC_LOCAL_SEARCH_RADIUS &&
+            best_y < GMC_LOCAL_SEARCH_RADIUS) {
+            CVI_U64 left = gmc_local_cost(
+                state->local_previous, sample->local_grid,
+                previous_mean, sample->local_mean, best_x - 1, best_y,
+                GMC_LOCAL_REFINE_STEP_X, GMC_LOCAL_REFINE_STEP_Y,
+                state->local_previous_exclusion, sample->local_exclusion,
+                NULL);
+            CVI_U64 right = gmc_local_cost(
+                state->local_previous, sample->local_grid,
+                previous_mean, sample->local_mean, best_x + 1, best_y,
+                GMC_LOCAL_REFINE_STEP_X, GMC_LOCAL_REFINE_STEP_Y,
+                state->local_previous_exclusion, sample->local_exclusion,
+                NULL);
+            CVI_U64 up = gmc_local_cost(
+                state->local_previous, sample->local_grid,
+                previous_mean, sample->local_mean, best_x, best_y - 1,
+                GMC_LOCAL_REFINE_STEP_X, GMC_LOCAL_REFINE_STEP_Y,
+                state->local_previous_exclusion, sample->local_exclusion,
+                NULL);
+            CVI_U64 down = gmc_local_cost(
+                state->local_previous, sample->local_grid,
+                previous_mean, sample->local_mean, best_x, best_y + 1,
+                GMC_LOCAL_REFINE_STEP_X, GMC_LOCAL_REFINE_STEP_Y,
+                state->local_previous_exclusion, sample->local_exclusion,
+                NULL);
+
+            sub_x = gmc_subpixel(left, best_cost, right);
+            sub_y = gmc_subpixel(up, best_cost, down);
+        }
+        total_dx = sample->local_origin_x -
+            state->local_previous_origin_x -
+            (best_x + sub_x) * sample->local_width /
+                APP_OBJECT_TRACK_GMC_LOCAL_GRID_WIDTH;
+        total_dy = sample->local_origin_y -
+            state->local_previous_origin_y -
+            (best_y + sub_y) * sample->local_height /
+                APP_OBJECT_TRACK_GMC_LOCAL_GRID_HEIGHT;
+        result->local_dx = total_dx / frame_gap;
+        result->local_dy = total_dy / frame_gap;
+        result->local_confidence =
+            improvement * 0.75f + separation * 0.25f;
+        result->local_sampled_points = best_samples;
+        result->local_valid =
+            best_x > -GMC_LOCAL_SEARCH_RADIUS &&
+            best_x < GMC_LOCAL_SEARCH_RADIUS &&
+            best_y > -GMC_LOCAL_SEARCH_RADIUS &&
+            best_y < GMC_LOCAL_SEARCH_RADIUS &&
+            result->local_confidence >= GMC_LOCAL_MIN_CONFIDENCE &&
+            (fabsf(total_dx) >= GMC_LOCAL_MIN_MOTION_PIXELS ||
+             fabsf(total_dy) >= GMC_LOCAL_MIN_MOTION_PIXELS);
+    }
+
+save_local_sample:
+    memcpy(state->local_previous, sample->local_grid,
+           sizeof(state->local_previous));
+    memcpy(state->local_previous_exclusion, sample->local_exclusion,
+           sizeof(state->local_previous_exclusion));
+    state->local_previous_origin_x = sample->local_origin_x;
+    state->local_previous_origin_y = sample->local_origin_y;
+    state->local_previous_frame_id = sample->frame_id;
+    state->has_local_previous = CVI_TRUE;
+    result->local_search_us = gmc_time_us() - start_us;
+}
+
 CVI_VOID app_ipcam_ObjectTrackGmc_Reset(
     APP_OBJECT_TRACK_GMC_STATE_S *state)
 {
@@ -179,38 +420,22 @@ CVI_VOID app_ipcam_ObjectTrackGmc_Reset(
     }
 }
 
-CVI_S32 app_ipcam_ObjectTrackGmc_Process(
-    APP_OBJECT_TRACK_GMC_STATE_S *state,
+CVI_S32 app_ipcam_ObjectTrackGmc_Sample(
     const VIDEO_FRAME_INFO_S *frame,
     CVI_U64 frame_id,
     const CVI_S32 exclusion[4],
-    APP_OBJECT_TRACK_GMC_RESULT_S *result)
+    APP_OBJECT_TRACK_GMC_SAMPLE_S *sample)
 {
     VIDEO_FRAME_INFO_S readable_frame;
     CVI_VOID *mapped_address = NULL;
     CVI_U32 luma_length;
     CVI_U64 start_us;
     CVI_U64 stage_start_us;
-    CVI_FLOAT previous_mean = 0.0f;
-    CVI_FLOAT current_mean;
-    CVI_U64 best_cost = UINT64_MAX;
-    CVI_U64 second_cost = UINT64_MAX;
-    CVI_U64 zero_cost;
-    CVI_S32 current_exclusion[4];
-    CVI_S32 best_x = 0;
-    CVI_S32 best_y = 0;
-    CVI_S32 coarse_x;
-    CVI_S32 coarse_y;
-    CVI_U32 best_samples = 0;
-    CVI_U64 frame_gap = 0;
-    CVI_S32 shift_y;
 
-    if (state == NULL || frame == NULL || result == NULL) {
+    if (frame == NULL || sample == NULL) {
         return CVI_FAILURE;
     }
-    memset(result, 0, sizeof(*result));
-    result->frame_id = frame_id;
-
+    memset(sample, 0, sizeof(*sample));
     if (frame->stVFrame.enPixelFormat != PIXEL_FORMAT_NV12 ||
         frame->stVFrame.u64PhyAddr[0] == 0 ||
         frame->stVFrame.u32Stride[0] == 0 ||
@@ -219,7 +444,9 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
     }
 
     start_us = gmc_time_us();
-    result->evaluated = CVI_TRUE;
+    sample->frame_id = frame_id;
+    sample->frame_width = frame->stVFrame.u32Width;
+    sample->frame_height = frame->stVFrame.u32Height;
     readable_frame = *frame;
     luma_length = frame->stVFrame.u32Stride[0] *
                   frame->stVFrame.u32Height;
@@ -227,12 +454,10 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
         mapped_address = CVI_SYS_MmapCache(
             frame->stVFrame.u64PhyAddr[0], luma_length);
         if (mapped_address == NULL) {
-            result->total_us = gmc_time_us() - start_us;
             return CVI_FAILURE;
         }
         readable_frame.stVFrame.pu8VirAddr[0] = mapped_address;
     }
-    stage_start_us = start_us;
     if (CVI_SYS_IonInvalidateCache(
             readable_frame.stVFrame.u64PhyAddr[0],
             readable_frame.stVFrame.pu8VirAddr[0],
@@ -240,32 +465,85 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
         if (mapped_address != NULL) {
             CVI_SYS_Munmap(mapped_address, luma_length);
         }
-        result->total_us = gmc_time_us() - start_us;
         return CVI_FAILURE;
     }
-    result->cache_us = gmc_time_us() - stage_start_us;
+    sample->cache_us = gmc_time_us() - start_us;
 
     stage_start_us = gmc_time_us();
-    current_mean = gmc_build_grid(&readable_frame, state->current);
-    gmc_scale_exclusion(exclusion, readable_frame.stVFrame.u32Width,
-                        readable_frame.stVFrame.u32Height,
-                        current_exclusion);
-    result->grid_us = gmc_time_us() - stage_start_us;
+    sample->mean = gmc_build_grid(&readable_frame, sample->grid);
+    gmc_scale_exclusion(exclusion, sample->frame_width,
+                        sample->frame_height, sample->exclusion);
+    /* Local GMC was both expensive and unreliable for tiny targets.  Keep
+     * the global grid as a low-cost motion baseline and let FearTrack's
+     * response candidates handle local target motion. */
+    sample->local_valid = CVI_FALSE;
+    sample->grid_us = gmc_time_us() - stage_start_us;
+    if (mapped_address != NULL) {
+        CVI_SYS_Munmap(mapped_address, luma_length);
+    }
+    return CVI_SUCCESS;
+}
 
-    if (state->has_previous && frame_id > state->previous_frame_id) {
-        frame_gap = frame_id - state->previous_frame_id;
+CVI_S32 app_ipcam_ObjectTrackGmc_ProcessSample(
+    APP_OBJECT_TRACK_GMC_STATE_S *state,
+    const APP_OBJECT_TRACK_GMC_SAMPLE_S *sample,
+    APP_OBJECT_TRACK_GMC_RESULT_S *result)
+{
+    CVI_U64 start_us;
+    CVI_U64 stage_start_us;
+    CVI_FLOAT previous_mean = 0.0f;
+    CVI_FLOAT current_mean;
+    CVI_U64 best_cost = UINT64_MAX;
+    CVI_U64 second_cost = UINT64_MAX;
+    CVI_U64 zero_cost;
+    CVI_S32 best_x = 0;
+    CVI_S32 best_y = 0;
+    CVI_S32 coarse_x;
+    CVI_S32 coarse_y;
+    CVI_U32 best_samples = 0;
+    CVI_U64 frame_gap = 0;
+    CVI_S32 shift_y;
+
+    if (state == NULL || sample == NULL || result == NULL ||
+        sample->frame_width == 0 || sample->frame_height == 0) {
+        return CVI_FAILURE;
+    }
+    memset(result, 0, sizeof(*result));
+    result->frame_id = sample->frame_id;
+    result->cache_us = sample->cache_us;
+    result->grid_us = sample->grid_us;
+
+    start_us = gmc_time_us();
+    memcpy(state->current, sample->grid, sizeof(state->current));
+    current_mean = sample->mean;
+    if (!sample->evaluate) {
+        memcpy(state->previous, state->current, sizeof(state->previous));
+        memcpy(state->previous_exclusion, sample->exclusion,
+               sizeof(state->previous_exclusion));
+        state->previous_frame_id = sample->frame_id;
+        state->has_previous = CVI_TRUE;
+        state->has_local_previous = CVI_FALSE;
+        result->total_us = result->cache_us + result->grid_us +
+                           (gmc_time_us() - start_us);
+        return CVI_SUCCESS;
+    }
+
+    result->evaluated = CVI_TRUE;
+    gmc_process_local(state, sample, result);
+
+    if (state->has_previous &&
+        sample->frame_id > state->previous_frame_id) {
+        frame_gap = sample->frame_id - state->previous_frame_id;
     }
     if (!state->has_previous || frame_gap == 0 ||
         frame_gap > GMC_MAX_FRAME_GAP) {
         memcpy(state->previous, state->current, sizeof(state->previous));
-        memcpy(state->previous_exclusion, current_exclusion,
+        memcpy(state->previous_exclusion, sample->exclusion,
                sizeof(state->previous_exclusion));
-        state->previous_frame_id = frame_id;
+        state->previous_frame_id = sample->frame_id;
         state->has_previous = CVI_TRUE;
-        if (mapped_address != NULL) {
-            CVI_SYS_Munmap(mapped_address, luma_length);
-        }
-        result->total_us = gmc_time_us() - start_us;
+        result->total_us = result->cache_us + result->grid_us +
+                           (gmc_time_us() - start_us);
         return CVI_SUCCESS;
     }
     result->frame_gap = (CVI_U32)frame_gap;
@@ -288,7 +566,7 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
             CVI_U64 cost = gmc_cost(
                 state->previous, state->current, previous_mean, current_mean,
                 shift_x, shift_y, GMC_COARSE_STEP_X, GMC_COARSE_STEP_Y,
-                state->previous_exclusion, current_exclusion, NULL);
+                state->previous_exclusion, sample->exclusion, NULL);
             if (cost < best_cost) {
                 best_cost = cost;
                 best_x = shift_x;
@@ -318,7 +596,7 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
                 state->previous, state->current, previous_mean, current_mean,
                 candidate_x, candidate_y, GMC_REFINE_STEP_X,
                 GMC_REFINE_STEP_Y, state->previous_exclusion,
-                current_exclusion, &samples);
+                sample->exclusion, &samples);
             if (cost < best_cost) {
                 second_cost = best_cost;
                 best_cost = cost;
@@ -333,7 +611,7 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
     zero_cost = gmc_cost(
         state->previous, state->current, previous_mean, current_mean, 0, 0,
         GMC_REFINE_STEP_X, GMC_REFINE_STEP_Y, state->previous_exclusion,
-        current_exclusion, NULL);
+        sample->exclusion, NULL);
     result->search_us = gmc_time_us() - stage_start_us;
 
     if (best_cost != UINT64_MAX && second_cost != UINT64_MAX &&
@@ -352,28 +630,28 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
             CVI_U64 left = gmc_cost(
                 state->previous, state->current, previous_mean, current_mean,
                 local_x - 1, local_y, GMC_REFINE_STEP_X, GMC_REFINE_STEP_Y,
-                state->previous_exclusion, current_exclusion, NULL);
+                state->previous_exclusion, sample->exclusion, NULL);
             CVI_U64 right = gmc_cost(
                 state->previous, state->current, previous_mean, current_mean,
                 local_x + 1, local_y, GMC_REFINE_STEP_X, GMC_REFINE_STEP_Y,
-                state->previous_exclusion, current_exclusion, NULL);
+                state->previous_exclusion, sample->exclusion, NULL);
             CVI_U64 up = gmc_cost(
                 state->previous, state->current, previous_mean, current_mean,
                 local_x, local_y - 1, GMC_REFINE_STEP_X, GMC_REFINE_STEP_Y,
-                state->previous_exclusion, current_exclusion, NULL);
+                state->previous_exclusion, sample->exclusion, NULL);
             CVI_U64 down = gmc_cost(
                 state->previous, state->current, previous_mean, current_mean,
                 local_x, local_y + 1, GMC_REFINE_STEP_X, GMC_REFINE_STEP_Y,
-                state->previous_exclusion, current_exclusion, NULL);
+                state->previous_exclusion, sample->exclusion, NULL);
             sub_x = gmc_subpixel(left, best_cost, right);
             sub_y = gmc_subpixel(up, best_cost, down);
         }
 
         CVI_FLOAT total_dx =
-            -(best_x + sub_x) * frame->stVFrame.u32Width /
+            -(best_x + sub_x) * sample->frame_width /
             APP_OBJECT_TRACK_GMC_GRID_WIDTH;
         CVI_FLOAT total_dy =
-            -(best_y + sub_y) * frame->stVFrame.u32Height /
+            -(best_y + sub_y) * sample->frame_height /
             APP_OBJECT_TRACK_GMC_GRID_HEIGHT;
 
         result->dx = total_dx / frame_gap;
@@ -386,12 +664,28 @@ CVI_S32 app_ipcam_ObjectTrackGmc_Process(
     }
 
     memcpy(state->previous, state->current, sizeof(state->previous));
-    memcpy(state->previous_exclusion, current_exclusion,
+    memcpy(state->previous_exclusion, sample->exclusion,
            sizeof(state->previous_exclusion));
-    state->previous_frame_id = frame_id;
-    if (mapped_address != NULL) {
-        CVI_SYS_Munmap(mapped_address, luma_length);
-    }
-    result->total_us = gmc_time_us() - start_us;
+    state->previous_frame_id = sample->frame_id;
+    result->total_us = result->cache_us + result->grid_us +
+                       (gmc_time_us() - start_us);
     return CVI_SUCCESS;
+}
+
+CVI_S32 app_ipcam_ObjectTrackGmc_Process(
+    APP_OBJECT_TRACK_GMC_STATE_S *state,
+    const VIDEO_FRAME_INFO_S *frame,
+    CVI_U64 frame_id,
+    const CVI_S32 exclusion[4],
+    APP_OBJECT_TRACK_GMC_RESULT_S *result)
+{
+    APP_OBJECT_TRACK_GMC_SAMPLE_S sample;
+    CVI_S32 ret = app_ipcam_ObjectTrackGmc_Sample(
+        frame, frame_id, exclusion, &sample);
+
+    if (ret != CVI_SUCCESS) {
+        return ret;
+    }
+    sample.evaluate = CVI_TRUE;
+    return app_ipcam_ObjectTrackGmc_ProcessSample(state, &sample, result);
 }

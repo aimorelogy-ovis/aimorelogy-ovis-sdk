@@ -1415,6 +1415,12 @@ int32_t TDL_Tracking(TDLHandle handle, uint64_t frame_id, TDLObject *obj_meta,
       case TrackStatus::LOST:
         track_meta->info[i].state = TDL_TRACK_STATE_LOST;
         break;
+      case TrackStatus::CANDIDATE:
+        track_meta->info[i].state = TDL_TRACK_STATE_CANDIDATE;
+        break;
+      case TrackStatus::FOLLOWING:
+        track_meta->info[i].state = TDL_TRACK_STATE_FOLLOWING;
+        break;
       default:
         track_meta->info[i].state = TDL_TRACK_STATE_REMOVED;
         break;
@@ -1632,6 +1638,154 @@ int32_t TDL_SetSingleObjectTrackingByPoint(
       frame_type, model_path_str);
 }
 
+int32_t TDL_GetSingleObjectTrackingTargetInfo(
+    TDLHandle handle, TDLBox *target_bbox, bool *refined_small_target) {
+  TDLContext *context = (TDLContext *)handle;
+  if (context == nullptr || target_bbox == nullptr ||
+      refined_small_target == nullptr ||
+      context->single_object_tracker == nullptr) {
+    return -1;
+  }
+
+  ObjectBoxInfo bbox;
+  int32_t ret = context->single_object_tracker->getTargetInfo(
+      &bbox, refined_small_target);
+  if (ret != 0) {
+    return ret;
+  }
+  target_bbox->x1 = bbox.x1;
+  target_bbox->y1 = bbox.y1;
+  target_bbox->x2 = bbox.x2;
+  target_bbox->y2 = bbox.y2;
+  return 0;
+}
+
+int32_t TDL_GetSingleObjectTrackingDiagnostics(
+    TDLHandle handle, TDLSingleObjectTrackingDiagnostics *diagnostics) {
+  TDLContext *context = (TDLContext *)handle;
+  if (context == nullptr || diagnostics == nullptr ||
+      context->single_object_tracker == nullptr) {
+    return -1;
+  }
+
+  SingleObjectTrackerDiagnostics tracker_diagnostics;
+  int32_t ret = context->single_object_tracker->getDiagnostics(
+      &tracker_diagnostics);
+  if (ret != 0) {
+    return ret;
+  }
+  diagnostics->template_update_count =
+      tracker_diagnostics.template_update_count;
+  diagnostics->template_rollback_count =
+      tracker_diagnostics.template_rollback_count;
+  diagnostics->template_probation_frames =
+      tracker_diagnostics.template_probation_frames;
+  diagnostics->template_age_frames =
+      tracker_diagnostics.template_age_frames;
+  diagnostics->template_refresh_votes =
+      tracker_diagnostics.template_refresh_votes;
+  diagnostics->template_refresh_window =
+      tracker_diagnostics.template_refresh_window;
+  diagnostics->template_using_long_term =
+      tracker_diagnostics.template_using_long_term;
+  diagnostics->template_switch_count =
+      tracker_diagnostics.template_switch_count;
+  diagnostics->template_recovery_stable_frames =
+      tracker_diagnostics.template_recovery_stable_frames;
+  diagnostics->kalman_search_horizon =
+      tracker_diagnostics.kalman_search_horizon;
+  diagnostics->kalman_search_dx = tracker_diagnostics.kalman_search_dx;
+  diagnostics->kalman_search_dy = tracker_diagnostics.kalman_search_dy;
+  diagnostics->relock_votes = tracker_diagnostics.relock_votes;
+  diagnostics->relock_good_votes = tracker_diagnostics.relock_good_votes;
+  diagnostics->relock_motion_rejects =
+      tracker_diagnostics.relock_motion_rejects;
+  diagnostics->relock_candidate_distance =
+      tracker_diagnostics.relock_candidate_distance;
+  diagnostics->relock_motion_gate = tracker_diagnostics.relock_motion_gate;
+  diagnostics->response_score = tracker_diagnostics.response_score;
+  diagnostics->response_psr = tracker_diagnostics.response_psr;
+  diagnostics->response_peak_margin =
+      tracker_diagnostics.response_peak_margin;
+  diagnostics->response_area_ratio =
+      tracker_diagnostics.response_area_ratio;
+  diagnostics->response_aspect_ratio =
+      tracker_diagnostics.response_aspect_ratio;
+  diagnostics->response_reject_mask =
+      tracker_diagnostics.response_reject_mask;
+  diagnostics->bootstrap_active = tracker_diagnostics.bootstrap_active;
+  diagnostics->bootstrap_retry_count =
+      tracker_diagnostics.bootstrap_retry_count;
+  diagnostics->weak_follow_count = tracker_diagnostics.weak_follow_count;
+  diagnostics->hard_lost_deferred_count =
+      tracker_diagnostics.hard_lost_deferred_count;
+  diagnostics->low_detail_target =
+      tracker_diagnostics.low_detail_target;
+  diagnostics->response_selected_candidate =
+      tracker_diagnostics.response_selected_candidate;
+  diagnostics->response_psr_baseline =
+      tracker_diagnostics.response_psr_baseline;
+  diagnostics->response_peak_margin_baseline =
+      tracker_diagnostics.response_peak_margin_baseline;
+  diagnostics->search_target_pixels =
+      tracker_diagnostics.search_target_pixels;
+  diagnostics->template_recovery_attempted =
+      tracker_diagnostics.template_recovery_attempted;
+  diagnostics->handoff_identity_active =
+      tracker_diagnostics.handoff_identity_active;
+  diagnostics->handoff_identity_confirmed =
+      tracker_diagnostics.handoff_identity_confirmed;
+  diagnostics->handoff_identity_frames =
+      tracker_diagnostics.handoff_identity_frames;
+  diagnostics->handoff_identity_good_frames =
+      tracker_diagnostics.handoff_identity_good_frames;
+  diagnostics->candidate_output_held =
+      tracker_diagnostics.candidate_output_held;
+  diagnostics->candidate_output_following =
+      tracker_diagnostics.candidate_output_following;
+  diagnostics->candidate_follow_dx =
+      tracker_diagnostics.candidate_follow_dx;
+  diagnostics->candidate_follow_dy =
+      tracker_diagnostics.candidate_follow_dy;
+  diagnostics->handoff_candidate_distance =
+      tracker_diagnostics.handoff_candidate_distance;
+  diagnostics->handoff_candidate_area_ratio =
+      tracker_diagnostics.handoff_candidate_area_ratio;
+  diagnostics->handoff_candidate_aspect_ratio =
+      tracker_diagnostics.handoff_candidate_aspect_ratio;
+  diagnostics->scale_update_count = tracker_diagnostics.scale_update_count;
+  diagnostics->scale_reject_count = tracker_diagnostics.scale_reject_count;
+  diagnostics->scale_pending_frames =
+      tracker_diagnostics.scale_pending_frames;
+  diagnostics->scale_stable_frames = tracker_diagnostics.scale_stable_frames;
+  diagnostics->scale_raw_ratio = tracker_diagnostics.scale_raw_ratio;
+  diagnostics->scale_raw_width_ratio =
+      tracker_diagnostics.scale_raw_width_ratio;
+  diagnostics->scale_raw_height_ratio =
+      tracker_diagnostics.scale_raw_height_ratio;
+  diagnostics->preserve_aspect_context =
+      tracker_diagnostics.preserve_aspect_context;
+  diagnostics->search_context_width =
+      tracker_diagnostics.search_context_width;
+  diagnostics->search_context_height =
+      tracker_diagnostics.search_context_height;
+  diagnostics->scale_raw_bias_width =
+      tracker_diagnostics.scale_raw_bias_width;
+  diagnostics->scale_raw_bias_height =
+      tracker_diagnostics.scale_raw_bias_height;
+  diagnostics->scale_raw_bias_samples =
+      tracker_diagnostics.scale_raw_bias_samples;
+  diagnostics->scale_trusted_width =
+      tracker_diagnostics.scale_trusted_width;
+  diagnostics->scale_trusted_height =
+      tracker_diagnostics.scale_trusted_height;
+  diagnostics->scale_approach_active =
+      tracker_diagnostics.scale_approach_active;
+  diagnostics->scale_approach_frames =
+      tracker_diagnostics.scale_approach_frames;
+  return 0;
+}
+
 int32_t TDL_SingleObjectTracking(TDLHandle handle, TDLImage image_handle,
                                  TDLTracker *track_meta, uint64_t frame_id) {
   TDLContext *context = (TDLContext *)handle;
@@ -1673,8 +1827,15 @@ int32_t TDL_SingleObjectTracking(TDLHandle handle, TDLImage image_handle,
     track_meta->info[0].bbox.x2 = tracker_info.box_info_.x2;
     track_meta->info[0].bbox.y2 = tracker_info.box_info_.y2;
     track_meta->info[0].score = tracker_info.box_info_.score;
-    track_meta->info[0].state = tracker_info.status_ == TrackStatus::NEW ?
-        TDL_TRACK_STATE_PREDICTED : TDL_TRACK_STATE_TRACKED;
+    if (tracker_info.status_ == TrackStatus::NEW) {
+      track_meta->info[0].state = TDL_TRACK_STATE_PREDICTED;
+    } else if (tracker_info.status_ == TrackStatus::CANDIDATE) {
+      track_meta->info[0].state = TDL_TRACK_STATE_CANDIDATE;
+    } else if (tracker_info.status_ == TrackStatus::FOLLOWING) {
+      track_meta->info[0].state = TDL_TRACK_STATE_FOLLOWING;
+    } else {
+      track_meta->info[0].state = TDL_TRACK_STATE_TRACKED;
+    }
   } else {
     LOGD("tracker_info.status_ is LOST");
   }
@@ -1711,6 +1872,17 @@ int32_t TDL_SetSingleObjectTrackingSearchMotionHint(
   }
   return context->single_object_tracker->setSearchMotionHint(
       dx, dy, confidence);
+}
+
+int32_t TDL_SetSingleObjectTrackingSearchExpansionHint(
+    TDLHandle handle, float motion_pixels, float confidence) {
+  TDLContext *context = (TDLContext *)handle;
+  if (context == nullptr ||
+      ensure_single_object_tracker(handle, context) != 0) {
+    return -1;
+  }
+  return context->single_object_tracker->setSearchExpansionHint(
+      motion_pixels, confidence);
 }
 
 int32_t TDL_PrepareSingleObjectTrackingTargetSearch(

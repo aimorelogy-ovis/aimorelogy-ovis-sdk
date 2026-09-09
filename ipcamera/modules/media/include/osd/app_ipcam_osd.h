@@ -114,6 +114,8 @@ typedef struct APP_OSD_STYLE_CFG_T {
     CVI_U32 u32TrackingColor;
     CVI_U32 u32TrackingLostColor;
     CVI_U32 u32TrackingThickness;
+    CVI_BOOL bTrackingCorners;
+    CVI_BOOL bTrackingHideWhenLost;
     CVI_BOOL bReticleEnable;
     APP_OSD_RETICLE_TEMPLATE_E enReticleTemplate;
     CVI_U32 u32ReticleIdleColor;

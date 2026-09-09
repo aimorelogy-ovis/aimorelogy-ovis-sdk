@@ -1,6 +1,7 @@
 #ifndef KALMAN_BOX_TRACKER_HPP
 #define KALMAN_BOX_TRACKER_HPP
 
+#include <cstdint>
 #include <Eigen/Dense>
 #include <vector>
 
@@ -32,6 +33,19 @@ class KalmanBoxTracker {
    * @return 预测的边界框 [x, y, w, h]
    */
   std::vector<float> predict();
+
+  /**
+   * @brief 在不改变滤波器状态的前提下预测若干帧后的位置
+   *
+   * @param steps 预测步数，最小为1
+   * @return 预测边界框 [x, y, w, h]
+   */
+  std::vector<float> predictAhead(uint32_t steps) const;
+
+  /**
+   * @brief 同步可信尺度并清除尺度速度，不改变中心位置和位置速度
+   */
+  void resetScale(float width, float height);
 
   // 公共成员变量
   int update_count_;  // 更新计数器

@@ -28,37 +28,102 @@ static CVI_BOOL g_bPDFrameActive = CVI_FALSE;
 #define APP_PD_MAX_DRAW_OBJECTS 100
 #define APP_PD_FRAME_SOURCE_TIMEOUT_MS 100
 #define APP_PD_DISPLAY_SLOT_SIZE 128
-#define APP_PD_DISPLAY_HOLD_RESULTS 5
-#define APP_PD_DISPLAY_HOLD_US 220000
-#define APP_PD_DISPLAY_CANDIDATE_DELTA 0.15f
-#define APP_PD_DISPLAY_CANDIDATE_MIN 0.10f
+#define APP_PD_DISPLAY_HOLD_RESULTS 2
+#define APP_PD_DISPLAY_HOLD_US 90000
+#define APP_PD_DISPLAY_SMALL_HOLD_RESULTS 4
+#define APP_PD_DISPLAY_SMALL_HOLD_US 180000
+#define APP_PD_DISPLAY_STABLE_HOLD_RESULTS 5
+#define APP_PD_DISPLAY_STABLE_HOLD_US 220000
+#define APP_PD_DISPLAY_STABLE_MIN_PRIMARY_OBSERVATIONS 3
+#define APP_PD_DISPLAY_STABLE_MAX_MOTION_RATIO 0.08f
+#define APP_PD_DISPLAY_MATURE_STABLE_HOLD_RESULTS 8
+#define APP_PD_DISPLAY_MATURE_STABLE_HOLD_US 320000
+#define APP_PD_DISPLAY_MATURE_STABLE_MIN_PRIMARY_OBSERVATIONS 8
+#define APP_PD_DISPLAY_ANCHOR_RESULTS 12
+#define APP_PD_DISPLAY_ANCHOR_US 450000
+#define APP_PD_DISPLAY_SMALL_AREA_RATIO 0.0125f
+#define APP_PD_DISPLAY_SMALL_MAX_SIDE_RATIO 0.25f
+#define APP_PD_DISPLAY_SMALL_MATCH_SIZE_RATIO 0.32f
+#define APP_PD_DISPLAY_SMALL_CLASS_SIZE_RATIO 0.60f
+#define APP_PD_DISPLAY_SMALL_CLASS_IOU 0.12f
+#define APP_PD_DISPLAY_SMALL_CLASS_CENTER_RATIO 0.65f
+#define APP_PD_DISPLAY_SMALL_CLASS_MIN_CENTER_PIXELS 4.0f
+#define APP_PD_DISPLAY_SMALL_MATCH_CENTER_RATIO 1.15f
+#define APP_PD_DISPLAY_SMALL_MATCH_MIN_CENTER_PIXELS 8.0f
+#define APP_PD_DISPLAY_SMALL_GATE_GROWTH_MAX 1.70f
+#define APP_PD_DISPLAY_PRESENCE_MIN_SIZE_RATIO 0.18f
+#define APP_PD_DISPLAY_PRESENCE_CENTER_RATIO 1.60f
+#define APP_PD_DISPLAY_PRESENCE_MIN_CENTER_PIXELS 10.0f
+#define APP_PD_DISPLAY_PRESENCE_MAX_GATE_X_RATIO 0.06f
+#define APP_PD_DISPLAY_PRESENCE_MAX_GATE_Y_RATIO 0.08f
+#define APP_PD_DISPLAY_PRESENCE_MAX_PRIMARY_GAP_US 1000000
+#define APP_PD_DISPLAY_LOCAL_GATE_RATIO 1.65f
+#define APP_PD_DISPLAY_LOCAL_GATE_MIN_PIXELS 8.0f
+#define APP_PD_DISPLAY_LOCAL_GATE_MAX_RATIO 0.14f
+#define APP_PD_DISPLAY_SHADOW_IOU 0.35f
+#define APP_PD_DISPLAY_SHADOW_NEAR_IOU 0.10f
+#define APP_PD_DISPLAY_SHADOW_NEAR_SIZE_RATIO 0.70f
+#define APP_PD_DISPLAY_SHADOW_CENTER_RATIO 0.45f
+#define APP_PD_DISPLAY_SHADOW_MIN_CENTER_PIXELS 6.0f
+#define APP_PD_DISPLAY_SHADOW_SIZE_RATIO 0.40f
+#define APP_PD_DISPLAY_CANDIDATE_DELTA 0.10f
+#define APP_PD_DISPLAY_CANDIDATE_MIN 0.15f
 #define APP_PD_DISPLAY_EVIDENCE_MAX 6
 #define APP_PD_DISPLAY_PRIMARY_EVIDENCE 2
 #define APP_PD_DISPLAY_CANDIDATE_EVIDENCE 1
 #define APP_PD_DISPLAY_MISS_EVIDENCE 1
+#define APP_PD_DISPLAY_CONFIRM_PRIMARY_HITS 2
+#define APP_PD_DISPLAY_IMMEDIATE_SCORE 0.50f
+#define APP_PD_DISPLAY_SMALL_MIN_PRIMARY_HITS 2
+#define APP_PD_DISPLAY_SMALL_CONFIRM_PRIMARY_HITS 3
+#define APP_PD_DISPLAY_SMALL_CONFIRM_CANDIDATE_HITS 3
+#define APP_PD_DISPLAY_SMALL_IMMEDIATE_SCORE 0.70f
 #define APP_PD_DISPLAY_VELOCITY_MIN_OBSERVATIONS 3
-#define APP_PD_DISPLAY_CENTER_ALPHA 0.72f
-#define APP_PD_DISPLAY_VELOCITY_BETA 0.18f
-#define APP_PD_DISPLAY_SIZE_ALPHA 0.65f
+#define APP_PD_DISPLAY_VELOCITY_STABLE_OBSERVATIONS 4
+#define APP_PD_DISPLAY_VELOCITY_DIRECTION_COSINE 0.35f
+#define APP_PD_DISPLAY_VELOCITY_MIN_PIXELS_PER_US 0.00002f
+#define APP_PD_DISPLAY_CENTER_ALPHA 0.80f
+#define APP_PD_DISPLAY_FAST_CENTER_ALPHA 0.90f
+#define APP_PD_DISPLAY_VELOCITY_BETA 0.25f
+#define APP_PD_DISPLAY_FAST_VELOCITY_BETA 0.40f
+#define APP_PD_DISPLAY_SIZE_ALPHA 0.50f
+#define APP_PD_DISPLAY_FAST_SIZE_ALPHA 0.58f
 #define APP_PD_DISPLAY_CANDIDATE_CENTER_ALPHA 0.35f
-#define APP_PD_DISPLAY_CANDIDATE_VELOCITY_BETA 0.08f
-#define APP_PD_DISPLAY_CANDIDATE_SIZE_ALPHA 0.30f
+#define APP_PD_DISPLAY_CANDIDATE_FAST_CENTER_ALPHA 0.55f
+#define APP_PD_DISPLAY_CANDIDATE_VELOCITY_BETA 0.10f
+#define APP_PD_DISPLAY_CANDIDATE_FAST_VELOCITY_BETA 0.18f
+#define APP_PD_DISPLAY_CANDIDATE_SIZE_ALPHA 0.20f
+#define APP_PD_DISPLAY_CANDIDATE_FAST_SIZE_ALPHA 0.35f
+#define APP_PD_DISPLAY_FAST_MOTION_START_RATIO 0.10f
+#define APP_PD_DISPLAY_FAST_MOTION_FULL_RATIO 0.65f
 #define APP_PD_DISPLAY_CLASS_RESCUE_IOU 0.55f
+#define APP_PD_DISPLAY_FAMILY_RESCUE_IOU 0.20f
+#define APP_PD_DISPLAY_FAMILY_RESCUE_DISTANCE 0.12f
+#define APP_PD_DISPLAY_FAMILY_RESCUE_SIZE_RATIO 0.55f
 #define APP_PD_DISPLAY_CLASS_CONFIRM_HITS 2
 #define APP_PD_DISPLAY_DUPLICATE_IOU 0.80f
 #define APP_PD_DISPLAY_MATURE_GATE_RATIO 0.10f
 #define APP_PD_DISPLAY_MISSING_GATE_GROWTH 0.35f
 #define APP_PD_DISPLAY_GATE_MAX_RATIO 0.22f
-#define APP_PD_DISPLAY_RECOVERY_GATE_SCALE 1.50f
-#define APP_PD_DISPLAY_RECOVERY_MIN_SIZE_RATIO 0.40f
-#define APP_PD_DEFAULT_FRAME_PERIOD_US 40000
+#define APP_PD_DEFAULT_FRAME_PERIOD_US 33333
 #define APP_PD_OSD_ESTIMATED_APPLY_US 15000
-#define APP_PD_OSD_PREDICT_MAX_US 120000
-#define APP_PD_OSD_MAX_SHIFT_BOX_RATIO 1.5f
+#define APP_PD_OSD_ASSOC_PREDICT_MAX_US 50000
+#define APP_PD_OSD_DRAW_PREDICT_MAX_US 60000
+#define APP_PD_OSD_MIN_SHIFT_BOX_RATIO 0.10f
+#define APP_PD_OSD_MAX_SHIFT_BOX_RATIO 0.35f
+#define APP_PD_NEAREST_TARGET_CONFIRM_RESULTS 3
+#define APP_PD_NEAREST_TARGET_HOLD_US 150000
+#define APP_PD_NEAREST_TARGET_MAX_DISTANCE 0.05f
+#define APP_PD_NEAREST_TARGET_KEEP_DISTANCE_DELTA 0.0125f
+#define APP_PD_NEAREST_TARGET_KEEP_MAX_DISTANCE 0.08f
+#define APP_PD_NEAREST_TARGET_REID_IOU 0.45f
+#define APP_PD_NEAREST_TARGET_REID_CENTER_RATIO 0.45f
+#define APP_PD_NEAREST_TARGET_REID_MIN_CENTER_PIXELS 4.0f
+#define APP_PD_NEAREST_TARGET_REID_MIN_SIZE_RATIO 0.55f
 #define APP_PD_DISPLAY_MIN_IOU 0.05f
 #define APP_PD_DISPLAY_CENTER_GATE_RATIO 0.08f
 #define APP_PD_IMAGE_FOLLOW_ENABLE 0
-#define APP_PD_OSD_MOTION_PREDICT_ENABLE 0
+#define APP_PD_OSD_MOTION_PREDICT_ENABLE 1
 #define APP_PD_FOLLOW_WIDTH 160
 #define APP_PD_FOLLOW_HEIGHT 96
 #define APP_PD_FOLLOW_MAX_OBJECTS 16
@@ -94,12 +159,31 @@ typedef struct {
     CVI_U32 held_objects;
     CVI_U32 maintained_objects;
     CVI_U32 detected_objects;
+    CVI_U32 candidate_objects;
+    CVI_U32 measured_objects;
+    CVI_U32 reactivated_objects;
+    CVI_U32 presence_bridged_objects;
+    CVI_U32 presence_ambiguous_objects;
+    CVI_U32 display_cleared_objects;
+    CVI_U32 display_result_cleared_objects;
+    CVI_U32 display_time_cleared_objects;
+    CVI_U32 display_anchor_cleared_objects;
     CVI_U32 association_new_objects;
     CVI_U32 association_motion_rescues;
     CVI_U32 association_rescues;
     CVI_U32 association_class_rejects;
     CVI_U32 association_gate_rejects;
     CVI_U32 association_merges;
+    CVI_U32 small_maintained_objects;
+    CVI_U32 small_class_rescues;
+    CVI_U32 small_new_objects;
+    CVI_U32 small_held_objects;
+    CVI_U32 small_expired_objects;
+    CVI_U32 small_presence_bridged_objects;
+    CVI_U32 small_presence_ambiguous_objects;
+    CVI_U32 small_display_cleared_objects;
+    CVI_U32 shadow_suppressed_objects;
+    CVI_U32 small_shadow_suppressed_objects;
     CVI_U32 followed_objects;
     CVI_U32 follow_moved_objects;
     CVI_U32 follow_rejects;
@@ -107,7 +191,18 @@ typedef struct {
     CVI_U32 sequence;
     CVI_U32 time_ref;
     CVI_U64 pts;
+    double model_preprocess_ms;
+    double model_tpu_ms;
+    double model_postprocess_ms;
+    double model_total_ms;
 } APP_PD_PROFILE_S;
+
+typedef enum {
+    APP_PD_DISPLAY_CLEAR_NONE = 0,
+    APP_PD_DISPLAY_CLEAR_RESULT,
+    APP_PD_DISPLAY_CLEAR_TIME,
+    APP_PD_DISPLAY_CLEAR_ANCHOR,
+} APP_PD_DISPLAY_CLEAR_REASON_E;
 
 typedef struct {
     CVI_BOOL valid;
@@ -135,23 +230,46 @@ typedef struct {
 typedef struct {
     CVI_BOOL used;
     CVI_BOOL velocity_valid;
+    CVI_BOOL confirmed;
+    CVI_BOOL small_target;
+    CVI_BOOL last_measurement_primary;
+    CVI_BOOL display_visible;
+    CVI_BOOL display_requires_primary;
     CVI_U32 observations;
+    CVI_U32 primary_observations;
+    CVI_U32 candidate_confirmation_hits;
+    CVI_U32 velocity_stable_observations;
     CVI_S32 pending_class_id;
     CVI_U32 pending_class_hits;
     CVI_S32 evidence;
     CVI_U64 track_id;
     CVI_U64 last_pts;
     CVI_U32 last_observed_result;
+    CVI_U64 last_supported_pts;
+    CVI_U32 last_supported_result;
+    CVI_U32 last_primary_result;
     CVI_FLOAT center_x;
     CVI_FLOAT center_y;
     CVI_FLOAT width;
     CVI_FLOAT height;
     CVI_FLOAT velocity_x_per_us;
     CVI_FLOAT velocity_y_per_us;
+    CVI_FLOAT last_measured_center_x;
+    CVI_FLOAT last_measured_center_y;
     CVI_FLOAT visual_offset_x;
     CVI_FLOAT visual_offset_y;
+    TDLBox measured_box;
+    TDLObjectInfo primary_object;
     TDLObjectInfo object;
 } APP_PD_DISPLAY_SLOT_S;
+
+typedef struct {
+    CVI_BOOL valid;
+    CVI_U32 width;
+    CVI_U32 height;
+    TDLObjectInfo object;
+    APP_AI_RESULT_FRAME_INFO_S frame;
+} APP_PD_NEAREST_TARGET_S;
 
 /**************************************************************************
  *                         G L O B A L    D A T A                         *
@@ -183,6 +301,12 @@ static pthread_t g_PDThreadHandle;
 static TDLHandle g_PDAiHandle = NULL;
 static TDLObject g_stPDObjDraw;
 static APP_AI_RESULT_FRAME_INFO_S g_stPDResultFrame;
+static APP_PD_NEAREST_TARGET_S g_stPDNearestTarget;
+static TDLBox g_stPDNearestCandidateBox;
+static CVI_BOOL g_bPDNearestCandidateValid;
+static CVI_U32 g_u32PDNearestCandidateHits;
+static CVI_U64 g_u64PDNearestCandidateTrackId;
+static CVI_U64 g_u64PDNearestCandidateSeenUs;
 static pfpInferenceFunc g_pfpPDInference;
 static APP_PD_FRAME_SOURCE_S g_stPDFrameSource = {
     .mutex = PTHREAD_MUTEX_INITIALIZER,
@@ -198,6 +322,7 @@ static APP_PD_FRAME_SOURCE_S g_stPDFrameSource = {
  **************************************************************************/
 
 static CVI_VOID app_ipcam_Ai_PD_FrameSource_Pause(CVI_BOOL bPause);
+static CVI_VOID app_ipcam_Ai_PD_NearestCandidate_Reset(CVI_VOID);
 
 APP_PARAM_AI_PD_CFG_S *app_ipcam_Ai_PD_Param_Get(void)
 {
@@ -220,10 +345,11 @@ static CVI_U64 app_ipcam_Ai_PD_PresentationLeadUs(
     if (u64FramePeriodUs == 0) {
         u64FramePeriodUs = APP_PD_DEFAULT_FRAME_PERIOD_US;
     }
-    u64LeadUs = ((u64PipelineUs + u64FramePeriodUs - 1) /
-        u64FramePeriodUs) * u64FramePeriodUs;
-    if (u64LeadUs > APP_PD_OSD_PREDICT_MAX_US) {
-        u64LeadUs = APP_PD_OSD_PREDICT_MAX_US;
+    u64LeadUs = u64PipelineUs +
+        (u64FramePeriodUs / 2 < APP_PD_OSD_ESTIMATED_APPLY_US ?
+         u64FramePeriodUs / 2 : APP_PD_OSD_ESTIMATED_APPLY_US);
+    if (u64LeadUs > APP_PD_OSD_DRAW_PREDICT_MAX_US) {
+        u64LeadUs = APP_PD_OSD_DRAW_PREDICT_MAX_US;
     }
     return u64LeadUs;
 }
@@ -253,6 +379,9 @@ CVI_VOID app_ipcam_Ai_PD_Pause_Set(CVI_BOOL flag)
     pthread_mutex_unlock(&g_PDStatusMutex);
     if (flag) {
         app_ipcam_Ai_PD_FrameSource_Pause(CVI_TRUE);
+        SMT_MutexAutoLock(g_PDMutex, lock);
+        memset(&g_stPDNearestTarget, 0, sizeof(g_stPDNearestTarget));
+        app_ipcam_Ai_PD_NearestCandidate_Reset();
     }
 }
 
@@ -283,6 +412,202 @@ static CVI_U64 app_ipcam_Ai_PD_TimeUs(CVI_VOID)
     clock_gettime(CLOCK_MONOTONIC, &time);
     return (CVI_U64)time.tv_sec * 1000000ULL +
         (CVI_U64)time.tv_nsec / 1000ULL;
+}
+
+static CVI_VOID app_ipcam_Ai_PD_NearestCandidate_Reset(CVI_VOID)
+{
+    memset(&g_stPDNearestCandidateBox, 0,
+        sizeof(g_stPDNearestCandidateBox));
+    g_bPDNearestCandidateValid = CVI_FALSE;
+    g_u32PDNearestCandidateHits = 0;
+    g_u64PDNearestCandidateTrackId = 0;
+    g_u64PDNearestCandidateSeenUs = 0;
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_NearestCandidate_IsContinuous(
+    const TDLBox *pstPrevious, const TDLBox *pstCurrent)
+{
+    CVI_FLOAT fPreviousWidth = fmaxf(1.0f,
+        pstPrevious->x2 - pstPrevious->x1);
+    CVI_FLOAT fPreviousHeight = fmaxf(1.0f,
+        pstPrevious->y2 - pstPrevious->y1);
+    CVI_FLOAT fCurrentWidth = fmaxf(1.0f,
+        pstCurrent->x2 - pstCurrent->x1);
+    CVI_FLOAT fCurrentHeight = fmaxf(1.0f,
+        pstCurrent->y2 - pstCurrent->y1);
+    CVI_FLOAT fPreviousArea = fPreviousWidth * fPreviousHeight;
+    CVI_FLOAT fCurrentArea = fCurrentWidth * fCurrentHeight;
+    CVI_FLOAT fAreaRatio = fCurrentArea / fPreviousArea;
+    CVI_FLOAT fPreviousCenterX =
+        (pstPrevious->x1 + pstPrevious->x2) * 0.5f;
+    CVI_FLOAT fPreviousCenterY =
+        (pstPrevious->y1 + pstPrevious->y2) * 0.5f;
+    CVI_FLOAT fCurrentCenterX =
+        (pstCurrent->x1 + pstCurrent->x2) * 0.5f;
+    CVI_FLOAT fCurrentCenterY =
+        (pstCurrent->y1 + pstCurrent->y2) * 0.5f;
+    CVI_FLOAT fDx = fCurrentCenterX - fPreviousCenterX;
+    CVI_FLOAT fDy = fCurrentCenterY - fPreviousCenterY;
+    CVI_FLOAT fDistance = sqrtf(fDx * fDx + fDy * fDy);
+    CVI_FLOAT fSide = fmaxf(fmaxf(fPreviousWidth, fPreviousHeight),
+        fmaxf(fCurrentWidth, fCurrentHeight));
+    CVI_FLOAT fIntersectionWidth = fmaxf(0.0f,
+        fminf(pstPrevious->x2, pstCurrent->x2) -
+        fmaxf(pstPrevious->x1, pstCurrent->x1));
+    CVI_FLOAT fIntersectionHeight = fmaxf(0.0f,
+        fminf(pstPrevious->y2, pstCurrent->y2) -
+        fmaxf(pstPrevious->y1, pstCurrent->y1));
+    CVI_FLOAT fIntersection = fIntersectionWidth * fIntersectionHeight;
+    CVI_FLOAT fUnion = fPreviousArea + fCurrentArea - fIntersection;
+    CVI_FLOAT fIou = fUnion > 0.0f ? fIntersection / fUnion : 0.0f;
+
+    return fIou >= APP_PD_NEAREST_TARGET_REID_IOU ||
+        (fDistance <= fmaxf(
+             APP_PD_NEAREST_TARGET_REID_MIN_CENTER_PIXELS,
+             fSide * APP_PD_NEAREST_TARGET_REID_CENTER_RATIO) &&
+         fAreaRatio >= APP_PD_NEAREST_TARGET_REID_MIN_SIZE_RATIO &&
+         fAreaRatio <=
+             1.0f / APP_PD_NEAREST_TARGET_REID_MIN_SIZE_RATIO);
+}
+
+static CVI_VOID app_ipcam_Ai_PD_NearestTarget_Publish(
+    const TDLObject *pstObjects, const APP_PD_PROFILE_S *pstProfile)
+{
+    CVI_S32 s32BestIndex = -1;
+    CVI_FLOAT fBestDistance = 0.0f;
+    CVI_U64 u64NowUs;
+
+    if (pstProfile == NULL) {
+        return;
+    }
+    u64NowUs = app_ipcam_Ai_PD_TimeUs();
+    if (!g_bPDPause && pstObjects != NULL && pstObjects->info != NULL &&
+        pstObjects->width > 0 && pstObjects->height > 0) {
+        for (CVI_U32 i = 0; i < pstObjects->size; i++) {
+            const TDLObjectInfo *pstObject = &pstObjects->info[i];
+            CVI_FLOAT fCenterX;
+            CVI_FLOAT fCenterY;
+            CVI_FLOAT fDx;
+            CVI_FLOAT fDy;
+            CVI_FLOAT fDistance;
+
+            if (pstObject->score < g_pstPdCfg->threshold ||
+                pstObject->box.x2 <= pstObject->box.x1 ||
+                pstObject->box.y2 <= pstObject->box.y1) {
+                continue;
+            }
+            fCenterX = (pstObject->box.x1 + pstObject->box.x2) * 0.5f;
+            fCenterY = (pstObject->box.y1 + pstObject->box.y2) * 0.5f;
+            fDx = fCenterX / pstObjects->width - 0.5f;
+            fDy = fCenterY / pstObjects->height - 0.5f;
+            fDistance = fDx * fDx + fDy * fDy;
+            if (fDistance > APP_PD_NEAREST_TARGET_MAX_DISTANCE) {
+                continue;
+            }
+            if (s32BestIndex < 0 || fDistance < fBestDistance ||
+                (fDistance == fBestDistance &&
+                 pstObject->score > pstObjects->info[s32BestIndex].score)) {
+                s32BestIndex = (CVI_S32)i;
+                fBestDistance = fDistance;
+            }
+        }
+    }
+
+    {
+        SMT_MutexAutoLock(g_PDMutex, lock);
+        CVI_S32 s32SelectedIndex = s32BestIndex;
+
+        if (g_bPDNearestCandidateValid &&
+            g_u64PDNearestCandidateTrackId != 0 &&
+            pstObjects != NULL && pstObjects->info != NULL &&
+            pstObjects->width > 0 && pstObjects->height > 0) {
+            for (CVI_U32 i = 0; i < pstObjects->size; i++) {
+                const TDLObjectInfo *pstObject = &pstObjects->info[i];
+                CVI_FLOAT fCenterX;
+                CVI_FLOAT fCenterY;
+                CVI_FLOAT fDx;
+                CVI_FLOAT fDy;
+                CVI_FLOAT fDistance;
+
+                if (pstObject->track_id !=
+                        g_u64PDNearestCandidateTrackId ||
+                    pstObject->score < g_pstPdCfg->threshold ||
+                    pstObject->box.x2 <= pstObject->box.x1 ||
+                    pstObject->box.y2 <= pstObject->box.y1) {
+                    continue;
+                }
+                fCenterX =
+                    (pstObject->box.x1 + pstObject->box.x2) * 0.5f;
+                fCenterY =
+                    (pstObject->box.y1 + pstObject->box.y2) * 0.5f;
+                fDx = fCenterX / pstObjects->width - 0.5f;
+                fDy = fCenterY / pstObjects->height - 0.5f;
+                fDistance = fDx * fDx + fDy * fDy;
+                if (fDistance <=
+                        APP_PD_NEAREST_TARGET_KEEP_MAX_DISTANCE &&
+                    fDistance <= APP_PD_NEAREST_TARGET_MAX_DISTANCE &&
+                    (s32BestIndex < 0 ||
+                     fDistance <= fBestDistance +
+                        APP_PD_NEAREST_TARGET_KEEP_DISTANCE_DELTA)) {
+                    s32SelectedIndex = (CVI_S32)i;
+                }
+                break;
+            }
+        }
+
+        memset(&g_stPDNearestTarget, 0, sizeof(g_stPDNearestTarget));
+        g_stPDNearestTarget.width = pstObjects != NULL ?
+            pstObjects->width : 0;
+        g_stPDNearestTarget.height = pstObjects != NULL ?
+            pstObjects->height : 0;
+        g_stPDNearestTarget.frame.sequence = pstProfile->sequence;
+        g_stPDNearestTarget.frame.time_ref = pstProfile->time_ref;
+        g_stPDNearestTarget.frame.pts = pstProfile->pts;
+        g_stPDNearestTarget.frame.publish_time_us =
+            u64NowUs;
+        if (s32SelectedIndex < 0) {
+            if (g_u64PDNearestCandidateSeenUs == 0 ||
+                u64NowUs < g_u64PDNearestCandidateSeenUs ||
+                u64NowUs - g_u64PDNearestCandidateSeenUs >
+                    APP_PD_NEAREST_TARGET_HOLD_US) {
+                app_ipcam_Ai_PD_NearestCandidate_Reset();
+            }
+        } else if (!g_bPDNearestCandidateValid ||
+                   (g_u64PDNearestCandidateSeenUs > 0 &&
+                    u64NowUs > g_u64PDNearestCandidateSeenUs &&
+                    u64NowUs - g_u64PDNearestCandidateSeenUs >
+                        APP_PD_NEAREST_TARGET_HOLD_US) ||
+                   !((g_u64PDNearestCandidateTrackId != 0 &&
+                      pstObjects->info[s32SelectedIndex].track_id != 0 &&
+                      g_u64PDNearestCandidateTrackId ==
+                          pstObjects->info[s32SelectedIndex].track_id) ||
+                     app_ipcam_Ai_PD_NearestCandidate_IsContinuous(
+                         &g_stPDNearestCandidateBox,
+                         &pstObjects->info[s32SelectedIndex].box))) {
+            g_stPDNearestCandidateBox =
+                pstObjects->info[s32SelectedIndex].box;
+            g_u64PDNearestCandidateTrackId =
+                pstObjects->info[s32SelectedIndex].track_id;
+            g_bPDNearestCandidateValid = CVI_TRUE;
+            g_u32PDNearestCandidateHits = 1;
+            g_u64PDNearestCandidateSeenUs = u64NowUs;
+        } else if (g_u32PDNearestCandidateHits <
+                   UINT32_MAX) {
+            g_stPDNearestCandidateBox =
+                pstObjects->info[s32SelectedIndex].box;
+            g_u64PDNearestCandidateTrackId =
+                pstObjects->info[s32SelectedIndex].track_id;
+            g_u32PDNearestCandidateHits++;
+            g_u64PDNearestCandidateSeenUs = u64NowUs;
+        }
+        if (s32SelectedIndex >= 0 &&
+            g_u32PDNearestCandidateHits >=
+                APP_PD_NEAREST_TARGET_CONFIRM_RESULTS) {
+            g_stPDNearestTarget.object =
+                pstObjects->info[s32SelectedIndex];
+            g_stPDNearestTarget.valid = CVI_TRUE;
+        }
+    }
 }
 
 #if APP_PD_IMAGE_FOLLOW_ENABLE
@@ -364,8 +689,8 @@ static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_CenterAtPts(
         return;
     }
     u64GapUs = u64Pts - pstSlot->last_pts;
-    if (u64GapUs > APP_PD_OSD_PREDICT_MAX_US) {
-        u64GapUs = APP_PD_OSD_PREDICT_MAX_US;
+    if (u64GapUs > APP_PD_OSD_ASSOC_PREDICT_MAX_US) {
+        u64GapUs = APP_PD_OSD_ASSOC_PREDICT_MAX_US;
     }
     *pfCenterX += pstSlot->velocity_x_per_us * u64GapUs;
     *pfCenterY += pstSlot->velocity_y_per_us * u64GapUs;
@@ -662,7 +987,7 @@ static CVI_VOID *app_ipcam_Ai_PD_FrameSource_Thread(CVI_VOID *arg)
                 bReleaseFrame = CVI_TRUE;
             }
             pstSource->frame = stFrame;
-            pstSource->frame_capture_time_us = 0;
+            pstSource->frame_capture_time_us = app_ipcam_Ai_PD_TimeUs();
             pstSource->frame_valid = CVI_TRUE;
             pthread_cond_broadcast(&pstSource->cond);
         } else if (s32Ret == CVI_SUCCESS) {
@@ -914,6 +1239,8 @@ static CVI_S32 app_ipcam_Ai_PD_Proc_Init(CVI_VOID)
         g_stPDObjDraw.width = 0;
         g_stPDObjDraw.height = 0;
         memset(&g_stPDResultFrame, 0, sizeof(g_stPDResultFrame));
+        memset(&g_stPDNearestTarget, 0, sizeof(g_stPDNearestTarget));
+        app_ipcam_Ai_PD_NearestCandidate_Reset();
     }
 
     APP_PROF_LOG_PRINT(LEVEL_INFO, "AI PD init ------------------> done \n");
@@ -940,14 +1267,166 @@ static CVI_FLOAT app_ipcam_Ai_PD_Box_Iou(
     return fUnion > 0.0f ? fIntersection / fUnion : 0.0f;
 }
 
+static CVI_BOOL app_ipcam_Ai_PD_Box_IsSmall(
+    const TDLBox *pstBox, CVI_U32 u32Width, CVI_U32 u32Height)
+{
+    CVI_FLOAT fWidth;
+    CVI_FLOAT fHeight;
+    CVI_FLOAT fImageArea;
+
+    if (pstBox == NULL || u32Width == 0 || u32Height == 0) {
+        return CVI_FALSE;
+    }
+    fWidth = fmaxf(1.0f, pstBox->x2 - pstBox->x1);
+    fHeight = fmaxf(1.0f, pstBox->y2 - pstBox->y1);
+    fImageArea = (CVI_FLOAT)u32Width * u32Height;
+    return fWidth * fHeight <=
+            fImageArea * APP_PD_DISPLAY_SMALL_AREA_RATIO &&
+        fWidth <= u32Width * APP_PD_DISPLAY_SMALL_MAX_SIDE_RATIO &&
+        fHeight <= u32Height * APP_PD_DISPLAY_SMALL_MAX_SIDE_RATIO;
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_Box_IsClearlyLarge(
+    const TDLBox *pstBox, CVI_U32 u32Width, CVI_U32 u32Height)
+{
+    CVI_FLOAT fWidth;
+    CVI_FLOAT fHeight;
+    CVI_FLOAT fImageArea;
+
+    if (pstBox == NULL || u32Width == 0 || u32Height == 0) {
+        return CVI_FALSE;
+    }
+    fWidth = fmaxf(1.0f, pstBox->x2 - pstBox->x1);
+    fHeight = fmaxf(1.0f, pstBox->y2 - pstBox->y1);
+    fImageArea = (CVI_FLOAT)u32Width * u32Height;
+    return fWidth * fHeight >
+            fImageArea * APP_PD_DISPLAY_SMALL_AREA_RATIO * 1.50f ||
+        fWidth > u32Width * APP_PD_DISPLAY_SMALL_MAX_SIDE_RATIO * 1.25f ||
+        fHeight > u32Height * APP_PD_DISPLAY_SMALL_MAX_SIDE_RATIO * 1.25f;
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_IsStable(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot)
+{
+    CVI_FLOAT fMotionRatio;
+
+    if (!pstSlot->confirmed ||
+        pstSlot->primary_observations <
+            APP_PD_DISPLAY_STABLE_MIN_PRIMARY_OBSERVATIONS) {
+        return CVI_FALSE;
+    }
+    if (!pstSlot->velocity_valid) {
+        return CVI_TRUE;
+    }
+    fMotionRatio = fmaxf(
+        fabsf(pstSlot->velocity_x_per_us) *
+            APP_PD_DEFAULT_FRAME_PERIOD_US /
+            fmaxf(1.0f, pstSlot->width),
+        fabsf(pstSlot->velocity_y_per_us) *
+            APP_PD_DEFAULT_FRAME_PERIOD_US /
+            fmaxf(1.0f, pstSlot->height));
+    return fMotionRatio <= APP_PD_DISPLAY_STABLE_MAX_MOTION_RATIO;
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_IsMatureStable(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot)
+{
+    return pstSlot->primary_observations >=
+            APP_PD_DISPLAY_MATURE_STABLE_MIN_PRIMARY_OBSERVATIONS &&
+        app_ipcam_Ai_PD_DisplaySlot_IsStable(pstSlot);
+}
+
+static CVI_U32 app_ipcam_Ai_PD_DisplaySlot_HoldResults(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot)
+{
+    if (app_ipcam_Ai_PD_DisplaySlot_IsMatureStable(pstSlot)) {
+        return APP_PD_DISPLAY_MATURE_STABLE_HOLD_RESULTS;
+    }
+    if (app_ipcam_Ai_PD_DisplaySlot_IsStable(pstSlot)) {
+        return APP_PD_DISPLAY_STABLE_HOLD_RESULTS;
+    }
+    return pstSlot->confirmed && pstSlot->small_target ?
+        APP_PD_DISPLAY_SMALL_HOLD_RESULTS : APP_PD_DISPLAY_HOLD_RESULTS;
+}
+
+static CVI_U64 app_ipcam_Ai_PD_DisplaySlot_HoldUs(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot)
+{
+    if (app_ipcam_Ai_PD_DisplaySlot_IsMatureStable(pstSlot)) {
+        return APP_PD_DISPLAY_MATURE_STABLE_HOLD_US;
+    }
+    if (app_ipcam_Ai_PD_DisplaySlot_IsStable(pstSlot)) {
+        return APP_PD_DISPLAY_STABLE_HOLD_US;
+    }
+    return pstSlot->confirmed && pstSlot->small_target ?
+        APP_PD_DISPLAY_SMALL_HOLD_US : APP_PD_DISPLAY_HOLD_US;
+}
+
+static APP_PD_DISPLAY_CLEAR_REASON_E
+app_ipcam_Ai_PD_DisplaySlot_ClearReason(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot, CVI_U32 u32ResultIndex,
+    CVI_U64 u64Pts)
+{
+    CVI_U32 u32HoldResults;
+    CVI_U64 u64HoldUs;
+
+    if (!pstSlot->used) {
+        return APP_PD_DISPLAY_CLEAR_RESULT;
+    }
+    u32HoldResults = app_ipcam_Ai_PD_DisplaySlot_HoldResults(pstSlot);
+    u64HoldUs = app_ipcam_Ai_PD_DisplaySlot_HoldUs(pstSlot);
+    if ((!pstSlot->confirmed && pstSlot->evidence <= 0) ||
+        u32ResultIndex - pstSlot->last_supported_result >
+            u32HoldResults) {
+        return APP_PD_DISPLAY_CLEAR_RESULT;
+    }
+    if (pstSlot->last_supported_pts > 0 &&
+        u64Pts > pstSlot->last_supported_pts &&
+        u64Pts - pstSlot->last_supported_pts > u64HoldUs) {
+        return APP_PD_DISPLAY_CLEAR_TIME;
+    }
+    return APP_PD_DISPLAY_CLEAR_NONE;
+}
+
+static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Hide(
+    APP_PD_DISPLAY_SLOT_S *pstSlot)
+{
+    if (!pstSlot->display_visible) {
+        return;
+    }
+    pstSlot->display_visible = CVI_FALSE;
+    pstSlot->display_requires_primary = CVI_TRUE;
+}
+
+static CVI_S32 app_ipcam_Ai_PD_ClassFamily(CVI_S32 s32ClassId)
+{
+    switch (s32ClassId) {
+    case 0:
+    case 1:
+        return 1;
+    case 2:
+    case 6:
+    case 7:
+    case 9:
+        return 2;
+    case 3:
+    case 4:
+    case 5:
+    case 8:
+        return 3;
+    default:
+        return 1000 + s32ClassId;
+    }
+}
+
 static CVI_FLOAT app_ipcam_Ai_PD_DisplaySlot_MatchScore(
     const APP_PD_DISPLAY_SLOT_S *pstSlot,
     const TDLObjectInfo *pstObject, CVI_U32 u32ResultIndex,
     CVI_U64 u64Pts,
     CVI_U32 u32Width, CVI_U32 u32Height,
-    CVI_BOOL bRecovery, CVI_BOOL *pbClassRescue)
+    CVI_BOOL *pbClassRescue)
 {
-    TDLBox stPredictedBox = pstSlot->object.box;
+    TDLBox stPredictedBox = pstSlot->measured_box;
     CVI_FLOAT fSlotWidth;
     CVI_FLOAT fSlotHeight;
     CVI_FLOAT fObjectWidth;
@@ -959,12 +1438,16 @@ static CVI_FLOAT app_ipcam_Ai_PD_DisplaySlot_MatchScore(
     CVI_FLOAT fDistance;
     CVI_FLOAT fIou;
     CVI_FLOAT fSizeRatio;
+    CVI_FLOAT fCenterDistance;
+    CVI_FLOAT fSmallMatchGate = 0.0f;
     CVI_FLOAT fGateRatio;
     CVI_FLOAT fGateGrowth = 1.0f;
     CVI_FLOAT fImageWidth = u32Width > 0 ? (CVI_FLOAT)u32Width : 1.0f;
     CVI_FLOAT fImageHeight = u32Height > 0 ? (CVI_FLOAT)u32Height : 1.0f;
     CVI_U32 u32MissingResults = 0;
-    CVI_U64 u64MaxGapUs = APP_PD_DISPLAY_HOLD_US;
+    CVI_U64 u64MaxGapUs = pstSlot->confirmed ?
+        APP_PD_DISPLAY_ANCHOR_US :
+        app_ipcam_Ai_PD_DisplaySlot_HoldUs(pstSlot);
 
     *pbClassRescue = CVI_FALSE;
     if (!pstSlot->used) {
@@ -978,14 +1461,14 @@ static CVI_FLOAT app_ipcam_Ai_PD_DisplaySlot_MatchScore(
     stPredictedBox.x2 += pstSlot->visual_offset_x;
     stPredictedBox.y1 += pstSlot->visual_offset_y;
     stPredictedBox.y2 += pstSlot->visual_offset_y;
-    if (pstSlot->velocity_valid && pstSlot->last_pts > 0 &&
-        u64Pts > pstSlot->last_pts) {
+    if (pstSlot->velocity_valid && !pstSlot->small_target &&
+        pstSlot->last_pts > 0 && u64Pts > pstSlot->last_pts) {
         CVI_U64 u64GapUs = u64Pts - pstSlot->last_pts;
         CVI_FLOAT fShiftX;
         CVI_FLOAT fShiftY;
 
-        if (u64GapUs > APP_PD_OSD_PREDICT_MAX_US) {
-            u64GapUs = APP_PD_OSD_PREDICT_MAX_US;
+        if (u64GapUs > APP_PD_OSD_ASSOC_PREDICT_MAX_US) {
+            u64GapUs = APP_PD_OSD_ASSOC_PREDICT_MAX_US;
         }
         fShiftX = pstSlot->velocity_x_per_us * u64GapUs;
         fShiftY = pstSlot->velocity_y_per_us * u64GapUs;
@@ -1011,8 +1494,12 @@ static CVI_FLOAT app_ipcam_Ai_PD_DisplaySlot_MatchScore(
         if (u32ResultGap > 1) {
             u32MissingResults = u32ResultGap - 1;
         }
-        if (u32MissingResults > APP_PD_DISPLAY_HOLD_RESULTS) {
-            u32MissingResults = APP_PD_DISPLAY_HOLD_RESULTS;
+        CVI_U32 u32HoldResults = pstSlot->confirmed ?
+            APP_PD_DISPLAY_ANCHOR_RESULTS :
+            app_ipcam_Ai_PD_DisplaySlot_HoldResults(pstSlot);
+
+        if (u32MissingResults > u32HoldResults) {
+            u32MissingResults = u32HoldResults;
         }
         fGateGrowth += u32MissingResults *
             APP_PD_DISPLAY_MISSING_GATE_GROWTH;
@@ -1021,56 +1508,261 @@ static CVI_FLOAT app_ipcam_Ai_PD_DisplaySlot_MatchScore(
         APP_PD_DISPLAY_VELOCITY_MIN_OBSERVATIONS ?
         APP_PD_DISPLAY_MATURE_GATE_RATIO :
         APP_PD_DISPLAY_CENTER_GATE_RATIO;
-    if (bRecovery) {
-        fGateGrowth *= APP_PD_DISPLAY_RECOVERY_GATE_SCALE;
+    if (pstSlot->small_target &&
+        app_ipcam_Ai_PD_Box_IsSmall(&pstObject->box,
+            u32Width, u32Height)) {
+        fGateX = fmaxf(APP_PD_DISPLAY_LOCAL_GATE_MIN_PIXELS,
+            fmaxf(fSlotWidth, fObjectWidth) *
+                APP_PD_DISPLAY_LOCAL_GATE_RATIO * fGateGrowth);
+        fGateY = fmaxf(APP_PD_DISPLAY_LOCAL_GATE_MIN_PIXELS,
+            fmaxf(fSlotHeight, fObjectHeight) *
+                APP_PD_DISPLAY_LOCAL_GATE_RATIO * fGateGrowth);
+        fGateX = fminf(fGateX,
+            fImageWidth * APP_PD_DISPLAY_LOCAL_GATE_MAX_RATIO);
+        fGateY = fminf(fGateY,
+            fImageHeight * APP_PD_DISPLAY_LOCAL_GATE_MAX_RATIO);
+    } else {
+        fGateX = fmaxf(fmaxf(fSlotWidth, fObjectWidth) *
+            2.5f * fGateGrowth,
+            fImageWidth * fGateRatio * fGateGrowth);
+        fGateY = fmaxf(fmaxf(fSlotHeight, fObjectHeight) *
+            2.5f * fGateGrowth,
+            fImageHeight * fGateRatio * fGateGrowth);
+        fGateX = fminf(fGateX,
+            fImageWidth * APP_PD_DISPLAY_GATE_MAX_RATIO);
+        fGateY = fminf(fGateY,
+            fImageHeight * APP_PD_DISPLAY_GATE_MAX_RATIO);
     }
-    fGateX = fmaxf(fmaxf(fSlotWidth, fObjectWidth) *
-        2.5f * fGateGrowth, fImageWidth * fGateRatio * fGateGrowth);
-    fGateY = fmaxf(fmaxf(fSlotHeight, fObjectHeight) *
-        2.5f * fGateGrowth, fImageHeight * fGateRatio * fGateGrowth);
-    fGateX = fminf(fGateX,
-        fImageWidth * APP_PD_DISPLAY_GATE_MAX_RATIO);
-    fGateY = fminf(fGateY,
-        fImageHeight * APP_PD_DISPLAY_GATE_MAX_RATIO);
     fDeltaX = ((stPredictedBox.x1 + stPredictedBox.x2) -
         (pstObject->box.x1 + pstObject->box.x2)) * 0.5f;
     fDeltaY = ((stPredictedBox.y1 + stPredictedBox.y2) -
         (pstObject->box.y1 + pstObject->box.y2)) * 0.5f;
     fDistance = (fDeltaX * fDeltaX) / (fGateX * fGateX) +
         (fDeltaY * fDeltaY) / (fGateY * fGateY);
+    fCenterDistance = sqrtf(fDeltaX * fDeltaX + fDeltaY * fDeltaY);
     fIou = app_ipcam_Ai_PD_Box_Iou(&stPredictedBox, &pstObject->box);
+    if (pstSlot->small_target &&
+        app_ipcam_Ai_PD_Box_IsSmall(&pstObject->box,
+            u32Width, u32Height)) {
+        fSmallMatchGate = fmaxf(
+            APP_PD_DISPLAY_SMALL_MATCH_MIN_CENTER_PIXELS,
+            fmaxf(fmaxf(fSlotWidth, fSlotHeight),
+                fmaxf(fObjectWidth, fObjectHeight)) *
+                APP_PD_DISPLAY_SMALL_MATCH_CENTER_RATIO *
+                fminf(fGateGrowth,
+                    APP_PD_DISPLAY_SMALL_GATE_GROWTH_MAX));
+        if (fSizeRatio < APP_PD_DISPLAY_SMALL_MATCH_SIZE_RATIO ||
+            (fIou < APP_PD_DISPLAY_MIN_IOU &&
+             fCenterDistance > fSmallMatchGate)) {
+            return -1.0f;
+        }
+    }
     if (pstSlot->object.class_id != pstObject->class_id) {
-        if (fIou < APP_PD_DISPLAY_CLASS_RESCUE_IOU) {
+        CVI_BOOL bSameFamily = app_ipcam_Ai_PD_ClassFamily(
+            pstSlot->object.class_id) == app_ipcam_Ai_PD_ClassFamily(
+                pstObject->class_id);
+        CVI_BOOL bFamilyRescue = bSameFamily &&
+            fSizeRatio >= APP_PD_DISPLAY_FAMILY_RESCUE_SIZE_RATIO &&
+            (fIou >= APP_PD_DISPLAY_FAMILY_RESCUE_IOU ||
+             fDistance <= APP_PD_DISPLAY_FAMILY_RESCUE_DISTANCE);
+        CVI_FLOAT fSmallCenterGate = fmaxf(
+            APP_PD_DISPLAY_SMALL_CLASS_MIN_CENTER_PIXELS,
+            fmaxf(fmaxf(fSlotWidth, fSlotHeight),
+                fmaxf(fObjectWidth, fObjectHeight)) *
+                APP_PD_DISPLAY_SMALL_CLASS_CENTER_RATIO *
+                fminf(fGateGrowth,
+                    APP_PD_DISPLAY_SMALL_GATE_GROWTH_MAX));
+        CVI_BOOL bSmallClassRescue = pstSlot->confirmed &&
+            pstSlot->small_target &&
+            app_ipcam_Ai_PD_Box_IsSmall(&pstObject->box,
+                u32Width, u32Height) &&
+            fSizeRatio >= APP_PD_DISPLAY_SMALL_CLASS_SIZE_RATIO &&
+            (fIou >= APP_PD_DISPLAY_SMALL_CLASS_IOU ||
+             fCenterDistance <= fSmallCenterGate);
+
+        if (fIou < APP_PD_DISPLAY_CLASS_RESCUE_IOU &&
+            !bFamilyRescue && !bSmallClassRescue) {
             return -1.0f;
         }
         *pbClassRescue = CVI_TRUE;
-        return fIou * 2.0f;
-    }
-    if (bRecovery &&
-        fSizeRatio < APP_PD_DISPLAY_RECOVERY_MIN_SIZE_RATIO) {
-        return -1.0f;
+        if (bSmallClassRescue) {
+            return 1.0f + fIou + fSizeRatio -
+                fminf(fDistance, 1.0f) * 0.50f;
+        }
+        return bFamilyRescue ?
+            0.75f + fIou + fSizeRatio - fminf(fDistance, 1.0f) * 0.50f :
+            fIou * 2.0f;
     }
     if (fIou < APP_PD_DISPLAY_MIN_IOU && fDistance > 1.0f) {
         return -1.0f;
     }
-    if (bRecovery) {
-        return 0.5f + fIou + fSizeRatio -
-            fminf(fDistance, 1.0f) * 0.25f;
-    }
     return fIou * 2.0f + 1.0f - fminf(fDistance, 1.0f) +
-        0.25f;
+        0.25f - (fSmallMatchGate > 0.0f ?
+            fminf(fCenterDistance / fSmallMatchGate, 1.0f) *
+                0.35f : 0.0f);
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_IsPresenceMatch(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot,
+    const TDLObjectInfo *pstObject,
+    CVI_U32 u32Width, CVI_U32 u32Height)
+{
+    CVI_FLOAT fSlotWidth;
+    CVI_FLOAT fSlotHeight;
+    CVI_FLOAT fObjectWidth;
+    CVI_FLOAT fObjectHeight;
+    CVI_FLOAT fSizeRatio;
+    CVI_FLOAT fDeltaX;
+    CVI_FLOAT fDeltaY;
+    CVI_FLOAT fGateX;
+    CVI_FLOAT fGateY;
+
+    if (!pstSlot->used || !pstSlot->confirmed ||
+        app_ipcam_Ai_PD_ClassFamily(pstSlot->object.class_id) !=
+            app_ipcam_Ai_PD_ClassFamily(pstObject->class_id)) {
+        return CVI_FALSE;
+    }
+    fSlotWidth = fmaxf(1.0f,
+        pstSlot->measured_box.x2 - pstSlot->measured_box.x1);
+    fSlotHeight = fmaxf(1.0f,
+        pstSlot->measured_box.y2 - pstSlot->measured_box.y1);
+    fObjectWidth = fmaxf(1.0f,
+        pstObject->box.x2 - pstObject->box.x1);
+    fObjectHeight = fmaxf(1.0f,
+        pstObject->box.y2 - pstObject->box.y1);
+    fSizeRatio = fminf(fSlotWidth, fObjectWidth) /
+        fmaxf(fSlotWidth, fObjectWidth);
+    fSizeRatio = fminf(fSizeRatio,
+        fminf(fSlotHeight, fObjectHeight) /
+            fmaxf(fSlotHeight, fObjectHeight));
+    if (fSizeRatio < APP_PD_DISPLAY_PRESENCE_MIN_SIZE_RATIO) {
+        return CVI_FALSE;
+    }
+    fDeltaX = fabsf(
+        ((pstSlot->measured_box.x1 + pstSlot->measured_box.x2) -
+         (pstObject->box.x1 + pstObject->box.x2)) * 0.5f);
+    fDeltaY = fabsf(
+        ((pstSlot->measured_box.y1 + pstSlot->measured_box.y2) -
+         (pstObject->box.y1 + pstObject->box.y2)) * 0.5f);
+    fGateX = fmaxf(APP_PD_DISPLAY_PRESENCE_MIN_CENTER_PIXELS,
+        fmaxf(fSlotWidth, fObjectWidth) *
+            APP_PD_DISPLAY_PRESENCE_CENTER_RATIO);
+    fGateY = fmaxf(APP_PD_DISPLAY_PRESENCE_MIN_CENTER_PIXELS,
+        fmaxf(fSlotHeight, fObjectHeight) *
+            APP_PD_DISPLAY_PRESENCE_CENTER_RATIO);
+    if (u32Width > 0) {
+        fGateX = fminf(fGateX,
+            u32Width * APP_PD_DISPLAY_PRESENCE_MAX_GATE_X_RATIO);
+    }
+    if (u32Height > 0) {
+        fGateY = fminf(fGateY,
+            u32Height * APP_PD_DISPLAY_PRESENCE_MAX_GATE_Y_RATIO);
+    }
+    return fDeltaX <= fGateX && fDeltaY <= fGateY;
 }
 
 static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_IsExpired(
     const APP_PD_DISPLAY_SLOT_S *pstSlot, CVI_U32 u32ResultIndex,
     CVI_U64 u64Pts)
 {
-    return !pstSlot->used ||
-        pstSlot->evidence <= 0 ||
-        u32ResultIndex - pstSlot->last_observed_result >
-            APP_PD_DISPLAY_HOLD_RESULTS ||
-        (pstSlot->last_pts > 0 && u64Pts > pstSlot->last_pts &&
-         u64Pts - pstSlot->last_pts > APP_PD_DISPLAY_HOLD_US);
+    return app_ipcam_Ai_PD_DisplaySlot_ClearReason(
+        pstSlot, u32ResultIndex, u64Pts) != APP_PD_DISPLAY_CLEAR_NONE;
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_IsAnchorExpired(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot, CVI_U32 u32ResultIndex,
+    CVI_U64 u64Pts);
+
+static CVI_U32 app_ipcam_Ai_PD_DisplaySlot_PresenceMatches(
+    const APP_PD_DISPLAY_SLOT_S *pastSlots,
+    const CVI_BOOL *pabSlotMatched,
+    const TDLObjectInfo *pstObject,
+    CVI_U32 u32ResultIndex, CVI_U64 u64Pts,
+    CVI_U32 u32Width, CVI_U32 u32Height,
+    CVI_BOOL bAllowHidden,
+    CVI_U32 *pu32MatchedSlot)
+{
+    CVI_U32 u32Matches = 0;
+
+    for (CVI_U32 i = 0; i < APP_PD_DISPLAY_SLOT_SIZE; i++) {
+        if (pabSlotMatched[i] ||
+            (!bAllowHidden && pastSlots[i].display_requires_primary) ||
+            app_ipcam_Ai_PD_DisplaySlot_IsAnchorExpired(
+                &pastSlots[i], u32ResultIndex, u64Pts) ||
+            (pastSlots[i].last_pts > 0 && u64Pts > pastSlots[i].last_pts &&
+             u64Pts - pastSlots[i].last_pts >
+                APP_PD_DISPLAY_PRESENCE_MAX_PRIMARY_GAP_US) ||
+            !app_ipcam_Ai_PD_DisplaySlot_IsPresenceMatch(
+                &pastSlots[i], pstObject, u32Width, u32Height)) {
+            continue;
+        }
+        *pu32MatchedSlot = i;
+        u32Matches++;
+        if (u32Matches > 1) {
+            break;
+        }
+    }
+    return u32Matches;
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_IsMutualPresenceMatch(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot,
+    const TDLObject *pstObjects, const CVI_BOOL *pabObjectMatched,
+    CVI_U32 u32ObjectCount, CVI_U32 u32ObjectIndex,
+    CVI_BOOL bPrimaryPass)
+{
+    CVI_U32 u32Matches = 0;
+
+    for (CVI_U32 i = 0; i < u32ObjectCount; i++) {
+        CVI_BOOL bPrimary = pstObjects->info[i].score >=
+            g_pstPdCfg->threshold;
+
+        if (pabObjectMatched[i] || bPrimary != bPrimaryPass ||
+            !app_ipcam_Ai_PD_DisplaySlot_IsPresenceMatch(
+                pstSlot, &pstObjects->info[i],
+                pstObjects->width, pstObjects->height)) {
+            continue;
+        }
+        u32Matches++;
+        if (i != u32ObjectIndex || u32Matches > 1) {
+            return CVI_FALSE;
+        }
+    }
+    return u32Matches == 1;
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_Support(
+    APP_PD_DISPLAY_SLOT_S *pstSlot,
+    CVI_U32 u32ResultIndex, CVI_U64 u64Pts)
+{
+    if (pstSlot->display_requires_primary) {
+        return CVI_FALSE;
+    }
+    pstSlot->last_supported_result = u32ResultIndex;
+    pstSlot->last_supported_pts = u64Pts;
+    if (pstSlot->evidence < APP_PD_DISPLAY_EVIDENCE_MAX) {
+        pstSlot->evidence++;
+    }
+    return CVI_TRUE;
+}
+
+static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_IsAnchorExpired(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot, CVI_U32 u32ResultIndex,
+    CVI_U64 u64Pts)
+{
+    if (!pstSlot->used) {
+        return CVI_TRUE;
+    }
+    if (!pstSlot->confirmed) {
+        return app_ipcam_Ai_PD_DisplaySlot_IsExpired(
+            pstSlot, u32ResultIndex, u64Pts);
+    }
+    return u32ResultIndex - pstSlot->last_supported_result >
+            APP_PD_DISPLAY_ANCHOR_RESULTS ||
+        (pstSlot->last_supported_pts > 0 &&
+         u64Pts > pstSlot->last_supported_pts &&
+         u64Pts - pstSlot->last_supported_pts >
+            APP_PD_DISPLAY_ANCHOR_US);
 }
 
 static APP_PD_DISPLAY_SLOT_S *app_ipcam_Ai_PD_DisplaySlot_Allocate(
@@ -1084,7 +1776,7 @@ static APP_PD_DISPLAY_SLOT_S *app_ipcam_Ai_PD_DisplaySlot_Allocate(
             pastSlots[i].last_observed_result == u32ResultIndex) {
             continue;
         }
-        if (app_ipcam_Ai_PD_DisplaySlot_IsExpired(
+        if (app_ipcam_Ai_PD_DisplaySlot_IsAnchorExpired(
                 &pastSlots[i], u32ResultIndex, u64Pts)) {
             return &pastSlots[i];
         }
@@ -1099,10 +1791,12 @@ static APP_PD_DISPLAY_SLOT_S *app_ipcam_Ai_PD_DisplaySlot_Allocate(
 
 static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Update(
     APP_PD_DISPLAY_SLOT_S *pstSlot, const TDLObjectInfo *pstObject,
-    CVI_U32 u32ResultIndex, CVI_U64 u64Pts, CVI_BOOL bPrimary,
-    CVI_BOOL bClassRescue)
+    CVI_U32 u32ResultIndex, CVI_U64 u64Pts,
+    CVI_U32 u32Width, CVI_U32 u32Height,
+    CVI_BOOL bPrimary, CVI_BOOL bClassRescue)
 {
     CVI_BOOL bExisting = pstSlot->used;
+    CVI_U32 u32PreviousObservedResult = pstSlot->last_observed_result;
     CVI_BOOL bKeepDisplayClass = CVI_FALSE;
     CVI_S32 s32DisplayClass = pstSlot->object.class_id;
     CVI_FLOAT fDisplayScore = pstSlot->object.score;
@@ -1123,6 +1817,26 @@ static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Update(
     CVI_S32 s32HitEvidence = bPrimary ?
         APP_PD_DISPLAY_PRIMARY_EVIDENCE :
         APP_PD_DISPLAY_CANDIDATE_EVIDENCE;
+    CVI_BOOL bSmallMeasurement = pstSlot->small_target ||
+        app_ipcam_Ai_PD_Box_IsSmall(
+            &pstObject->box, u32Width, u32Height);
+
+    if (bSmallMeasurement) {
+        if (bPrimary) {
+            CVI_FLOAT fConfidence = (pstObject->score -
+                g_pstPdCfg->threshold) /
+                fmaxf(0.01f, 1.0f - g_pstPdCfg->threshold);
+
+            fConfidence = fmaxf(0.0f, fminf(1.0f, fConfidence));
+            fCenterAlpha = 0.72f + 0.18f * fConfidence;
+            fVelocityBeta = 0.15f + 0.10f * fConfidence;
+            fSizeAlpha = 0.55f + 0.20f * fConfidence;
+        } else {
+            fCenterAlpha = 0.55f;
+            fVelocityBeta = 0.08f;
+            fSizeAlpha = 0.30f;
+        }
+    }
 
     if (pstSlot->used && pstSlot->last_pts > 0 &&
         u64Pts > pstSlot->last_pts) {
@@ -1130,11 +1844,74 @@ static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Update(
 
         if (u64PtsGap <= 500000) {
             CVI_FLOAT fMeasuredVelocityX =
-                (fMeasuredCenterX - pstSlot->center_x) / u64PtsGap;
+                (fMeasuredCenterX - pstSlot->last_measured_center_x) /
+                u64PtsGap;
             CVI_FLOAT fMeasuredVelocityY =
-                (fMeasuredCenterY - pstSlot->center_y) / u64PtsGap;
+                (fMeasuredCenterY - pstSlot->last_measured_center_y) /
+                u64PtsGap;
+            CVI_FLOAT fMeasuredSpeed = sqrtf(
+                fMeasuredVelocityX * fMeasuredVelocityX +
+                fMeasuredVelocityY * fMeasuredVelocityY);
+            CVI_FLOAT fPreviousSpeed = sqrtf(
+                pstSlot->velocity_x_per_us *
+                    pstSlot->velocity_x_per_us +
+                pstSlot->velocity_y_per_us *
+                    pstSlot->velocity_y_per_us);
+            CVI_FLOAT fMeasuredDx =
+                fMeasuredCenterX - pstSlot->last_measured_center_x;
+            CVI_FLOAT fMeasuredDy =
+                fMeasuredCenterY - pstSlot->last_measured_center_y;
+            CVI_FLOAT fMotionRatio = sqrtf(
+                fMeasuredDx * fMeasuredDx + fMeasuredDy * fMeasuredDy) /
+                fmaxf(1.0f, fmaxf(pstSlot->width, pstSlot->height));
+            CVI_FLOAT fMotionBlend = fmaxf(0.0f, fminf(1.0f,
+                (fMotionRatio - APP_PD_DISPLAY_FAST_MOTION_START_RATIO) /
+                (APP_PD_DISPLAY_FAST_MOTION_FULL_RATIO -
+                 APP_PD_DISPLAY_FAST_MOTION_START_RATIO)));
+            CVI_FLOAT fFastCenterAlpha = bPrimary ?
+                APP_PD_DISPLAY_FAST_CENTER_ALPHA :
+                APP_PD_DISPLAY_CANDIDATE_FAST_CENTER_ALPHA;
+            CVI_FLOAT fFastVelocityBeta = bPrimary ?
+                APP_PD_DISPLAY_FAST_VELOCITY_BETA :
+                APP_PD_DISPLAY_CANDIDATE_FAST_VELOCITY_BETA;
+            CVI_FLOAT fFastSizeAlpha = bPrimary ?
+                APP_PD_DISPLAY_FAST_SIZE_ALPHA :
+                APP_PD_DISPLAY_CANDIDATE_FAST_SIZE_ALPHA;
+            CVI_BOOL bDirectionChanged = CVI_FALSE;
 
-            if (pstSlot->velocity_valid) {
+            if (bSmallMeasurement &&
+                pstSlot->velocity_stable_observations < 2) {
+                fMotionBlend *= 0.35f;
+            }
+
+            fCenterAlpha +=
+                (fFastCenterAlpha - fCenterAlpha) * fMotionBlend;
+            fVelocityBeta +=
+                (fFastVelocityBeta - fVelocityBeta) * fMotionBlend;
+            fSizeAlpha +=
+                (fFastSizeAlpha - fSizeAlpha) * fMotionBlend;
+
+            if (pstSlot->velocity_valid &&
+                fPreviousSpeed >=
+                    APP_PD_DISPLAY_VELOCITY_MIN_PIXELS_PER_US &&
+                fMeasuredSpeed >=
+                    APP_PD_DISPLAY_VELOCITY_MIN_PIXELS_PER_US) {
+                CVI_FLOAT fDirectionCosine =
+                    (pstSlot->velocity_x_per_us * fMeasuredVelocityX +
+                     pstSlot->velocity_y_per_us * fMeasuredVelocityY) /
+                    fmaxf(fPreviousSpeed * fMeasuredSpeed, 1e-12f);
+
+                bDirectionChanged = fDirectionCosine <
+                    APP_PD_DISPLAY_VELOCITY_DIRECTION_COSINE;
+            }
+
+            if (fMeasuredSpeed <
+                    APP_PD_DISPLAY_VELOCITY_MIN_PIXELS_PER_US) {
+                pstSlot->velocity_x_per_us = 0.0f;
+                pstSlot->velocity_y_per_us = 0.0f;
+                pstSlot->velocity_valid = CVI_FALSE;
+                pstSlot->velocity_stable_observations = 0;
+            } else if (pstSlot->velocity_valid && !bDirectionChanged) {
                 pstSlot->velocity_x_per_us =
                     (1.0f - fVelocityBeta) *
                     pstSlot->velocity_x_per_us +
@@ -1143,10 +1920,19 @@ static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Update(
                     (1.0f - fVelocityBeta) *
                     pstSlot->velocity_y_per_us +
                     fVelocityBeta * fMeasuredVelocityY;
+                if (bPrimary &&
+                    pstSlot->velocity_stable_observations < UINT32_MAX) {
+                    pstSlot->velocity_stable_observations++;
+                } else if (!bPrimary &&
+                           pstSlot->velocity_stable_observations > 0) {
+                    pstSlot->velocity_stable_observations--;
+                }
             } else {
                 pstSlot->velocity_x_per_us = fMeasuredVelocityX;
                 pstSlot->velocity_y_per_us = fMeasuredVelocityY;
                 pstSlot->velocity_valid = CVI_TRUE;
+                pstSlot->velocity_stable_observations =
+                    bPrimary ? 1 : 0;
             }
             pstSlot->center_x += fCenterAlpha *
                 (fMeasuredCenterX - pstSlot->center_x);
@@ -1162,30 +1948,80 @@ static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Update(
             pstSlot->width = fMeasuredWidth;
             pstSlot->height = fMeasuredHeight;
             pstSlot->velocity_valid = CVI_FALSE;
+            pstSlot->velocity_stable_observations = 0;
         }
     } else if (!pstSlot->used) {
         pstSlot->center_x = fMeasuredCenterX;
         pstSlot->center_y = fMeasuredCenterY;
         pstSlot->width = fMeasuredWidth;
         pstSlot->height = fMeasuredHeight;
+        pstSlot->velocity_stable_observations = 0;
     } else {
         pstSlot->center_x = fMeasuredCenterX;
         pstSlot->center_y = fMeasuredCenterY;
         pstSlot->width = fMeasuredWidth;
         pstSlot->height = fMeasuredHeight;
         pstSlot->velocity_valid = CVI_FALSE;
+        pstSlot->velocity_stable_observations = 0;
+    }
+    pstSlot->last_measured_center_x = fMeasuredCenterX;
+    pstSlot->last_measured_center_y = fMeasuredCenterY;
+    pstSlot->measured_box = pstObject->box;
+    if (!bExisting) {
+        pstSlot->small_target = app_ipcam_Ai_PD_Box_IsSmall(
+            &pstObject->box, u32Width, u32Height);
+    } else if (app_ipcam_Ai_PD_Box_IsSmall(
+                   &pstObject->box, u32Width, u32Height)) {
+        pstSlot->small_target = CVI_TRUE;
+    } else if (bPrimary && app_ipcam_Ai_PD_Box_IsClearlyLarge(
+                   &pstObject->box, u32Width, u32Height)) {
+        pstSlot->small_target = CVI_FALSE;
     }
     pstSlot->visual_offset_x = 0.0f;
     pstSlot->visual_offset_y = 0.0f;
     if (!bExisting) {
         pstSlot->observations = 1;
+        pstSlot->primary_observations = bPrimary ? 1 : 0;
+        pstSlot->candidate_confirmation_hits = 0;
         pstSlot->evidence = s32HitEvidence;
     } else if (pstSlot->observations < UINT32_MAX) {
         pstSlot->observations++;
+        if (bPrimary && pstSlot->primary_observations < UINT32_MAX) {
+            pstSlot->primary_observations++;
+            pstSlot->candidate_confirmation_hits = 0;
+        } else if (!bPrimary && pstSlot->primary_observations > 0) {
+            if (u32PreviousObservedResult + 1 == u32ResultIndex) {
+                if (pstSlot->candidate_confirmation_hits < UINT32_MAX) {
+                    pstSlot->candidate_confirmation_hits++;
+                }
+            } else {
+                pstSlot->candidate_confirmation_hits = 1;
+            }
+        }
         pstSlot->evidence += s32HitEvidence;
         if (pstSlot->evidence > APP_PD_DISPLAY_EVIDENCE_MAX) {
             pstSlot->evidence = APP_PD_DISPLAY_EVIDENCE_MAX;
         }
+    }
+    if ((!pstSlot->small_target &&
+         ((bPrimary && pstObject->score >=
+                APP_PD_DISPLAY_IMMEDIATE_SCORE) ||
+          pstSlot->primary_observations >=
+                APP_PD_DISPLAY_CONFIRM_PRIMARY_HITS)) ||
+        (pstSlot->small_target &&
+         pstSlot->primary_observations >=
+                APP_PD_DISPLAY_SMALL_MIN_PRIMARY_HITS &&
+         ((bPrimary && pstObject->score >=
+                APP_PD_DISPLAY_SMALL_IMMEDIATE_SCORE) ||
+          pstSlot->primary_observations >=
+                APP_PD_DISPLAY_SMALL_CONFIRM_PRIMARY_HITS ||
+          (pstSlot->primary_observations > 0 &&
+           pstSlot->candidate_confirmation_hits >=
+                APP_PD_DISPLAY_SMALL_CONFIRM_CANDIDATE_HITS)))) {
+        pstSlot->confirmed = CVI_TRUE;
+    }
+    if (bPrimary && pstSlot->confirmed) {
+        pstSlot->display_requires_primary = CVI_FALSE;
     }
     pstSlot->used = CVI_TRUE;
     if (bExisting && !bPrimary) {
@@ -1219,8 +2055,20 @@ static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Update(
     pstSlot->object.box.y1 = pstSlot->center_y - pstSlot->height * 0.5f;
     pstSlot->object.box.x2 = pstSlot->center_x + pstSlot->width * 0.5f;
     pstSlot->object.box.y2 = pstSlot->center_y + pstSlot->height * 0.5f;
+    if (bPrimary) {
+        pstSlot->primary_object = *pstObject;
+        pstSlot->primary_object.track_id = pstSlot->track_id;
+        pstSlot->primary_object.landmark_size = 0;
+        pstSlot->primary_object.landmark_properity = NULL;
+    }
     pstSlot->last_pts = u64Pts;
     pstSlot->last_observed_result = u32ResultIndex;
+    pstSlot->last_supported_pts = u64Pts;
+    pstSlot->last_supported_result = u32ResultIndex;
+    pstSlot->last_measurement_primary = bPrimary;
+    if (bPrimary) {
+        pstSlot->last_primary_result = u32ResultIndex;
+    }
 }
 
 static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Project(
@@ -1235,20 +2083,35 @@ static CVI_VOID app_ipcam_Ai_PD_DisplaySlot_Project(
 
     *pstObject = pstSlot->object;
     if (APP_PD_OSD_MOTION_PREDICT_ENABLE &&
+        pstSlot->last_measurement_primary &&
         pstSlot->velocity_valid &&
         pstSlot->observations >=
-            APP_PD_DISPLAY_VELOCITY_MIN_OBSERVATIONS) {
+            APP_PD_DISPLAY_VELOCITY_MIN_OBSERVATIONS &&
+        pstSlot->velocity_stable_observations >=
+            APP_PD_DISPLAY_VELOCITY_STABLE_OBSERVATIONS) {
         CVI_U64 u64PredictUs = u64PresentationLeadUs;
-        CVI_FLOAT fMaxShiftX =
-            pstSlot->width * APP_PD_OSD_MAX_SHIFT_BOX_RATIO;
-        CVI_FLOAT fMaxShiftY =
-            pstSlot->height * APP_PD_OSD_MAX_SHIFT_BOX_RATIO;
+        CVI_FLOAT fMotionRatio = fmaxf(
+            fabsf(pstSlot->velocity_x_per_us) *
+                APP_PD_DEFAULT_FRAME_PERIOD_US /
+                fmaxf(1.0f, pstSlot->width),
+            fabsf(pstSlot->velocity_y_per_us) *
+                APP_PD_DEFAULT_FRAME_PERIOD_US /
+                fmaxf(1.0f, pstSlot->height));
+        CVI_FLOAT fMotionBlend = fmaxf(0.0f, fminf(1.0f,
+            (fMotionRatio - APP_PD_DISPLAY_FAST_MOTION_START_RATIO) /
+            (APP_PD_DISPLAY_FAST_MOTION_FULL_RATIO -
+             APP_PD_DISPLAY_FAST_MOTION_START_RATIO)));
+        CVI_FLOAT fMaxShiftRatio = APP_PD_OSD_MIN_SHIFT_BOX_RATIO +
+            (APP_PD_OSD_MAX_SHIFT_BOX_RATIO -
+             APP_PD_OSD_MIN_SHIFT_BOX_RATIO) * fMotionBlend;
+        CVI_FLOAT fMaxShiftX = pstSlot->width * fMaxShiftRatio;
+        CVI_FLOAT fMaxShiftY = pstSlot->height * fMaxShiftRatio;
 
         if (pstSlot->last_pts > 0 && u64Pts > pstSlot->last_pts) {
             u64PredictUs += u64Pts - pstSlot->last_pts;
         }
-        if (u64PredictUs > APP_PD_OSD_PREDICT_MAX_US) {
-            u64PredictUs = APP_PD_OSD_PREDICT_MAX_US;
+        if (u64PredictUs > APP_PD_OSD_DRAW_PREDICT_MAX_US) {
+            u64PredictUs = APP_PD_OSD_DRAW_PREDICT_MAX_US;
         }
         fShiftX = pstSlot->velocity_x_per_us * u64PredictUs;
         fShiftY = pstSlot->velocity_y_per_us * u64PredictUs;
@@ -1312,8 +2175,8 @@ static CVI_U32 app_ipcam_Ai_PD_DisplaySlots_MergeDuplicates(
                 app_ipcam_Ai_PD_DisplaySlot_IsExpired(
                     &pastSlots[j], u32ResultIndex, u64Pts) ||
                 app_ipcam_Ai_PD_Box_Iou(
-                    &pastSlots[i].object.box,
-                    &pastSlots[j].object.box) <
+                    &pastSlots[i].measured_box,
+                    &pastSlots[j].measured_box) <
                     APP_PD_DISPLAY_DUPLICATE_IOU) {
                 continue;
             }
@@ -1331,6 +2194,43 @@ static CVI_U32 app_ipcam_Ai_PD_DisplaySlots_MergeDuplicates(
             if (pstDrop->observations > pstKeep->observations) {
                 pstKeep->observations = pstDrop->observations;
             }
+            if (pstDrop->primary_observations >
+                pstKeep->primary_observations) {
+                pstKeep->primary_observations =
+                    pstDrop->primary_observations;
+            }
+            if (pstDrop->candidate_confirmation_hits >
+                pstKeep->candidate_confirmation_hits) {
+                pstKeep->candidate_confirmation_hits =
+                    pstDrop->candidate_confirmation_hits;
+            }
+            if (pstDrop->last_supported_result >
+                pstKeep->last_supported_result) {
+                pstKeep->last_supported_result =
+                    pstDrop->last_supported_result;
+                pstKeep->last_supported_pts = pstDrop->last_supported_pts;
+            }
+            if (pstDrop->last_primary_result >
+                pstKeep->last_primary_result) {
+                pstKeep->last_primary_result =
+                    pstDrop->last_primary_result;
+                pstKeep->primary_object = pstDrop->primary_object;
+            }
+            pstKeep->primary_object.track_id = pstKeep->track_id;
+            pstKeep->display_requires_primary =
+                pstKeep->display_requires_primary &&
+                pstDrop->display_requires_primary;
+            pstKeep->display_visible =
+                pstKeep->display_visible || pstDrop->display_visible;
+            if (pstKeep->display_visible) {
+                pstKeep->display_requires_primary = CVI_FALSE;
+            }
+            if (pstDrop->confirmed) {
+                pstKeep->confirmed = CVI_TRUE;
+            }
+            if (pstDrop->small_target) {
+                pstKeep->small_target = CVI_TRUE;
+            }
             pstDrop->used = CVI_FALSE;
             u32Merged++;
             if (pstDrop == &pastSlots[i]) {
@@ -1341,11 +2241,97 @@ static CVI_U32 app_ipcam_Ai_PD_DisplaySlots_MergeDuplicates(
     return u32Merged;
 }
 
+static CVI_BOOL app_ipcam_Ai_PD_DisplaySlot_IsShadowed(
+    const APP_PD_DISPLAY_SLOT_S *pstSlot,
+    const APP_PD_DISPLAY_SLOT_S *pastSlots,
+    CVI_U32 u32ResultIndex)
+{
+    CVI_FLOAT fSlotWidth;
+    CVI_FLOAT fSlotHeight;
+    CVI_FLOAT fSlotCenterX;
+    CVI_FLOAT fSlotCenterY;
+
+    fSlotWidth = fmaxf(1.0f,
+        pstSlot->measured_box.x2 - pstSlot->measured_box.x1);
+    fSlotHeight = fmaxf(1.0f,
+        pstSlot->measured_box.y2 - pstSlot->measured_box.y1);
+    fSlotCenterX =
+        (pstSlot->measured_box.x1 + pstSlot->measured_box.x2) * 0.5f;
+    fSlotCenterY =
+        (pstSlot->measured_box.y1 + pstSlot->measured_box.y2) * 0.5f;
+
+    for (CVI_U32 i = 0; i < APP_PD_DISPLAY_SLOT_SIZE; i++) {
+        const APP_PD_DISPLAY_SLOT_S *pstCurrentSlot = &pastSlots[i];
+        const TDLObjectInfo *pstObject = &pstCurrentSlot->object;
+        CVI_FLOAT fObjectWidth;
+        CVI_FLOAT fObjectHeight;
+        CVI_FLOAT fObjectCenterX;
+        CVI_FLOAT fObjectCenterY;
+        CVI_FLOAT fDx;
+        CVI_FLOAT fDy;
+        CVI_FLOAT fDistance;
+        CVI_FLOAT fSizeRatio;
+        CVI_FLOAT fCenterGate;
+        CVI_FLOAT fIou;
+
+        if (pstCurrentSlot == pstSlot || !pstCurrentSlot->used ||
+            !pstCurrentSlot->confirmed ||
+            pstCurrentSlot->display_requires_primary ||
+            pstCurrentSlot->last_primary_result != u32ResultIndex ||
+            pstCurrentSlot->last_observed_result != u32ResultIndex ||
+            !pstCurrentSlot->last_measurement_primary ||
+            app_ipcam_Ai_PD_ClassFamily(pstSlot->object.class_id) !=
+                app_ipcam_Ai_PD_ClassFamily(pstObject->class_id)) {
+            continue;
+        }
+        fObjectWidth = fmaxf(1.0f,
+            pstCurrentSlot->measured_box.x2 -
+                pstCurrentSlot->measured_box.x1);
+        fObjectHeight = fmaxf(1.0f,
+            pstCurrentSlot->measured_box.y2 -
+                pstCurrentSlot->measured_box.y1);
+        fSizeRatio = fminf(fSlotWidth, fObjectWidth) /
+            fmaxf(fSlotWidth, fObjectWidth);
+        fSizeRatio = fminf(fSizeRatio,
+            fminf(fSlotHeight, fObjectHeight) /
+                fmaxf(fSlotHeight, fObjectHeight));
+        if (fSizeRatio < APP_PD_DISPLAY_SHADOW_SIZE_RATIO) {
+            continue;
+        }
+        fObjectCenterX =
+            (pstCurrentSlot->measured_box.x1 +
+             pstCurrentSlot->measured_box.x2) * 0.5f;
+        fObjectCenterY =
+            (pstCurrentSlot->measured_box.y1 +
+             pstCurrentSlot->measured_box.y2) * 0.5f;
+        fDx = fObjectCenterX - fSlotCenterX;
+        fDy = fObjectCenterY - fSlotCenterY;
+        fDistance = sqrtf(fDx * fDx + fDy * fDy);
+        fCenterGate = fmaxf(
+            APP_PD_DISPLAY_SHADOW_MIN_CENTER_PIXELS,
+            fmaxf(fmaxf(fSlotWidth, fSlotHeight),
+                fmaxf(fObjectWidth, fObjectHeight)) *
+                APP_PD_DISPLAY_SHADOW_CENTER_RATIO);
+        fIou = app_ipcam_Ai_PD_Box_Iou(
+            &pstSlot->measured_box,
+            &pstCurrentSlot->measured_box);
+
+        if (fIou >= APP_PD_DISPLAY_SHADOW_IOU ||
+            (fIou >= APP_PD_DISPLAY_SHADOW_NEAR_IOU &&
+             fSizeRatio >= APP_PD_DISPLAY_SHADOW_NEAR_SIZE_RATIO &&
+             fDistance <= fCenterGate)) {
+            return CVI_TRUE;
+        }
+    }
+    return CVI_FALSE;
+}
+
 static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
     APP_PD_DISPLAY_SLOT_S *pastSlots, TDLObject *pstObjects,
     CVI_U64 *pu64NextDisplayId, CVI_U32 u32ResultIndex, CVI_U64 u64Pts,
     CVI_U64 u64PresentationLeadUs,
-    TDLObject *pstDraw, APP_PD_PROFILE_S *pstProfile)
+    TDLObject *pstDraw, TDLObject *pstSelectable,
+    APP_PD_PROFILE_S *pstProfile)
 {
     CVI_BOOL abObjectMatched[APP_PD_DISPLAY_SLOT_SIZE] = {0};
     CVI_BOOL abSlotMatched[APP_PD_DISPLAY_SLOT_SIZE] = {0};
@@ -1354,6 +2340,9 @@ static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
     pstDraw->size = 0;
     pstDraw->width = pstObjects->width;
     pstDraw->height = pstObjects->height;
+    pstSelectable->size = 0;
+    pstSelectable->width = pstObjects->width;
+    pstSelectable->height = pstObjects->height;
     pstProfile->held_objects = 0;
     pstProfile->maintained_objects = 0;
     if (pstObjects->info != NULL) {
@@ -1385,7 +2374,9 @@ static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
                         CVI_FLOAT fScore;
 
                         if (abSlotMatched[j] || !pastSlots[j].used ||
-                            app_ipcam_Ai_PD_DisplaySlot_IsExpired(
+                            (!bPrimaryPass &&
+                             pastSlots[j].display_requires_primary) ||
+                            app_ipcam_Ai_PD_DisplaySlot_IsAnchorExpired(
                                 &pastSlots[j], u32ResultIndex, u64Pts)) {
                             continue;
                         }
@@ -1393,7 +2384,7 @@ static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
                             &pastSlots[j], &pstObjects->info[i],
                             u32ResultIndex, u64Pts,
                             pstObjects->width, pstObjects->height,
-                            CVI_FALSE, &bClassRescue);
+                            &bClassRescue);
                         if (fScore > fBestScore ||
                             (fScore == fBestScore &&
                              bBestClassRescue && !bClassRescue)) {
@@ -1411,78 +2402,42 @@ static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
                 abSlotMatched[u32BestSlot] = CVI_TRUE;
                 pstObjects->info[u32BestObject].track_id =
                     pastSlots[u32BestSlot].track_id;
-                app_ipcam_Ai_PD_DisplaySlot_Update(
-                    &pastSlots[u32BestSlot],
-                    &pstObjects->info[u32BestObject],
-                    u32ResultIndex, u64Pts, bPrimaryPass,
-                    bBestClassRescue);
+                if (bPrimaryPass && pastSlots[u32BestSlot].confirmed &&
+                    pastSlots[u32BestSlot].last_observed_result + 1 <
+                        u32ResultIndex) {
+                    pstProfile->reactivated_objects++;
+                }
+                if (!bPrimaryPass && pastSlots[u32BestSlot].small_target) {
+                    pstProfile->small_maintained_objects++;
+                }
+                if (bBestClassRescue &&
+                    pastSlots[u32BestSlot].small_target) {
+                    pstProfile->small_class_rescues++;
+                }
+                if (!bPrimaryPass &&
+                    app_ipcam_Ai_PD_DisplaySlot_IsStable(
+                        &pastSlots[u32BestSlot])) {
+                    if (app_ipcam_Ai_PD_DisplaySlot_Support(
+                            &pastSlots[u32BestSlot], u32ResultIndex,
+                            u64Pts)) {
+                        pstProfile->presence_bridged_objects++;
+                        if (pastSlots[u32BestSlot].small_target) {
+                            pstProfile->small_presence_bridged_objects++;
+                        }
+                    }
+                } else {
+                    app_ipcam_Ai_PD_DisplaySlot_Update(
+                        &pastSlots[u32BestSlot],
+                        &pstObjects->info[u32BestObject],
+                        u32ResultIndex, u64Pts,
+                        pstObjects->width, pstObjects->height,
+                        bPrimaryPass, bBestClassRescue);
+                }
                 if (bBestClassRescue) {
                     pstProfile->association_rescues++;
                 }
                 if (!bPrimaryPass) {
                     pstProfile->maintained_objects++;
-                }
-            }
-
-            if (bPrimaryPass) {
-                while (CVI_TRUE) {
-                    CVI_FLOAT fBestScore = -1.0f;
-                    CVI_U32 u32BestObject = APP_PD_DISPLAY_SLOT_SIZE;
-                    CVI_U32 u32BestSlot = APP_PD_DISPLAY_SLOT_SIZE;
-                    CVI_BOOL bBestClassRescue = CVI_FALSE;
-
-                    for (CVI_U32 i = 0; i < u32ObjectCount; i++) {
-                        if (abObjectMatched[i] ||
-                            pstObjects->info[i].score <
-                                g_pstPdCfg->threshold) {
-                            continue;
-                        }
-                        for (CVI_U32 j = 0;
-                             j < APP_PD_DISPLAY_SLOT_SIZE; j++) {
-                            CVI_BOOL bClassRescue;
-                            CVI_FLOAT fScore;
-
-                            if (abSlotMatched[j] ||
-                                !pastSlots[j].used ||
-                                app_ipcam_Ai_PD_DisplaySlot_IsExpired(
-                                    &pastSlots[j], u32ResultIndex,
-                                    u64Pts)) {
-                                continue;
-                            }
-                            fScore =
-                                app_ipcam_Ai_PD_DisplaySlot_MatchScore(
-                                    &pastSlots[j], &pstObjects->info[i],
-                                    u32ResultIndex, u64Pts,
-                                    pstObjects->width,
-                                    pstObjects->height,
-                                    CVI_TRUE, &bClassRescue);
-                            if (fScore > fBestScore ||
-                                (fScore == fBestScore &&
-                                 bBestClassRescue && !bClassRescue)) {
-                                fBestScore = fScore;
-                                u32BestObject = i;
-                                u32BestSlot = j;
-                                bBestClassRescue = bClassRescue;
-                            }
-                        }
-                    }
-                    if (u32BestObject == APP_PD_DISPLAY_SLOT_SIZE) {
-                        break;
-                    }
-                    abObjectMatched[u32BestObject] = CVI_TRUE;
-                    abSlotMatched[u32BestSlot] = CVI_TRUE;
-                    pstObjects->info[u32BestObject].track_id =
-                        pastSlots[u32BestSlot].track_id;
-                    app_ipcam_Ai_PD_DisplaySlot_Update(
-                        &pastSlots[u32BestSlot],
-                        &pstObjects->info[u32BestObject],
-                        u32ResultIndex, u64Pts, CVI_TRUE,
-                        bBestClassRescue);
-                    if (bBestClassRescue) {
-                        pstProfile->association_rescues++;
-                    } else {
-                        pstProfile->association_motion_rescues++;
-                    }
                 }
             }
 
@@ -1493,7 +2448,97 @@ static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
                 if (abObjectMatched[i] || bPrimary != bPrimaryPass) {
                     continue;
                 }
+                if (!bPrimaryPass) {
+                    CVI_U32 u32PresenceSlot = APP_PD_DISPLAY_SLOT_SIZE;
+                    CVI_U32 u32PresenceMatches =
+                        app_ipcam_Ai_PD_DisplaySlot_PresenceMatches(
+                            pastSlots, abSlotMatched,
+                            &pstObjects->info[i], u32ResultIndex, u64Pts,
+                            pstObjects->width, pstObjects->height,
+                            CVI_FALSE,
+                            &u32PresenceSlot);
+                    CVI_BOOL bMutualPresence = u32PresenceMatches == 1 &&
+                        app_ipcam_Ai_PD_DisplaySlot_IsMutualPresenceMatch(
+                            &pastSlots[u32PresenceSlot], pstObjects,
+                            abObjectMatched, u32ObjectCount, i,
+                            bPrimaryPass);
+
+                    if (bMutualPresence &&
+                        app_ipcam_Ai_PD_DisplaySlot_IsStable(
+                            &pastSlots[u32PresenceSlot])) {
+                        abObjectMatched[i] = CVI_TRUE;
+                        abSlotMatched[u32PresenceSlot] = CVI_TRUE;
+                        pstObjects->info[i].track_id =
+                            pastSlots[u32PresenceSlot].track_id;
+                        if (app_ipcam_Ai_PD_DisplaySlot_Support(
+                                &pastSlots[u32PresenceSlot],
+                                u32ResultIndex, u64Pts)) {
+                            pstProfile->maintained_objects++;
+                            pstProfile->presence_bridged_objects++;
+                            if (pastSlots[u32PresenceSlot].small_target) {
+                                pstProfile->small_maintained_objects++;
+                                pstProfile->
+                                    small_presence_bridged_objects++;
+                            }
+                        }
+                        continue;
+                    }
+                    if (u32PresenceMatches > 1 ||
+                        (u32PresenceMatches == 1 && !bMutualPresence)) {
+                        pstProfile->presence_ambiguous_objects++;
+                        if (u32PresenceSlot < APP_PD_DISPLAY_SLOT_SIZE &&
+                            pastSlots[u32PresenceSlot].small_target) {
+                            pstProfile->small_presence_ambiguous_objects++;
+                        }
+                    }
+                }
                 if (bPrimaryPass) {
+                    /* Preserve the display ID when continuity is unambiguous. */
+                    CVI_U32 u32ContinuitySlot =
+                        APP_PD_DISPLAY_SLOT_SIZE;
+                    CVI_U32 u32ContinuityMatches =
+                        app_ipcam_Ai_PD_DisplaySlot_PresenceMatches(
+                            pastSlots, abSlotMatched,
+                            &pstObjects->info[i], u32ResultIndex, u64Pts,
+                            pstObjects->width, pstObjects->height,
+                            CVI_TRUE, &u32ContinuitySlot);
+                    CVI_BOOL bMutualContinuity =
+                        u32ContinuityMatches == 1 &&
+                        app_ipcam_Ai_PD_DisplaySlot_IsMutualPresenceMatch(
+                            &pastSlots[u32ContinuitySlot], pstObjects,
+                            abObjectMatched, u32ObjectCount, i,
+                            bPrimaryPass);
+
+                    if (bMutualContinuity) {
+                        APP_PD_DISPLAY_SLOT_S *pstContinuitySlot =
+                            &pastSlots[u32ContinuitySlot];
+                        CVI_BOOL bClassRescue =
+                            pstContinuitySlot->object.class_id !=
+                            pstObjects->info[i].class_id;
+
+                        if (pstContinuitySlot->last_observed_result + 1 <
+                            u32ResultIndex) {
+                            pstProfile->reactivated_objects++;
+                        }
+                        abObjectMatched[i] = CVI_TRUE;
+                        abSlotMatched[u32ContinuitySlot] = CVI_TRUE;
+                        pstObjects->info[i].track_id =
+                            pstContinuitySlot->track_id;
+                        app_ipcam_Ai_PD_DisplaySlot_Update(
+                            pstContinuitySlot, &pstObjects->info[i],
+                            u32ResultIndex, u64Pts,
+                            pstObjects->width, pstObjects->height,
+                            CVI_TRUE, bClassRescue);
+                        pstProfile->association_motion_rescues++;
+                        if (bClassRescue) {
+                            pstProfile->association_rescues++;
+                            if (pstContinuitySlot->small_target) {
+                                pstProfile->small_class_rescues++;
+                            }
+                        }
+                        continue;
+                    }
+
                     APP_PD_DISPLAY_SLOT_S *pstNewSlot =
                         app_ipcam_Ai_PD_DisplaySlot_Allocate(
                             pastSlots, u32ResultIndex, u64Pts);
@@ -1514,15 +2559,20 @@ static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
                     pstObjects->info[i].track_id = pstNewSlot->track_id;
                     app_ipcam_Ai_PD_DisplaySlot_Update(
                         pstNewSlot, &pstObjects->info[i],
-                        u32ResultIndex, u64Pts, CVI_TRUE, CVI_FALSE);
+                        u32ResultIndex, u64Pts,
+                        pstObjects->width, pstObjects->height,
+                        CVI_TRUE, CVI_FALSE);
                     pstProfile->association_new_objects++;
+                    if (pstNewSlot->small_target) {
+                        pstProfile->small_new_objects++;
+                    }
                 } else {
                     CVI_BOOL bSameClassSlot = CVI_FALSE;
 
                     for (CVI_U32 j = 0;
                          j < APP_PD_DISPLAY_SLOT_SIZE; j++) {
                         if (pastSlots[j].used &&
-                            !app_ipcam_Ai_PD_DisplaySlot_IsExpired(
+                            !app_ipcam_Ai_PD_DisplaySlot_IsAnchorExpired(
                                 &pastSlots[j], u32ResultIndex, u64Pts) &&
                             pastSlots[j].object.class_id ==
                                 pstObjects->info[i].class_id) {
@@ -1544,9 +2594,36 @@ static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
         app_ipcam_Ai_PD_DisplaySlots_MergeDuplicates(
             pastSlots, u32ResultIndex, u64Pts);
 
+    if (pstObjects->info != NULL) {
+        for (CVI_U32 i = 0; i < u32ObjectCount; i++) {
+            if (pstObjects->info[i].score >=
+                       APP_PD_DISPLAY_CANDIDATE_MIN &&
+                       pstObjects->info[i].score < g_pstPdCfg->threshold) {
+                pstProfile->candidate_objects++;
+            }
+        }
+    }
+    for (CVI_U32 i = 0;
+         i < APP_PD_DISPLAY_SLOT_SIZE &&
+         pstSelectable->size < APP_PD_MAX_DRAW_OBJECTS;
+         i++) {
+        if (!pastSlots[i].used || !pastSlots[i].confirmed ||
+            pastSlots[i].display_requires_primary ||
+            pastSlots[i].last_primary_result != u32ResultIndex ||
+            pastSlots[i].primary_object.score < g_pstPdCfg->threshold ||
+            pastSlots[i].primary_object.box.x2 <=
+                pastSlots[i].primary_object.box.x1 ||
+            pastSlots[i].primary_object.box.y2 <=
+                pastSlots[i].primary_object.box.y1) {
+            continue;
+        }
+        pstSelectable->info[pstSelectable->size++] =
+            pastSlots[i].primary_object;
+    }
+
     for (CVI_U32 i = 0; i < APP_PD_DISPLAY_SLOT_SIZE; i++) {
         if (pastSlots[i].used &&
-            pastSlots[i].last_observed_result != u32ResultIndex) {
+            pastSlots[i].last_supported_result != u32ResultIndex) {
             pastSlots[i].evidence -= APP_PD_DISPLAY_MISS_EVIDENCE;
             if (pastSlots[i].evidence < 0) {
                 pastSlots[i].evidence = 0;
@@ -1567,21 +2644,78 @@ static CVI_VOID app_ipcam_Ai_PD_DrawResult_Build(
             }
             u32MissingResults = u32ResultIndex -
                 pastSlots[i].last_observed_result;
+            if (app_ipcam_Ai_PD_DisplaySlot_IsAnchorExpired(
+                    &pastSlots[i], u32ResultIndex, u64Pts)) {
+                if (pastSlots[i].display_visible) {
+                    pstProfile->display_cleared_objects++;
+                    pstProfile->display_anchor_cleared_objects++;
+                    if (pastSlots[i].small_target) {
+                        pstProfile->small_display_cleared_objects++;
+                    }
+                    app_ipcam_Ai_PD_DisplaySlot_Hide(&pastSlots[i]);
+                }
+                if (pastSlots[i].confirmed &&
+                    pastSlots[i].small_target) {
+                    pstProfile->small_expired_objects++;
+                }
+                pastSlots[i].used = CVI_FALSE;
+                continue;
+            }
             if (app_ipcam_Ai_PD_DisplaySlot_IsExpired(
                     &pastSlots[i], u32ResultIndex, u64Pts)) {
-                pastSlots[i].used = CVI_FALSE;
+                if (pastSlots[i].display_visible) {
+                    APP_PD_DISPLAY_CLEAR_REASON_E enClearReason =
+                        app_ipcam_Ai_PD_DisplaySlot_ClearReason(
+                            &pastSlots[i], u32ResultIndex, u64Pts);
+
+                    pstProfile->display_cleared_objects++;
+                    if (enClearReason == APP_PD_DISPLAY_CLEAR_TIME) {
+                        pstProfile->display_time_cleared_objects++;
+                    } else {
+                        pstProfile->display_result_cleared_objects++;
+                    }
+                    if (pastSlots[i].small_target) {
+                        pstProfile->small_display_cleared_objects++;
+                    }
+                    app_ipcam_Ai_PD_DisplaySlot_Hide(&pastSlots[i]);
+                }
+                continue;
+            }
+            if (!pastSlots[i].confirmed) {
+                continue;
+            }
+            if (pastSlots[i].display_requires_primary) {
                 continue;
             }
             if ((u32Pass == 0 && u32MissingResults > 0) ||
                 (u32Pass == 1 && u32MissingResults == 0)) {
                 continue;
             }
+            if (u32MissingResults > 0 &&
+                !app_ipcam_Ai_PD_DisplaySlot_IsMatureStable(
+                    &pastSlots[i]) &&
+                pastSlots[i].last_supported_result != u32ResultIndex &&
+                app_ipcam_Ai_PD_DisplaySlot_IsShadowed(
+                    &pastSlots[i], pastSlots, u32ResultIndex)) {
+                pstProfile->shadow_suppressed_objects++;
+                if (pastSlots[i].small_target) {
+                    pstProfile->small_shadow_suppressed_objects++;
+                }
+                app_ipcam_Ai_PD_DisplaySlot_Hide(&pastSlots[i]);
+                continue;
+            }
             pstDrawObject = &pstDraw->info[pstDraw->size++];
+            pastSlots[i].display_visible = CVI_TRUE;
             app_ipcam_Ai_PD_DisplaySlot_Project(
                 &pastSlots[i], u64Pts, pstDraw->width, pstDraw->height,
                 u64PresentationLeadUs, pstDrawObject);
-            if (u32MissingResults > 0) {
+            if (u32MissingResults == 0) {
+                pstProfile->measured_objects++;
+            } else {
                 pstProfile->held_objects++;
+                if (pastSlots[i].small_target) {
+                    pstProfile->small_held_objects++;
+                }
             }
         }
     }
@@ -1682,23 +2816,26 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
     TDLObjectInfo astFollowDraw[APP_PD_MAX_DRAW_OBJECTS] = {0};
 #endif
     TDLObjectInfo astDetectionDraw[APP_PD_MAX_DRAW_OBJECTS] = {0};
+    TDLObjectInfo astSelectableDraw[APP_PD_MAX_DRAW_OBJECTS] = {0};
     TDLObject stLastPublishedDraw = {0};
 #if APP_PD_IMAGE_FOLLOW_ENABLE
     TDLObject stFollowDraw = {0};
 #endif
     TDLObject stDetectionDraw = {0};
+    TDLObject stSelectableDraw = {0};
 #if APP_PD_IMAGE_FOLLOW_ENABLE
     APP_PD_FOLLOW_FRAME_S stPreviousFollowFrame = {0};
     APP_PD_FOLLOW_FRAME_S stCurrentFollowFrame = {0};
 #endif
     CVI_U64 u64NextDisplayId = 1;
+    CVI_U64 u64PreviousPts = 0;
     CVI_BOOL bHavePublishedDraw = CVI_FALSE;
-
     stLastPublishedDraw.info = astLastPublishedDraw;
 #if APP_PD_IMAGE_FOLLOW_ENABLE
     stFollowDraw.info = astFollowDraw;
 #endif
     stDetectionDraw.info = astDetectionDraw;
+    stSelectableDraw.info = astSelectableDraw;
     APP_PROF_LOG_PRINT(LEVEL_INFO, "AI PD start running!\n");
 
     prctl(PR_SET_NAME, "Thread_PD_PROC");
@@ -1716,6 +2853,10 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
         CVI_BOOL bFollowPathActive = CVI_FALSE;
 #endif
         CVI_U64 u64LoopStart = app_ipcam_Ai_PD_TimeUs();
+        CVI_U64 u64CaptureTimeUs = 0;
+        CVI_U64 u64FramePeriodUs = APP_PD_DEFAULT_FRAME_PERIOD_US;
+        CVI_U64 u64StageStartUs;
+        CVI_U32 u32DroppedFrames = 0;
 
         pthread_mutex_lock(&g_PDStatusMutex);
         if (g_bPDPause) {
@@ -1726,8 +2867,10 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
         g_bPDFrameActive = CVI_TRUE;
         pthread_mutex_unlock(&g_PDStatusMutex);
 
+        u64StageStartUs = app_ipcam_Ai_PD_TimeUs();
         s32Ret = app_ipcam_Ai_PD_FrameSource_Take(
-            &stfdFrame, NULL, NULL);
+            &stfdFrame, &u64CaptureTimeUs, &u32DroppedFrames);
+        stProfile.wait_us = app_ipcam_Ai_PD_TimeUs() - u64StageStartUs;
         if (s32Ret != CVI_SUCCESS) {
             app_ipcam_Ai_PD_FrameActive_Clear();
             if (!app_ipcam_Ai_PD_ProcStatus_Get()) {
@@ -1736,9 +2879,24 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
             usleep(1000);
             continue;
         }
+        if (u64CaptureTimeUs > 0) {
+            CVI_U64 u64NowUs = app_ipcam_Ai_PD_TimeUs();
+
+            if (u64NowUs >= u64CaptureTimeUs) {
+                stProfile.source_age_us = u64NowUs - u64CaptureTimeUs;
+            }
+        }
+        stProfile.dropped_frames = u32DroppedFrames;
         stProfile.sequence = stfdFrame.stVFrame.u32SeqenceNo;
         stProfile.time_ref = stfdFrame.stVFrame.u32TimeRef;
         stProfile.pts = stfdFrame.stVFrame.u64PTS;
+        if (u64PreviousPts > 0 && stProfile.pts > u64PreviousPts &&
+            stProfile.pts - u64PreviousPts <= 200000) {
+            u64FramePeriodUs = stProfile.pts - u64PreviousPts;
+        }
+        if (stProfile.pts > 0) {
+            u64PreviousPts = stProfile.pts;
+        }
 #if APP_PD_IMAGE_FOLLOW_ENABLE
         if (app_ipcam_Ai_PD_FollowFrame_Capture(
                 &stfdFrame, stProfile.pts,
@@ -1788,13 +2946,31 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
             stPreviousFollowFrame.valid = CVI_FALSE;
         }
 #endif
+        u64StageStartUs = app_ipcam_Ai_PD_TimeUs();
         image_handle = TDL_WrapFrame((void*)&stfdFrame, false, false);
+        stProfile.wrap_us = app_ipcam_Ai_PD_TimeUs() - u64StageStartUs;
 
         TDLObject obj_meta;
+        CVI_U64 u64InferenceStart;
+
         memset(&obj_meta, 0, sizeof(TDLObject));
+        u64InferenceStart = app_ipcam_Ai_PD_TimeUs();
         s32Ret = g_pfpPDInference(g_PDAiHandle, g_pstPdCfg->model_id,
             image_handle, &obj_meta);
+        stProfile.inference_us =
+            app_ipcam_Ai_PD_TimeUs() - u64InferenceStart;
         if (s32Ret == CVI_SUCCESS) {
+            TDLModelPerformance stModelPerf = {0};
+
+            if (TDL_GetModelPerformance(g_PDAiHandle,
+                    g_pstPdCfg->model_id, &stModelPerf) == CVI_SUCCESS) {
+                stProfile.model_preprocess_ms =
+                    stModelPerf.preprocess_ms;
+                stProfile.model_tpu_ms = stModelPerf.tpu_ms;
+                stProfile.model_postprocess_ms =
+                    stModelPerf.postprocess_ms;
+                stProfile.model_total_ms = stModelPerf.total_ms;
+            }
             if (obj_meta.info != NULL) {
                 for (CVI_U32 i = 0; i < obj_meta.size; i++) {
                     if (obj_meta.info[i].score >=
@@ -1806,6 +2982,7 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
         }
         u32FrameCount++;
 
+        u64StageStartUs = app_ipcam_Ai_PD_TimeUs();
         CVI_S32 s32ReleaseRet = CVI_VPSS_ReleaseChnFrame(VpssGrp, VpssChn, &stfdFrame);
         if (s32ReleaseRet != CVI_SUCCESS)
         {
@@ -1813,9 +2990,19 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
                 VpssGrp, VpssChn, s32ReleaseRet);
         }
         TDL_DestroyImage(image_handle);
+        stProfile.release_us =
+            app_ipcam_Ai_PD_TimeUs() - u64StageStartUs;
+#if APP_PD_OSD_MOTION_PREDICT_ENABLE
+        stProfile.presentation_lead_us =
+            app_ipcam_Ai_PD_PresentationLeadUs(
+                u64FramePeriodUs,
+                stProfile.source_age_us + stProfile.wrap_us +
+                stProfile.inference_us + stProfile.release_us);
+#endif
         app_ipcam_Ai_PD_FrameActive_Clear();
 
         if (s32Ret != CVI_SUCCESS) {
+            app_ipcam_Ai_PD_NearestTarget_Publish(NULL, &stProfile);
             app_ipcam_Ai_PD_ProfileComplete(
                 u32FrameCount, u64LoopStart, &stProfile);
             APP_PROF_LOG_PRINT(LEVEL_ERROR,
@@ -1828,6 +3015,7 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
         }
 
         if (obj_meta.size > 0 && obj_meta.info == NULL) {
+            app_ipcam_Ai_PD_NearestTarget_Publish(NULL, &stProfile);
             app_ipcam_Ai_PD_ProfileComplete(
                 u32FrameCount, u64LoopStart, &stProfile);
             APP_PROF_LOG_PRINT(LEVEL_ERROR,
@@ -1838,8 +3026,11 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
 
         app_ipcam_Ai_PD_DrawResult_Build(
             astDisplaySlots, &obj_meta, &u64NextDisplayId,
-            u32FrameCount, stProfile.pts, 0,
-            &stDetectionDraw, &stProfile);
+            u32FrameCount, stProfile.pts,
+            stProfile.presentation_lead_us,
+            &stDetectionDraw, &stSelectableDraw, &stProfile);
+        app_ipcam_Ai_PD_NearestTarget_Publish(
+            &stSelectableDraw, &stProfile);
         stProfile.draw_objects = stDetectionDraw.size;
         {
             CVI_U64 u64PublishTimeUs = app_ipcam_Ai_PD_TimeUs();
@@ -1868,7 +3059,6 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
 #endif
         app_ipcam_Ai_PD_ProfileComplete(
             u32FrameCount, u64LoopStart, &stProfile);
-
         if (stProfile.detected_objects == 0) {
             if (obj_meta.info != NULL) {
                 TDL_ReleaseObjectMeta(&obj_meta);
@@ -1884,6 +3074,30 @@ static CVI_VOID *Thread_PD_PROC(CVI_VOID *arg)
     pthread_exit(NULL);
 
     return NULL;
+}
+
+int app_ipcam_Ai_PD_NearestTarget_Get(
+    TDLObjectInfo *pstObject, CVI_U32 *pu32Width, CVI_U32 *pu32Height,
+    APP_AI_RESULT_FRAME_INFO_S *pstFrameInfo)
+{
+    _NULL_POINTER_CHECK_(pstObject, CVI_FAILURE);
+    _NULL_POINTER_CHECK_(pu32Width, CVI_FAILURE);
+    _NULL_POINTER_CHECK_(pu32Height, CVI_FAILURE);
+    _NULL_POINTER_CHECK_(pstFrameInfo, CVI_FAILURE);
+
+    if (app_ipcam_Ai_PD_Pause_Get()) {
+        return CVI_FAILURE;
+    }
+
+    SMT_MutexAutoLock(g_PDMutex, lock);
+    if (!g_stPDNearestTarget.valid) {
+        return CVI_FAILURE;
+    }
+    *pstObject = g_stPDNearestTarget.object;
+    *pu32Width = g_stPDNearestTarget.width;
+    *pu32Height = g_stPDNearestTarget.height;
+    *pstFrameInfo = g_stPDNearestTarget.frame;
+    return CVI_SUCCESS;
 }
 
 
@@ -1966,6 +3180,8 @@ int app_ipcam_Ai_PD_Stop(void)
         g_stPDObjDraw.width = 0;
         g_stPDObjDraw.height = 0;
         memset(&g_stPDResultFrame, 0, sizeof(g_stPDResultFrame));
+        memset(&g_stPDNearestTarget, 0, sizeof(g_stPDNearestTarget));
+        app_ipcam_Ai_PD_NearestCandidate_Reset();
     }
 #ifdef OSDC_SUPPORT
     app_ipcam_Osdc_PdRect_Publish();

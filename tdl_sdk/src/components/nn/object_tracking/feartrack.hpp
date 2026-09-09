@@ -37,5 +37,15 @@ class FearTrack final : public BaseModel {
   // 网格坐标
   std::vector<std::vector<int>> grid_x_;
   std::vector<std::vector<int>> grid_y_;
+  std::string template_input_name_;
+  std::string search_input_name_;
+  std::string regression_output_name_;
+  std::string score_output_name_;
+  std::shared_ptr<BaseTensor> template_tensor_;
+  std::shared_ptr<BaseTensor> search_tensor_;
+  std::shared_ptr<BaseTensor> regression_tensor_;
+  std::shared_ptr<BaseTensor> score_tensor_;
+  TensorInfo regression_info_ = {};
+  TensorInfo score_info_ = {};
   bool template_input_cached_ = false;
 };

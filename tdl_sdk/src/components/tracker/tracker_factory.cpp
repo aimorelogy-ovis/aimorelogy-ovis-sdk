@@ -62,6 +62,19 @@ int32_t Tracker::prepareTargetSearch(int frame_type,
 
 int32_t Tracker::setScoreThreshold(float threshold) { return 0; }
 
+int32_t Tracker::getTargetInfo(ObjectBoxInfo* bbox,
+                               bool* refined_small_target) {
+  (void)bbox;
+  (void)refined_small_target;
+  return -1;
+}
+
+int32_t Tracker::getDiagnostics(
+    SingleObjectTrackerDiagnostics* diagnostics) {
+  (void)diagnostics;
+  return -1;
+}
+
 std::shared_ptr<Tracker> TrackerFactory::createTracker(TrackerType type) {
   switch (type) {
     case TrackerType::TDL_MOT_SORT:

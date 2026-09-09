@@ -5,6 +5,8 @@
 
 #include "preprocess/base_preprocessor.hpp"
 
+class VPSSImage;
+
 class VpssContext {
  public:
   VpssContext();
@@ -52,6 +54,22 @@ class VpssPreprocessor : public BasePreprocessor {
   int group_id_;
   int device_;
   VPSS_CROP_INFO_S crop_reset_attr_;
+  VPSS_GRP_ATTR_S cached_grp_attr_ = {};
+  VPSS_CHN_ATTR_S cached_chn_attr_ = {};
+  VPSS_CROP_INFO_S cached_chn_crop_attr_ = {};
+  bool grp_attr_cached_ = false;
+  bool chn_attr_cached_ = false;
+  bool chn_crop_attr_cached_ = false;
+  bool grp_crop_reset_ = false;
+  bool scale_coef_configured_ = false;
+  std::shared_ptr<BaseTensor> cached_tensor_;
+  std::shared_ptr<VPSSImage> cached_tensor_image_;
+  int cached_batch_idx_ = -1;
+  int cached_dst_width_ = 0;
+  int cached_dst_height_ = 0;
+  int cached_dst_format_ = -1;
+  int cached_dst_data_type_ = -1;
+  uint32_t cached_tensor_stride_ = 0;
   bool use_vb_pool_ = false;
 };
 

@@ -168,6 +168,8 @@ typedef struct APP_PARAM_AI_OBJECT_TRACK_CFG_T
     float threshold_occluded;
     float threshold_reappear;
     TDLTargetSearchTypeE search_type;
+    CVI_BOOL bSelectAtReticle;
+    CVI_BOOL bFixedInitBox;
     CVI_BOOL use_kalman;
     CVI_BOOL sot_gmc_enable;
     CVI_U32 sot_gmc_interval;
@@ -247,6 +249,9 @@ int app_ipcam_Ai_PD_Stop(void);
 int app_ipcam_Ai_PD_ObjDrawInfo_Get(TDLObject *pstAiObj);
 int app_ipcam_Ai_PD_ObjDrawInfo_GetWithFrame(
     TDLObject *pstAiObj, APP_AI_RESULT_FRAME_INFO_S *pstFrameInfo);
+int app_ipcam_Ai_PD_NearestTarget_Get(
+    TDLObjectInfo *pstObject, CVI_U32 *pu32Width, CVI_U32 *pu32Height,
+    APP_AI_RESULT_FRAME_INFO_S *pstFrameInfo);
 CVI_U32 app_ipcam_Ai_PD_ProcFps_Get(void);
 CVI_S32 app_ipcam_Ai_PD_ProcTime_Get(void);
 CVI_S32 app_ipcam_Pd_threshold_Set(float threshold);

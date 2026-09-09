@@ -1,7 +1,37 @@
 #include "feartrack.hpp"
 #include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include "utils/tdl_log.hpp"
+
+namespace {
+
+constexpr int kFearTrackCandidateCount = 3;
+constexpr int kFearTrackPeakSuppressionRadius = 1;
+
+inline double feartrack_monotonic_time_ms() {
+  return std::chrono::duration<double, std::milli>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+struct FearTrackPeak {
+  float score = -1.0f;
+  int i = -1;
+  int j = -1;
+};
+
+inline FearTrackPeak make_feartrack_peak(float score, int i, int j) {
+  FearTrackPeak peak;
+  peak.score = score;
+  peak.i = i;
+  peak.j = j;
+  return peak;
+}
+
+}  // namespace
 
 template <typename T>
 inline void parse_score_data(T* p_score_ptr, int score_size, float qscale,
@@ -101,6 +131,102 @@ inline void parse_score_data(T* p_score_ptr, int score_size, float qscale,
 }
 
 template <typename T>
+inline void calculate_response_quality(T* p_score_ptr, int score_size,
+                                       float qscale, int peak_i, int peak_j,
+                                       float peak_score,
+                                       float* second_score,
+                                       float* peak_margin, float* psr) {
+  constexpr int kPeakExclusionRadius = 1;
+  double sum = 0.0;
+  double sum_sq = 0.0;
+  int count = 0;
+  float sidelobe_max = -1.0f;
+
+  if (peak_i < 0 || peak_j < 0) {
+    *second_score = peak_score;
+    *peak_margin = 0.0f;
+    *psr = 0.0f;
+    return;
+  }
+
+  for (int i = 0; i < score_size; i++) {
+    for (int j = 0; j < score_size; j++) {
+      if (std::abs(i - peak_i) <= kPeakExclusionRadius &&
+          std::abs(j - peak_j) <= kPeakExclusionRadius) {
+        continue;
+      }
+      const float score =
+          static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
+      sidelobe_max = std::max(sidelobe_max, score);
+      sum += score;
+      sum_sq += static_cast<double>(score) * score;
+      count++;
+    }
+  }
+
+  if (count == 0) {
+    *second_score = peak_score;
+    *peak_margin = 0.0f;
+    *psr = 0.0f;
+    return;
+  }
+
+  const double mean = sum / count;
+  const double variance = std::max(0.0, sum_sq / count - mean * mean);
+  const double stddev = std::sqrt(variance);
+  *second_score = sidelobe_max;
+  *peak_margin = peak_score - sidelobe_max;
+  *psr = static_cast<float>((peak_score - mean) / (stddev + 1e-6));
+}
+
+template <typename T>
+inline int collect_score_peaks(
+    T* p_score_ptr, int score_size, float qscale,
+    const FearTrackPeak& primary,
+    std::array<FearTrackPeak, kFearTrackCandidateCount>* peaks) {
+  if (p_score_ptr == nullptr || peaks == nullptr || primary.i < 0 ||
+      primary.j < 0) {
+    return 0;
+  }
+
+  (*peaks)[0] = primary;
+  int peak_count = 1;
+  while (peak_count < kFearTrackCandidateCount) {
+    FearTrackPeak candidate;
+    for (int i = 0; i < score_size; i++) {
+      for (int j = 0; j < score_size; j++) {
+        bool suppressed = false;
+        for (int selected = 0; selected < peak_count; selected++) {
+          if (std::abs(i - (*peaks)[selected].i) <=
+                  kFearTrackPeakSuppressionRadius &&
+              std::abs(j - (*peaks)[selected].j) <=
+                  kFearTrackPeakSuppressionRadius) {
+            suppressed = true;
+            break;
+          }
+        }
+        if (suppressed) {
+          continue;
+        }
+
+        const float score =
+            static_cast<float>(p_score_ptr[i * score_size + j]) * qscale;
+        if (score > candidate.score) {
+          candidate.score = score;
+          candidate.i = i;
+          candidate.j = j;
+        }
+      }
+    }
+    if (candidate.i < 0 || candidate.j < 0) {
+      break;
+    }
+    (*peaks)[peak_count++] = candidate;
+  }
+  return peak_count;
+}
+
+template <typename T>
 inline void parse_regression_data(T* p_reg_ptr, int score_size, int i, int j,
                                   float qscale, float* x1, float* y1, float* x2,
                                   float* y2,
@@ -153,6 +279,21 @@ int32_t FearTrack::onModelOpened() {
          input_layers.size(), output_layers.size());
     return -1;
   }
+  template_input_name_ = input_layers[0];
+  search_input_name_ = input_layers[1];
+  regression_output_name_ = output_layers[0];
+  score_output_name_ = output_layers[1];
+  template_tensor_ = net_->getInputTensor(template_input_name_);
+  search_tensor_ = net_->getInputTensor(search_input_name_);
+  regression_tensor_ = net_->getOutputTensor(regression_output_name_);
+  score_tensor_ = net_->getOutputTensor(score_output_name_);
+  regression_info_ = net_->getTensorInfo(regression_output_name_);
+  score_info_ = net_->getTensorInfo(score_output_name_);
+  if (!template_tensor_ || !search_tensor_ || !regression_tensor_ ||
+      !score_tensor_) {
+    LOGE("FearTrack模型张量初始化失败");
+    return -1;
+  }
   invalidateInputCache();
   return 0;
 }
@@ -161,6 +302,9 @@ int32_t FearTrack::inference(
     const std::vector<std::vector<std::shared_ptr<BaseImage>>>& images,
     std::vector<std::shared_ptr<ModelOutputInfo>>& out_datas,
     const std::map<std::string, float>& parameters) {
+  const double total_start_ms = feartrack_monotonic_time_ms();
+  double stage_start_ms = total_start_ms;
+  last_performance_ = {};
   if (images.size() != 1 || images[0].size() != 2 || !images[0][0] ||
       !images[0][1]) {
     LOGE("FearTrack expects one template/search image pair");
@@ -171,26 +315,17 @@ int32_t FearTrack::inference(
     return -1;
   }
 
-  const std::vector<std::string>& input_names = net_->getInputNames();
-  if (input_names.size() != 2) {
-    LOGE("FearTrack input count mismatch: %zu", input_names.size());
-    return -1;
-  }
-
-  std::shared_ptr<BaseTensor> template_tensor =
-      net_->getInputTensor(input_names[0]);
-  std::shared_ptr<BaseTensor> search_tensor =
-      net_->getInputTensor(input_names[1]);
-  if (!template_tensor || !search_tensor) {
-    LOGE("FearTrack input tensor is null");
+  if (template_input_name_.empty() || search_input_name_.empty() ||
+      !template_tensor_ || !search_tensor_) {
+    LOGE("FearTrack input tensors are not initialized");
     return -1;
   }
 
   model_timer_.TicToc("runstart");
   if (!template_input_cached_) {
     int32_t ret = preprocessor_->preprocessToTensor(
-        images[0][0], preprocess_params_[input_names[0]], 0,
-        template_tensor);
+        images[0][0], preprocess_params_[template_input_name_], 0,
+        template_tensor_);
     if (ret != 0) {
       LOGE("FearTrack template preprocess failed with %#x", ret);
       return ret;
@@ -198,7 +333,7 @@ int32_t FearTrack::inference(
     template_input_cached_ = true;
   }
 
-  PreprocessParams search_params = preprocess_params_[input_names[1]];
+  PreprocessParams search_params = preprocess_params_[search_input_name_];
   const auto crop_x = parameters.find("search_crop_x");
   const auto crop_y = parameters.find("search_crop_y");
   const auto crop_width = parameters.find("search_crop_width");
@@ -213,13 +348,16 @@ int32_t FearTrack::inference(
   }
 
   int32_t ret = preprocessor_->preprocessToTensor(
-      images[0][1], search_params, 0, search_tensor);
+      images[0][1], search_params, 0, search_tensor_);
   if (ret != 0) {
     LOGE("FearTrack search preprocess failed with %#x", ret);
     return ret;
   }
+  last_performance_.preprocess_ms =
+      feartrack_monotonic_time_ms() - stage_start_ms;
   model_timer_.TicToc("preprocess");
 
+  stage_start_ms = feartrack_monotonic_time_ms();
   ret = net_->updateInputTensors();
   if (ret != 0) {
     LOGE("FearTrack update input tensors failed with %#x", ret);
@@ -230,8 +368,11 @@ int32_t FearTrack::inference(
     LOGE("FearTrack inference failed with %#x", ret);
     return ret;
   }
+  last_performance_.tpu_ms =
+      feartrack_monotonic_time_ms() - stage_start_ms;
   model_timer_.TicToc("tpu");
 
+  stage_start_ms = feartrack_monotonic_time_ms();
   ret = net_->updateOutputTensors();
   if (ret != 0) {
     LOGE("FearTrack update output tensors failed with %#x", ret);
@@ -245,6 +386,10 @@ int32_t FearTrack::inference(
   }
   model_timer_.TicToc("post");
   out_datas.insert(out_datas.end(), results.begin(), results.end());
+  last_performance_.postprocess_ms =
+      feartrack_monotonic_time_ms() - stage_start_ms;
+  last_performance_.total_ms =
+      feartrack_monotonic_time_ms() - total_start_ms;
   return 0;
 }
 
@@ -271,71 +416,102 @@ int32_t FearTrack::outputParse(
 int32_t FearTrack::outputParse(
     const std::vector<std::vector<std::shared_ptr<BaseImage>>>& images,
     std::vector<std::shared_ptr<ModelOutputInfo>>& out_datas) {
-  // 获取回归和分类输出层名称
-  std::string regression_output_name = net_->getOutputNames()[0];
-  std::string score_output_name = net_->getOutputNames()[1];
-
-  // 获取回归和分类输出张量
-  std::shared_ptr<BaseTensor> regression_tensor =
-      net_->getOutputTensor(regression_output_name);
-  std::shared_ptr<BaseTensor> score_tensor =
-      net_->getOutputTensor(score_output_name);
-
-  // 获取张量信息
-  TensorInfo regression_info = net_->getTensorInfo(regression_output_name);
-  TensorInfo score_info = net_->getTensorInfo(score_output_name);
+  if (!regression_tensor_ || !score_tensor_) {
+    LOGE("FearTrack output tensors are not initialized");
+    return -1;
+  }
 
   // 遍历批次
   for (uint32_t b = 0; b < images.size(); b++) {
     // 创建输出结构
-    std::shared_ptr<ModelBoxInfo> track_result =
-        std::make_shared<ModelBoxInfo>();
+    std::shared_ptr<ModelTrackInfo> track_result =
+        std::make_shared<ModelTrackInfo>();
     track_result->image_width = instance_size_;
     track_result->image_height = instance_size_;
+    track_result->bboxes.reserve(kFearTrackCandidateCount);
 
-    // 找到最高得分位置
+    // 保留原始主峰选择，同时附带两个非重叠候选供小目标时序判定。
     float max_score = -1;
     int max_i = -1, max_j = -1;
+    std::array<FearTrackPeak, kFearTrackCandidateCount> peaks;
+    int peak_count = 0;
 
     // 根据数据类型处理score数据
-    if (score_info.data_type == TDLDataType::INT8) {
-      parse_score_data<int8_t>(score_tensor->getBatchPtr<int8_t>(b),
-                               score_size_, score_info.qscale, &max_score,
+    if (score_info_.data_type == TDLDataType::INT8) {
+      parse_score_data<int8_t>(score_tensor_->getBatchPtr<int8_t>(b),
+                               score_size_, score_info_.qscale, &max_score,
                                &max_i, &max_j);
-    } else if (score_info.data_type == TDLDataType::UINT8) {
-      parse_score_data<uint8_t>(score_tensor->getBatchPtr<uint8_t>(b),
-                                score_size_, score_info.qscale, &max_score,
+      peak_count = collect_score_peaks<int8_t>(
+          score_tensor_->getBatchPtr<int8_t>(b), score_size_,
+          score_info_.qscale, make_feartrack_peak(max_score, max_i, max_j),
+          &peaks);
+    } else if (score_info_.data_type == TDLDataType::UINT8) {
+      parse_score_data<uint8_t>(score_tensor_->getBatchPtr<uint8_t>(b),
+                                score_size_, score_info_.qscale, &max_score,
                                 &max_i, &max_j);
-    } else if (score_info.data_type == TDLDataType::FP32) {
-      parse_score_data<float>(score_tensor->getBatchPtr<float>(b), score_size_,
+      peak_count = collect_score_peaks<uint8_t>(
+          score_tensor_->getBatchPtr<uint8_t>(b), score_size_,
+          score_info_.qscale, make_feartrack_peak(max_score, max_i, max_j),
+          &peaks);
+    } else if (score_info_.data_type == TDLDataType::FP32) {
+      parse_score_data<float>(score_tensor_->getBatchPtr<float>(b), score_size_,
                               1.0f, &max_score, &max_i, &max_j);
+      peak_count = collect_score_peaks<float>(
+          score_tensor_->getBatchPtr<float>(b), score_size_, 1.0f,
+          make_feartrack_peak(max_score, max_i, max_j), &peaks);
     } else {
-      LOGE("不支持的数据类型:%d\n", static_cast<int>(score_info.data_type));
+      LOGE("不支持的数据类型:%d\n", static_cast<int>(score_info_.data_type));
       return -1;
     }
 
-    if (max_i >= 0 && max_j >= 0) {
+    for (int candidate_index = 0; candidate_index < peak_count;
+         candidate_index++) {
+      max_score = peaks[candidate_index].score;
+      max_i = peaks[candidate_index].i;
+      max_j = peaks[candidate_index].j;
+      if (max_i < 0 || max_j < 0) {
+        continue;
+      }
       // 解析边界框
       float x1, y1, x2, y2;
+      float second_score = 0.0f;
+      float peak_margin = 0.0f;
+      float response_psr = 0.0f;
+
+      if (score_info_.data_type == TDLDataType::INT8) {
+        calculate_response_quality<int8_t>(
+            score_tensor_->getBatchPtr<int8_t>(b), score_size_,
+            score_info_.qscale, max_i, max_j, max_score, &second_score,
+            &peak_margin, &response_psr);
+      } else if (score_info_.data_type == TDLDataType::UINT8) {
+        calculate_response_quality<uint8_t>(
+            score_tensor_->getBatchPtr<uint8_t>(b), score_size_,
+            score_info_.qscale, max_i, max_j, max_score, &second_score,
+            &peak_margin, &response_psr);
+      } else {
+        calculate_response_quality<float>(
+            score_tensor_->getBatchPtr<float>(b), score_size_, 1.0f, max_i,
+            max_j, max_score, &second_score, &peak_margin, &response_psr);
+      }
 
       // 根据数据类型处理regression数据
-      if (regression_info.data_type == TDLDataType::INT8) {
-        parse_regression_data<int8_t>(regression_tensor->getBatchPtr<int8_t>(b),
+      if (regression_info_.data_type == TDLDataType::INT8) {
+        parse_regression_data<int8_t>(regression_tensor_->getBatchPtr<int8_t>(b),
                                       score_size_, max_i, max_j,
-                                      regression_info.qscale, &x1, &y1, &x2,
+                                      regression_info_.qscale, &x1, &y1, &x2,
                                       &y2, grid_x_, grid_y_);
-      } else if (regression_info.data_type == TDLDataType::UINT8) {
+      } else if (regression_info_.data_type == TDLDataType::UINT8) {
         parse_regression_data<uint8_t>(
-            regression_tensor->getBatchPtr<uint8_t>(b), score_size_, max_i,
-            max_j, regression_info.qscale, &x1, &y1, &x2, &y2, grid_x_,
+            regression_tensor_->getBatchPtr<uint8_t>(b), score_size_, max_i,
+            max_j, regression_info_.qscale, &x1, &y1, &x2, &y2, grid_x_,
             grid_y_);
-      } else if (regression_info.data_type == TDLDataType::FP32) {
-        parse_regression_data<float>(regression_tensor->getBatchPtr<float>(b),
+      } else if (regression_info_.data_type == TDLDataType::FP32) {
+        parse_regression_data<float>(regression_tensor_->getBatchPtr<float>(b),
                                      score_size_, max_i, max_j, 1.0f, &x1, &y1,
                                      &x2, &y2, grid_x_, grid_y_);
       } else {
         LOGE("不支持的数据类型:%d\n",
-             static_cast<int>(regression_info.data_type));
+             static_cast<int>(regression_info_.data_type));
         return -1;
       }
       ObjectBoxInfo bbox;
@@ -346,8 +522,20 @@ int32_t FearTrack::outputParse(
       bbox.y2 = y2;
 
       // 添加到结果中
+      const size_t result_index = track_result->bboxes.size();
       track_result->bboxes.push_back(bbox);
+      track_result->candidate_second_scores[result_index] = second_score;
+      track_result->candidate_peak_margins[result_index] = peak_margin;
+      track_result->candidate_psrs[result_index] = response_psr;
+      track_result->response_candidate_count++;
+    }
 
+    if (track_result->response_candidate_count > 0) {
+      track_result->response_second_score =
+          track_result->candidate_second_scores[0];
+      track_result->response_peak_margin =
+          track_result->candidate_peak_margins[0];
+      track_result->response_psr = track_result->candidate_psrs[0];
     }
 
     out_datas.push_back(track_result);

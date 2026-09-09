@@ -343,6 +343,82 @@ static void stage_and_apply(int fps, int bitrate, int sensitivity, int sub_enabl
 		fail("unexpected apply or rollback result");
 }
 
+static void test_tracking_options(void)
+{
+	char revision[33];
+	char validation[4096];
+	char response[4096];
+	char error[256];
+	char message[512];
+	int rolled_back;
+	int step;
+
+	for (step = 0; step < 3; step++) {
+		cJSON *document = read_document(revision, sizeof(revision));
+		cJSON *values = cJSON_GetObjectItemCaseSensitive(document, "values");
+		cJSON *tracking = cJSON_GetObjectItemCaseSensitive(
+			cJSON_GetObjectItemCaseSensitive(values, "tracking"), "single_object");
+		cJSON *style = cJSON_GetObjectItemCaseSensitive(
+			cJSON_GetObjectItemCaseSensitive(values, "overlay"), "tracking");
+		cJSON *saved;
+		char *payload;
+		int before = service_calls;
+		const char *selection = step == 2 ? "point" : "reticle";
+		const char *initial = step == 2 ? "target" : "fixed_80";
+		const char *shape = step == 2 ? "rectangle" : "corners";
+
+		if (step == 1) {
+			/* An older client edits a color without knowing the new fields. */
+			cJSON_DeleteItemFromObjectCaseSensitive(tracking, "selection_mode");
+			cJSON_DeleteItemFromObjectCaseSensitive(tracking, "initial_box_mode");
+			cJSON_DeleteItemFromObjectCaseSensitive(style, "boxStyle");
+			cJSON_DeleteItemFromObjectCaseSensitive(style, "hideWhenLost");
+			cJSON_ReplaceItemInObjectCaseSensitive(style, "color", cJSON_CreateString("#FFFFFF"));
+		} else {
+			cJSON_ReplaceItemInObjectCaseSensitive(tracking, "selection_mode", cJSON_CreateString(selection));
+			cJSON_ReplaceItemInObjectCaseSensitive(tracking, "initial_box_mode", cJSON_CreateString(initial));
+			cJSON_ReplaceItemInObjectCaseSensitive(style, "boxStyle", cJSON_CreateString(shape));
+			cJSON_ReplaceItemInObjectCaseSensitive(style, "hideWhenLost", cJSON_CreateBool(step != 2));
+		}
+		payload = cJSON_PrintUnformatted(document);
+		cJSON_Delete(document);
+		if (config_validate_json(payload, validation, sizeof(validation), error, sizeof(error)) != 0)
+			fail("tracking options validation failed");
+		if (step == 1 && strstr(validation, "overlay_reload") == NULL)
+			fail("style-only update unexpectedly requires a restart");
+		if (config_stage_json(payload, response, sizeof(response), error, sizeof(error)) != 0)
+			fail("tracking options staging failed");
+		free(payload);
+		saved = cJSON_Parse(response);
+		snprintf(revision, sizeof(revision), "%s",
+			cJSON_GetObjectItemCaseSensitive(saved, "revision")->valuestring);
+		cJSON_Delete(saved);
+		if (config_apply_staged(revision, message, sizeof(message), &rolled_back) != 0 || rolled_back)
+			fail("tracking options apply failed");
+		if (service_calls - before != (step == 1 ? 0 : 1))
+			fail("tracking options restart behavior is incorrect");
+		if (!active_config_value_equals("ai_object_track_config", "selection_mode", selection) ||
+		    !active_config_value_equals("ai_object_track_config", "initial_box_mode", initial) ||
+		    !active_config_value_equals("osd_style", "tracking_box_style", shape) ||
+		    !active_config_value_equals("osd_style", "tracking_hide_when_lost", step == 2 ? "0" : "1"))
+			fail("tracking options did not round-trip or were reset by an older client");
+	}
+	{
+		cJSON *document = read_document(revision, sizeof(revision));
+		cJSON *values = cJSON_GetObjectItemCaseSensitive(document, "values");
+		cJSON *tracking = cJSON_GetObjectItemCaseSensitive(
+			cJSON_GetObjectItemCaseSensitive(values, "tracking"), "single_object");
+		char *payload;
+
+		cJSON_ReplaceItemInObjectCaseSensitive(tracking, "selection_mode", cJSON_CreateString("invalid"));
+		payload = cJSON_PrintUnformatted(document);
+		cJSON_Delete(document);
+		if (config_validate_json(payload, validation, sizeof(validation), error, sizeof(error)) == 0)
+			fail("invalid tracking selection mode was accepted");
+		free(payload);
+	}
+}
+
 int main(void)
 {
 	char capabilities[8192];
@@ -364,7 +440,7 @@ int main(void)
 	if (!active_config_value_equals("vi_cfg_isp0", "teaisp_bnr_enable", "0"))
 		fail("AI BNR migration did not preserve the default disabled state");
 	if (config_capabilities_json(capabilities, sizeof(capabilities)) != 0 ||
-		    strstr(capabilities, "\"schema_version\":7") == NULL ||
+		    strstr(capabilities, "\"schema_version\":8") == NULL ||
 		    strstr(capabilities, "\"display\":{\"supported\":true") == NULL ||
 		    strstr(capabilities, "\"id\":\"720x480_60\"") == NULL ||
 	    strstr(capabilities, "\"overlay\":{\"supported\":true") == NULL ||
@@ -679,6 +755,7 @@ int main(void)
 	    !active_config_value_equals("osdc_config1", "bShow", "0"))
 		fail("reset did not restore the default UVC-only output mode");
 	cJSON_Delete(document);
+	test_tracking_options();
 	clean_test_directory();
 	puts("config transaction test passed");
 	return 0;

@@ -8,6 +8,7 @@
 
 enum value_type { VALUE_INTEGER, VALUE_DECIMAL };
 
+
 struct config_field {
 	const char *id;
 	const char *section;
@@ -202,6 +203,41 @@ static char *trim(char *text)
 	while (end > text && isspace((unsigned char)end[-1]))
 		*--end = '\0';
 	return text;
+}
+
+
+static int validate_tracking_option(const char *section, const char *key,
+	const char *value)
+{
+	const char *first = NULL;
+	const char *second = NULL;
+	char text[64];
+	char *comment;
+
+	if (strcmp(section, "ai_object_track_config") == 0) {
+		if (strcmp(key, "selection_mode") == 0) {
+			first = "point";
+			second = "reticle";
+		} else if (strcmp(key, "initial_box_mode") == 0) {
+			first = "target";
+			second = "fixed_80";
+		}
+	} else if (strcmp(section, "osd_style") == 0) {
+		if (strcmp(key, "tracking_box_style") == 0) {
+			first = "rectangle";
+			second = "corners";
+		} else if (strcmp(key, "tracking_hide_when_lost") == 0) {
+			first = "0";
+			second = "1";
+		}
+	}
+	if (first == NULL)
+		return 0;
+	snprintf(text, sizeof(text), "%s", value);
+	comment = strchr(text, ';');
+	if (comment != NULL)
+		*comment = '\0';
+	return strcmp(trim(text), first) == 0 || strcmp(trim(text), second) == 0 ? 0 : -1;
 }
 
 static int validate_value(const struct config_field *field, const char *text)
@@ -427,6 +463,11 @@ int config_validate_file(const char *path, char *error, size_t error_size)
 		*equals = '\0';
 		value = trim(equals + 1);
 		key = trim(key);
+		if (validate_tracking_option(section, key, value) != 0) {
+			snprintf(error, error_size, "%s.%s 选项无效", section, key);
+			fclose(file);
+			return -1;
+		}
 		if (strcmp(section, "sensor_config0") == 0 && strcmp(key, "sns_type") == 0) {
 			char *end;
 

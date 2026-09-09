@@ -9,6 +9,7 @@
 struct cvtdl_fastsam_result_t {
   cv::Rect bbox;
   bool success = false;
+  bool refined_small_target = false;
 };
 
 class FastSAMSegmentor {

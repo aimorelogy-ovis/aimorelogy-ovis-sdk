@@ -48,6 +48,10 @@ struct config_values {
 	uint32_t tracking_color;
 	uint32_t tracking_lost_color;
 	int tracking_thickness;
+	char tracking_box_style[24];
+	int tracking_box_style_present;
+	int tracking_hide_when_lost;
+	int tracking_hide_lost_present;
 	int overlay_reticle_present;
 	int reticle_enabled;
 	char reticle_template[24];
@@ -73,6 +77,8 @@ struct config_values {
 	int human_pose_height;
 	int object_tracking_enabled;
 	int object_tracking_search_type;
+	char tracking_selection_mode[24];
+	char tracking_initial_box_mode[24];
 	int object_tracking_use_kalman;
 	double object_tracking_score_threshold;
 	int object_tracking_det_width;
@@ -274,6 +280,7 @@ static void overlay_defaults(struct config_values *values)
 	values->tracking_color = 0xffb000;
 	values->tracking_lost_color = 0xff3030;
 	values->tracking_thickness = 3;
+	snprintf(values->tracking_box_style, sizeof(values->tracking_box_style), "rectangle");
 	values->reticle_enabled = 1;
 	snprintf(values->reticle_template,
 		sizeof(values->reticle_template), "corners");
@@ -333,6 +340,11 @@ static void load_overlay_values(const char *path, struct config_values *values)
 		&values->tracking_lost_color);
 	read_int(path, "osd_style", "tracking_thickness",
 		&values->tracking_thickness);
+	read_ini_value(path, "osd_style", "tracking_box_style",
+		values->tracking_box_style, sizeof(values->tracking_box_style));
+	read_int(path, "osd_style", "tracking_hide_when_lost", &values->tracking_hide_when_lost);
+	values->tracking_box_style_present = 1;
+	values->tracking_hide_lost_present = 1;
 	read_int(path, "osd_style", "reticle_enabled", &values->reticle_enabled);
 	if (read_ini_value(path, "osd_style", "reticle_template", text,
 			sizeof(text)) == 0)
@@ -436,6 +448,12 @@ static int load_values(const char *path, struct config_values *values)
 	}
 	values->motion_sensitivity = threshold_to_sensitivity(motion_threshold);
 	values->ai_bnr_present = 1;
+	snprintf(values->tracking_selection_mode, sizeof(values->tracking_selection_mode), "point");
+	snprintf(values->tracking_initial_box_mode, sizeof(values->tracking_initial_box_mode), "target");
+	read_ini_value(path, "ai_object_track_config", "selection_mode",
+		values->tracking_selection_mode, sizeof(values->tracking_selection_mode));
+	read_ini_value(path, "ai_object_track_config", "initial_box_mode",
+		values->tracking_initial_box_mode, sizeof(values->tracking_initial_box_mode));
 	load_overlay_values(path, values);
 	return 0;
 }
@@ -655,6 +673,8 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON_AddStringToObject(overlay_tracking, "lostColor", color);
 	cJSON_AddNumberToObject(overlay_tracking, "thickness",
 		values->tracking_thickness);
+	cJSON_AddStringToObject(overlay_tracking, "boxStyle", values->tracking_box_style);
+	cJSON_AddBoolToObject(overlay_tracking, "hideWhenLost", values->tracking_hide_when_lost);
 	reticle = cJSON_AddObjectToObject(overlay, "reticle");
 	cJSON_AddBoolToObject(reticle, "enabled", values->reticle_enabled);
 	cJSON_AddStringToObject(reticle, "template", values->reticle_template);
@@ -691,6 +711,8 @@ static cJSON *values_to_json(const struct config_values *values)
 	cJSON_AddStringToObject(single_object, "search_method", search_method);
 	cJSON_AddBoolToObject(single_object, "detection_linked",
 		values->object_enabled && values->object_tracking_enabled);
+	cJSON_AddStringToObject(single_object, "selection_mode", values->tracking_selection_mode);
+	cJSON_AddStringToObject(single_object, "initial_box_mode", values->tracking_initial_box_mode);
 	cJSON_AddBoolToObject(single_object, "use_kalman",
 		values->object_tracking_use_kalman);
 	cJSON_AddNumberToObject(single_object, "score_threshold",
@@ -703,7 +725,7 @@ static cJSON *values_to_json(const struct config_values *values)
 int config_capabilities_json(char *json, size_t size)
 {
 	static const char capabilities[] =
-		"{\"schema_version\":7,\"outputs\":{"
+		"{\"schema_version\":8,\"outputs\":{"
 		"\"rtsp\":{\"supported\":true,\"default_enabled\":false},"
 		"\"uvc\":{\"supported\":true,\"default_enabled\":true,"
 		"\"profile\":{\"codec\":\"mjpeg\",\"width\":1920,\"height\":1080,\"fps\":30}},"
@@ -726,6 +748,7 @@ int config_capabilities_json(char *json, size_t size)
 		"\"thickness_min\":1,\"thickness_max\":4,"
 		"\"colorModes\":[\"fixed\",\"model\"],"
 		"\"labelModes\":[\"none\",\"class\",\"class_score\"],"
+		"\"trackingBoxStyles\":[\"rectangle\",\"corners\"],\"trackingHideWhenLost\":true,"
 		"\"reticleTemplates\":[\"rectangle\",\"corners\",\"crosshair\","
 		"\"crosshair_dot\",\"bracket_cross\",\"circle\"],"
 		"\"reticle_templates\":[\"rectangle\",\"corners\",\"crosshair\","
@@ -763,6 +786,8 @@ int config_capabilities_json(char *json, size_t size)
 		"\"model\":\"FearTrack\",\"detection_link\":true,"
 		"\"target_sources\":[\"detection\",\"fastsam\",\"color\",\"box\"],"
 		"\"fallback_target_sources\":[\"fastsam\",\"color\",\"box\"],"
+		"\"selection_modes\":[\"point\",\"reticle\"],"
+		"\"initial_box_modes\":[\"target\",\"fixed_80\"],"
 		"\"processing_size\":{\"fixed\":true,\"width\":1920,\"height\":1080}}],"
 		"\"motion_detection\":true}}";
 	cJSON *root = cJSON_Parse(capabilities);
@@ -1037,6 +1062,22 @@ static int parse_overlay(cJSON *overlay, struct config_values *values,
 	if (tracking != NULL) {
 		const char *lost_color;
 
+		if (cJSON_GetObjectItemCaseSensitive(tracking, "boxStyle") != NULL) {
+			if (string_item(tracking, "boxStyle", &mode) != 0 ||
+			    (strcmp(mode, "rectangle") != 0 && strcmp(mode, "corners") != 0)) {
+				snprintf(error, error_size, "跟踪框样式无效");
+				return -1;
+			}
+			snprintf(values->tracking_box_style, sizeof(values->tracking_box_style), "%s", mode);
+			values->tracking_box_style_present = 1;
+		}
+		if (cJSON_GetObjectItemCaseSensitive(tracking, "hideWhenLost") != NULL) {
+			if (bool_item(tracking, "hideWhenLost", &values->tracking_hide_when_lost) != 0) {
+				snprintf(error, error_size, "跟踪框丢失显示设置无效");
+				return -1;
+			}
+			values->tracking_hide_lost_present = 1;
+		}
 		values->overlay_tracking_present = 1;
 		if (!cJSON_IsObject(tracking) ||
 		    bool_item(tracking, "enabled", &values->tracking_osd_enabled) != 0 ||
@@ -1195,6 +1236,20 @@ static int parse_payload(const char *body, struct config_values *values,
 	    double_item(object_tracking, "score_threshold",
 		&values->object_tracking_score_threshold) != 0)
 		goto done;
+	if (cJSON_GetObjectItemCaseSensitive(object_tracking, "selection_mode") != NULL) {
+		const char *mode;
+		if (string_item(object_tracking, "selection_mode", &mode) != 0 ||
+		    (strcmp(mode, "point") != 0 && strcmp(mode, "reticle") != 0))
+			goto done;
+		snprintf(values->tracking_selection_mode, sizeof(values->tracking_selection_mode), "%s", mode);
+	}
+	if (cJSON_GetObjectItemCaseSensitive(object_tracking, "initial_box_mode") != NULL) {
+		const char *mode;
+		if (string_item(object_tracking, "initial_box_mode", &mode) != 0 ||
+		    (strcmp(mode, "target") != 0 && strcmp(mode, "fixed_80") != 0))
+			goto done;
+		snprintf(values->tracking_initial_box_mode, sizeof(values->tracking_initial_box_mode), "%s", mode);
+	}
 	if (new_tracking_schema) {
 		if (string_item(object_tracking, "default_target_source",
 				&default_target_source) != 0 ||
@@ -1327,6 +1382,10 @@ static void inherit_overlay_values(struct config_values *values,
 		values->tracking_lost_color = active->tracking_lost_color;
 		values->tracking_thickness = active->tracking_thickness;
 	}
+	if (!values->tracking_box_style_present)
+		snprintf(values->tracking_box_style, sizeof(values->tracking_box_style), "%s", active->tracking_box_style);
+	if (!values->tracking_hide_lost_present)
+		values->tracking_hide_when_lost = active->tracking_hide_when_lost;
 	if (!values->overlay_reticle_present) {
 		values->reticle_enabled = active->reticle_enabled;
 		values->reticle_idle_color = active->reticle_idle_color;
@@ -1338,6 +1397,15 @@ static void inherit_overlay_values(struct config_values *values,
 			sizeof(values->reticle_template), "%s",
 			active->reticle_template);
 	}
+}
+
+static void inherit_tracking_options(struct config_values *values,
+	const struct config_values *active)
+{
+	if (values->tracking_selection_mode[0] == '\0')
+		snprintf(values->tracking_selection_mode, sizeof(values->tracking_selection_mode), "%s", active->tracking_selection_mode);
+	if (values->tracking_initial_box_mode[0] == '\0')
+		snprintf(values->tracking_initial_box_mode, sizeof(values->tracking_initial_box_mode), "%s", active->tracking_initial_box_mode);
 }
 
 static void inherit_display_values(struct config_values *values,
@@ -1442,6 +1510,12 @@ static cJSON *validate_values(const struct config_values *values)
 	if (values->detection_thickness < 1 || values->detection_thickness > 4)
 		add_issue(errors, "overlay.detection.thickness", "OUT_OF_RANGE",
 			"检测框粗细范围为 1-4");
+	if (strcmp(values->tracking_box_style, "rectangle") != 0 && strcmp(values->tracking_box_style, "corners") != 0)
+		add_issue(errors, "overlay.tracking.boxStyle", "UNSUPPORTED_VALUE", "不支持此跟踪框样式");
+	if (strcmp(values->tracking_selection_mode, "point") != 0 && strcmp(values->tracking_selection_mode, "reticle") != 0)
+		add_issue(errors, "tracking.single_object.selection_mode", "UNSUPPORTED_VALUE", "不支持此目标选取方式");
+	if (strcmp(values->tracking_initial_box_mode, "target") != 0 && strcmp(values->tracking_initial_box_mode, "fixed_80") != 0)
+		add_issue(errors, "tracking.single_object.initial_box_mode", "UNSUPPORTED_VALUE", "不支持此初始化框模式");
 	if (values->tracking_thickness < 1 || values->tracking_thickness > 4)
 		add_issue(errors, "overlay.tracking.thickness", "OUT_OF_RANGE",
 			"跟踪框粗细范围为 1-4");
@@ -1524,6 +1598,7 @@ int config_validate_json(const char *body, char *json, size_t size,
 	}
 	inherit_display_values(&values, &active_values);
 	inherit_overlay_values(&values, &active_values);
+	inherit_tracking_options(&values, &active_values);
 	root = cJSON_CreateObject();
 	errors = validate_values(&values);
 	warnings = cJSON_CreateArray();
@@ -1866,6 +1941,8 @@ static int ensure_overlay_style_keys(const char *path)
 		{ "tracking_color", "0xffb000" },
 		{ "tracking_lost_color", "0xff3030" },
 		{ "tracking_thickness", "3" },
+		{ "tracking_box_style", "rectangle" },
+		{ "tracking_hide_when_lost", "0" },
 		{ "reticle_enabled", "1" },
 		{ "reticle_template", "corners" },
 		{ "reticle_idle_color", "0xffffff" },
@@ -2479,6 +2556,9 @@ static int migrate_runtime_config(const char *path)
 	    migrate_legacy_overlay(path) != 0 ||
 	    ensure_overlay_style_keys(path) != 0)
 		return -1;
+	if (ensure_ini_key(path, "ai_object_track_config", "selection_mode", "point") != 0 ||
+	    ensure_ini_key(path, "ai_object_track_config", "initial_box_mode", "target") != 0)
+		return -1;
 	if (ensure_ini_key(path, "ai_object_track_config", "config_version", "1") != 0)
 		return -1;
 	if (ensure_ini_key(path, "ai_object_track_config", "sot_gmc_enable", "1") != 0 ||
@@ -2805,6 +2885,10 @@ static int stage_values(const struct config_values *values, char revision[17],
 		{ "display_config", "vo_cnt", "", 0 },
 		{ "vpssgrp7", "grp_enable", "", 0 },
 		{ "vb_pool_9", "bEnable", "", 0 },
+		{ "ai_object_track_config", "selection_mode", "", 0 },
+		{ "ai_object_track_config", "initial_box_mode", "", 0 },
+		{ "osd_style", "tracking_box_style", "", 0 },
+		{ "osd_style", "tracking_hide_when_lost", "", 0 },
 		{ "ai_pd_config", "model_id", "", 0 },
 		{ "ai_pd_config", "model_path", "", 0 },
 	};
@@ -2817,6 +2901,17 @@ static int stage_values(const struct config_values *values, char revision[17],
 		STAGE_UVC_SOURCE_FPS_UPDATE_INDEX = 30,
 	};
 
+	if (set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"ai_object_track_config", "selection_mode", values->tracking_selection_mode) != 0 ||
+	    set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"ai_object_track_config", "initial_box_mode", values->tracking_initial_box_mode) != 0 ||
+	    set_update_value(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "tracking_box_style", values->tracking_box_style) != 0 ||
+	    set_update_int(updates, sizeof(updates) / sizeof(updates[0]),
+			"osd_style", "tracking_hide_when_lost", values->tracking_hide_when_lost) != 0) {
+		snprintf(error, error_size, "无法生成跟踪选项配置");
+		return -1;
+	}
 	runtime_sub_enabled = values->rtsp_enabled && values->sub_enabled &&
 		!(values->uvc_enabled && values->main_fps == 60);
 	if (values->object_model_update &&
@@ -3123,6 +3218,7 @@ int config_stage_json(const char *body, char *json, size_t size,
 	}
 	inherit_display_values(&values, &active_values);
 	inherit_overlay_values(&values, &active_values);
+	inherit_tracking_options(&values, &active_values);
 	overlay_only = non_overlay_values_equal(&values, &active_values);
 	issues = validate_values(&values);
 	if (issues == NULL) {

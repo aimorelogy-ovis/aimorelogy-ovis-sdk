@@ -119,6 +119,18 @@ int Load_Param_Osdc_Config(const char *file, APP_PARAM_OSDC_CFG_S *Osdc)
     Osdc->stStyle.u32TrackingLostColor = ini_getl("osd_style", "tracking_lost_color",
         APP_OSD_COLOR_LOST_RGB, file);
     Osdc->stStyle.u32TrackingThickness = ini_getl("osd_style", "tracking_thickness", 3, file);
+    {
+        char box_style[24];
+        ini_gets("osd_style", "tracking_box_style", "rectangle",
+            box_style, sizeof(box_style), file);
+        if (strcmp(box_style, "rectangle") != 0 && strcmp(box_style, "corners") != 0) {
+            APP_PROF_LOG_PRINT(LEVEL_ERROR, "invalid tracking_box_style: %s\n", box_style);
+            return CVI_FAILURE;
+        }
+        Osdc->stStyle.bTrackingCorners = strcmp(box_style, "corners") == 0;
+    }
+    Osdc->stStyle.bTrackingHideWhenLost = ini_getl(
+        "osd_style", "tracking_hide_when_lost", 0, file);
     Osdc->stStyle.bReticleEnable = ini_getl("osd_style", "reticle_enabled", 1, file);
     Osdc->stStyle.enReticleTemplate = app_ipcam_Osdc_ReadEnum(
         file, "reticle_template", "corners", osd_reticle_template,

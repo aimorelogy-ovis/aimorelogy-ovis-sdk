@@ -4,6 +4,7 @@
 #include <cvi_vpss.h>
 #include <cassert>
 #include <cmath>
+#include <cstring>
 // #include "core/utils/vpss_helper.h"
 #include "cvi_comm_vb.h"
 #include "image/vpss_image.hpp"
@@ -214,32 +215,61 @@ int32_t VpssPreprocessor::prepareVPSSParams(
     return -1;
   }
 
-  int ret = CVI_VPSS_SetGrpAttr(group_id_, &vpss_grp_attr);
-  if (ret != CVI_SUCCESS) {
-    LOGE("CVI_VPSS_SetGrpAttr failed with %#x\n", ret);
-    return -1;
+  int ret;
+  if (!grp_attr_cached_ ||
+      std::memcmp(&cached_grp_attr_, &vpss_grp_attr,
+                  sizeof(vpss_grp_attr)) != 0) {
+    ret = CVI_VPSS_SetGrpAttr(group_id_, &vpss_grp_attr);
+    if (ret != CVI_SUCCESS) {
+      LOGE("CVI_VPSS_SetGrpAttr failed with %#x\n", ret);
+      return -1;
+    }
+    cached_grp_attr_ = vpss_grp_attr;
+    grp_attr_cached_ = true;
   }
-  ret = CVI_VPSS_SetGrpCrop(group_id_, &crop_reset_attr_);
-  if (ret != CVI_SUCCESS) {
-    LOGE("CVI_VPSS_SetGrpCrop failed with %#x\n", ret);
-    return -1;
+  if (!grp_crop_reset_) {
+    ret = CVI_VPSS_SetGrpCrop(group_id_, &crop_reset_attr_);
+    if (ret != CVI_SUCCESS) {
+      LOGE("CVI_VPSS_SetGrpCrop failed with %#x\n", ret);
+      return -1;
+    }
+    grp_crop_reset_ = true;
   }
-  ret = CVI_VPSS_SetChnAttr(group_id_, 0, &vpss_chn_attr);
-  if (ret != CVI_SUCCESS) {
-    LOGE("CVI_VPSS_SetChnAttr failed with %#x\n", ret);
-    return -1;
+  if (!chn_attr_cached_ ||
+      std::memcmp(&cached_chn_attr_, &vpss_chn_attr,
+                  sizeof(vpss_chn_attr)) != 0) {
+    ret = CVI_VPSS_SetChnAttr(group_id_, 0, &vpss_chn_attr);
+    if (ret != CVI_SUCCESS) {
+      LOGE("CVI_VPSS_SetChnAttr failed with %#x\n", ret);
+      return -1;
+    }
+    cached_chn_attr_ = vpss_chn_attr;
+    chn_attr_cached_ = true;
+    chn_crop_attr_cached_ = false;
+    scale_coef_configured_ = false;
+    LOGI("vpss chn attr ,width:%d,height:%d,format:%d",
+         vpss_chn_attr.u32Width, vpss_chn_attr.u32Height,
+         vpss_chn_attr.enPixelFormat);
   }
-  LOGI("vpss chn attr ,width:%d,height:%d,format:%d", vpss_chn_attr.u32Width,
-       vpss_chn_attr.u32Height, vpss_chn_attr.enPixelFormat);
-  ret = CVI_VPSS_SetChnCrop(group_id_, 0, &vpss_chn_crop_attr);
-  if (ret != CVI_SUCCESS) {
-    LOGE("CVI_VPSS_SetChnCrop failed with %#x\n", ret);
-    return -1;
+  if (!chn_crop_attr_cached_ ||
+      std::memcmp(&cached_chn_crop_attr_, &vpss_chn_crop_attr,
+                  sizeof(vpss_chn_crop_attr)) != 0) {
+    ret = CVI_VPSS_SetChnCrop(group_id_, 0, &vpss_chn_crop_attr);
+    if (ret != CVI_SUCCESS) {
+      LOGE("CVI_VPSS_SetChnCrop failed with %#x\n", ret);
+      return -1;
+    }
+    cached_chn_crop_attr_ = vpss_chn_crop_attr;
+    chn_crop_attr_cached_ = true;
   }
-  ret = CVI_VPSS_SetChnScaleCoefLevel(group_id_, 0, VPSS_SCALE_COEF_BILINEAR);
-  if (ret != CVI_SUCCESS) {
-    LOGE("CVI_VPSS_SetChnScaleCoefLevel failed with %#x\n", ret);
-    return -1;
+  if (!scale_coef_configured_) {
+    ret = CVI_VPSS_SetChnScaleCoefLevel(group_id_, 0,
+                                        VPSS_SCALE_COEF_BILINEAR);
+    if (ret != CVI_SUCCESS) {
+      LOGE("CVI_VPSS_SetChnScaleCoefLevel failed with %#x\n", ret);
+      return -1;
+    }
+    scale_coef_configured_ = true;
   }
   return 0;
 }
@@ -443,21 +473,48 @@ int32_t VpssPreprocessor::preprocessToImage(
 int32_t VpssPreprocessor::preprocessToTensor(
     const std::shared_ptr<BaseImage>& src_image, const PreprocessParams& params,
     const int batch_idx, std::shared_ptr<BaseTensor> tensor) {
-  std::shared_ptr<VPSSImage> vpss_image = std::make_shared<VPSSImage>(
-      params.dst_width, params.dst_height, params.dst_image_format,
-      params.dst_pixdata_type, false);
-
-  std::vector<uint32_t> strides = vpss_image->getStrides();
+  std::shared_ptr<VPSSImage> vpss_image;
+  std::vector<uint32_t> strides;
   int32_t ret = 0;
   uint32_t tensor_stride = tensor->getWidth() * tensor->getElementSize();
+  const bool reuse_cached_image =
+      cached_tensor_image_ && cached_tensor_.get() == tensor.get() &&
+      cached_batch_idx_ == batch_idx &&
+      cached_dst_width_ == params.dst_width &&
+      cached_dst_height_ == params.dst_height &&
+      cached_dst_format_ == static_cast<int>(params.dst_image_format) &&
+      cached_dst_data_type_ == static_cast<int>(params.dst_pixdata_type) &&
+      cached_tensor_stride_ == tensor_stride;
+
+  if (reuse_cached_image) {
+    vpss_image = cached_tensor_image_;
+  } else {
+    vpss_image = std::make_shared<VPSSImage>(
+        params.dst_width, params.dst_height, params.dst_image_format,
+        params.dst_pixdata_type, false);
+  }
+  strides = vpss_image->getStrides();
   if (strides[0] == tensor_stride) {
-    LOGI("vpss preprocessor, construct image from input tensor");
-    ret = tensor->constructImage(vpss_image, batch_idx);
-    if (ret != 0) {
-      LOGE("tensor constructImage failed, ret: %d\n", ret);
-      return -1;
+    if (!reuse_cached_image) {
+      LOGI("vpss preprocessor, construct image from input tensor");
+      ret = tensor->constructImage(vpss_image, batch_idx);
+      if (ret != 0) {
+        LOGE("tensor constructImage failed, ret: %d\n", ret);
+        return -1;
+      }
+      cached_tensor_ = tensor;
+      cached_tensor_image_ = vpss_image;
+      cached_batch_idx_ = batch_idx;
+      cached_dst_width_ = params.dst_width;
+      cached_dst_height_ = params.dst_height;
+      cached_dst_format_ = static_cast<int>(params.dst_image_format);
+      cached_dst_data_type_ = static_cast<int>(params.dst_pixdata_type);
+      cached_tensor_stride_ = tensor_stride;
     }
   } else {
+    cached_tensor_.reset();
+    cached_tensor_image_.reset();
+    cached_batch_idx_ = -1;
     LOGI("vpss preprocessor, image stride:%d, tensor stride:%d", strides[0],
          tensor_stride);
     ret = vpss_image->allocateMemory();

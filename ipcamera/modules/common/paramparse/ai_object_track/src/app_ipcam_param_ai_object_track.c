@@ -35,6 +35,18 @@ int Load_Param_Ai_OBJECT_TRACK(const char * file)
     Ai->threshold_occluded      = ini_getf(tmp_section, "threshold_occluded", 0.1, file);
     Ai->threshold_reappear      = ini_getf(tmp_section, "threshold_reappear", 2.0, file);
     Ai->search_type             = ini_getl(tmp_section, "search_type", 3, file);
+    ini_gets(tmp_section, "selection_mode", "point", tmp_buff, sizeof(tmp_buff), file);
+    if (strcmp(tmp_buff, "point") != 0 && strcmp(tmp_buff, "reticle") != 0) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "invalid tracking selection_mode: %s\n", tmp_buff);
+        return CVI_FAILURE;
+    }
+    Ai->bSelectAtReticle = strcmp(tmp_buff, "reticle") == 0;
+    ini_gets(tmp_section, "initial_box_mode", "target", tmp_buff, sizeof(tmp_buff), file);
+    if (strcmp(tmp_buff, "target") != 0 && strcmp(tmp_buff, "fixed_80") != 0) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "invalid tracking initial_box_mode: %s\n", tmp_buff);
+        return CVI_FAILURE;
+    }
+    Ai->bFixedInitBox = strcmp(tmp_buff, "fixed_80") == 0;
     Ai->use_kalman              = ini_getl(tmp_section, "use_kalman", 1, file);
     Ai->sot_gmc_enable          = ini_getl(tmp_section, "sot_gmc_enable", 0, file);
     Ai->sot_gmc_interval        = ini_getl(tmp_section, "sot_gmc_interval", 4, file);
